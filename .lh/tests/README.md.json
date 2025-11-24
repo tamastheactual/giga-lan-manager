@@ -1,0 +1,18 @@
+{
+    "sourceFile": "tests/README.md",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1763982611886,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1763982611886,
+            "name": "Commit-0",
+            "content": "# Tests Folder Overview\r\n\r\nContains test files for validating tournament logic.\r\n\r\n## Files\r\n- `brackets.test.ts`: Tests bracket structure for various player counts\r\n\r\n## Key Functions\r\n- `createTournamentWithGroupResults(numPlayers)`: Simulates tournament with group stage completed\r\n- `analyzePlayoffStructure(tournament, numPlayers)`: Counts bracket types and playoff players\r\n- `validateBracketStructure(numPlayers, expectedStructure)`: Runs tests against predefined cases for 4-13 players\r\n- Test suite with console logging for validation results"
+        }
+    ]
+}

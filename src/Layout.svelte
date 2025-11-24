@@ -1,6 +1,6 @@
 <script>
   import './app.css';
-  let { children } = $props();
+  let { children, tournamentId } = $props();
 </script>
 
 <!-- Professional Gaming Navbar -->
@@ -16,9 +16,12 @@
       </div>
       
       <div class="flex items-center gap-6">
-        <a href="/" class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Home</a>
-        <a href="/groups" class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Groups</a>
-        <a href="/brackets" class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Brackets</a>
+        <a href="/" class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Lobby</a>
+        {#if tournamentId}
+          <a href={`/tournament/${tournamentId}`} class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Dashboard</a>
+          <a href={`/tournament/${tournamentId}/groups`} class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Groups</a>
+          <a href={`/tournament/${tournamentId}/brackets`} class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Brackets</a>
+        {/if}
       </div>
     </div>
   </div>

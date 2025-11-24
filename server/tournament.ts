@@ -33,6 +33,7 @@ export interface Pod {
     round: number;
     players: string[];
     matchId: string;
+    name?: string; // Custom group name
 }
 
 export interface BracketMatch {
@@ -50,13 +51,18 @@ export interface BracketMatch {
 }
 
 export class TournamentManager {
+    id: string;
+    name: string;
     players: Player[] = [];
     pods: Pod[] = [];
     matches: Match[] = [];
     bracketMatches: BracketMatch[] = [];
-    state: 'registration' | 'group' | 'playoffs' = 'registration';
+    state: 'registration' | 'group' | 'playoffs' | 'completed' = 'registration';
 
-    constructor() {}
+    constructor(id: string, name: string) {
+        this.id = id;
+        this.name = name;
+    }
 
     addPlayer(name: string): Player {
         const player: Player = {
@@ -504,14 +510,14 @@ export class TournamentManager {
     submitBracketWinner(matchId: string, winnerId: string) {
         const match = this.bracketMatches.find(m => m.id === matchId);
         if (!match) throw new Error("Match not found");
-        
+
         if (match.player1Id !== winnerId && match.player2Id !== winnerId) {
             throw new Error("Winner must be one of the players in the match");
         }
 
         match.winnerId = winnerId;
         const loserId = match.player1Id === winnerId ? match.player2Id : match.player1Id;
-        
+
         // Advance winner to next match
         if (match.nextMatchId) {
             const nextMatch = this.bracketMatches.find(m => m.id === match.nextMatchId);
@@ -523,7 +529,7 @@ export class TournamentManager {
                 }
             }
         }
-        
+
         // If this is a semifinal, send loser to third place match
         if (match.bracketType === 'semifinals') {
             const thirdPlaceMatch = this.bracketMatches.find(m => m.bracketType === '3rd-place');
@@ -536,5 +542,62 @@ export class TournamentManager {
                 }
             }
         }
+
+        // Check if all bracket matches are completed
+        const allBracketMatchesCompleted = this.bracketMatches.every(m => m.winnerId);
+        if (allBracketMatchesCompleted) {
+            this.state = 'completed';
+        }
+    }
+
+    // Update tournament name
+    updateTournamentName(name: string) {
+        if (!name?.trim()) {
+            throw new Error("Tournament name cannot be empty");
+        }
+        this.name = name.trim();
+    }
+
+    // Update group name
+    updateGroupName(podId: string, name: string) {
+        const pod = this.pods.find(p => p.id === podId);
+        if (!pod) throw new Error("Group not found");
+
+        pod.name = name.trim() || undefined;
+    }
+
+    // Reset group data (clear all match results for players in this group)
+    resetGroupData(podId: string) {
+        const pod = this.pods.find(p => p.id === podId);
+        if (!pod) throw new Error("Group not found");
+
+        // Reset player stats for players in this group
+        pod.players.forEach(playerId => {
+            const player = this.players.find(p => p.id === playerId);
+            if (player) {
+                player.points = 0;
+                player.matchesPlayed = 0;
+                player.wins = 0;
+                player.draws = 0;
+                player.losses = 0;
+                player.scoreDifferential = 0;
+            }
+        });
+
+        // Reset all matches for this group
+        this.matches.forEach(match => {
+            if (match.podId === podId) {
+                match.result = undefined;
+                match.completed = false;
+            }
+        });
+    }
+
+    // Update player name
+    updatePlayerName(playerId: string, name: string) {
+        if (!name || !name.trim()) throw new Error('Name cannot be empty');
+        const p = this.players.find(pl => pl.id === playerId);
+        if (!p) throw new Error('Player not found');
+        p.name = name.trim();
     }
 }

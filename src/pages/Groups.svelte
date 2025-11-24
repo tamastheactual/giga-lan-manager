@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, submitMatch, generateBrackets } from '$lib/api';
+  import { getState, submitMatch, generateBrackets, updateGroupName, resetGroupData, resetTournament } from '$lib/api';
+
+  let { tournamentId } = $props<{ tournamentId: string }>();
 
   let pods = $state([]) as any[];
   let matches = $state([]) as any[];
@@ -10,6 +12,62 @@
 
   // Local state to track UI selections before submission
   let matchSelections = $state({}) as Record<string, { [pid: string]: 'win' | 'loss' | 'tie' }>;
+
+  // Group editing state
+  let editingGroupId = $state(null) as string | null;
+  let editingGroupName = $state('');
+
+  // Group name editing functions
+  function startEditingGroup(groupId: string, currentName: string) {
+    editingGroupId = groupId;
+    editingGroupName = currentName || `Group ${groupId}`;
+  }
+
+  function cancelEditingGroup() {
+    editingGroupId = null;
+    editingGroupName = '';
+  }
+
+  async function saveGroupName(groupId: string) {
+    try {
+      await updateGroupName(tournamentId, groupId, editingGroupName.trim());
+      await loadState();
+      editingGroupId = null;
+      editingGroupName = '';
+    } catch (error) {
+      console.error('Failed to update group name:', error);
+      alert('Failed to update group name');
+    }
+  }
+
+  async function handleResetGroup(groupId: string) {
+    if (confirm('Reset all match results for this group? This will clear all player stats in this group.')) {
+      try {
+        await resetGroupData(tournamentId, groupId);
+        await loadState();
+      } catch (error) {
+        console.error('Failed to reset group data:', error);
+        alert('Failed to reset group data');
+      }
+    }
+  }
+
+  async function handleResetTournament() {
+    if (confirm('Reset the entire tournament? This will delete ALL tournament data including players, groups, matches, and brackets. This action cannot be undone.')) {
+      try {
+        await resetTournament(tournamentId);
+        window.location.href = '/';
+      } catch (error) {
+        console.error('Failed to reset tournament:', error);
+        alert('Failed to reset tournament');
+      }
+    }
+  }
+
+  function getGroupDisplayName(groupId: string) {
+    const pod = pods.find(p => p.id === groupId);
+    return pod?.name || `Group ${groupId}`;
+  }
   
   // Reactive derived values using $derived
   let currentRoundMatches = $derived(getMatchesForRound(currentRound));
@@ -27,20 +85,20 @@
 
   async function loadState() {
     console.log('[Groups] loadState() called');
-    const data = await getState();
-    console.log('[Groups] loadState() received data:', { 
-      podsCount: data.pods.length, 
-      matchesCount: data.matches.length, 
+    const data = await getState(tournamentId);
+    console.log('[Groups] loadState() received data:', {
+      podsCount: data.pods.length,
+      matchesCount: data.matches.length,
       playersCount: data.players.length,
-      state: data.state 
+      state: data.state
     });
-    
+
     // With $state, direct assignment triggers reactivity
     pods = data.pods;
     matches = data.matches;
     players = data.players;
     tournamentState = data.state;
-    
+
     // Initialize selections from existing results
     matches.forEach(m => {
         if (m.result) {
@@ -52,7 +110,7 @@
             });
         }
     });
-    
+
     console.log('[Groups] loadState() complete - matchSelections:', matchSelections);
   }
 
@@ -120,7 +178,8 @@
       });
 
       console.log('[Groups] submitMatchResult - submitting results:', results);
-      await submitMatch(matchId, results);
+      // FIX: include tournamentId as first arg
+      await submitMatch(tournamentId, matchId, results);
       console.log('[Groups] submitMatchResult - match submitted, reloading state');
       await loadState();
       console.log('[Groups] submitMatchResult complete');
@@ -130,9 +189,9 @@
       if (confirm('Finish Group Stage and Generate Brackets?')) {
           try {
               console.log('[Groups] Generating brackets...');
-              await generateBrackets();
+              await generateBrackets(tournamentId);
               console.log('[Groups] Brackets generated, redirecting...');
-              window.location.href = '/brackets';
+              window.location.href = `/tournament/${tournamentId}/brackets`;
           } catch (error) {
               console.error('[Groups] Error generating brackets:', error);
               alert('Failed to generate brackets. Check console for details.');
@@ -189,7 +248,7 @@
     <!-- Header -->
     <div class="flex justify-between items-center mb-3">
       <div>
-        <a href="/" class="text-gray-400 hover:text-cyber-green transition-colors mb-1 inline-block text-xs flex items-center gap-1">
+        <a href={`/tournament/${tournamentId}`} class="text-gray-400 hover:text-cyber-green transition-colors mb-1 inline-block text-xs flex items-center gap-1">
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
           Back
         </a>
@@ -240,7 +299,58 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         {#each Object.entries(groupsWithPlayers) as [groupId, groupPlayers] (groupId)}
           <div class="glass rounded-lg p-2">
-            <h3 class="text-xs font-bold text-cyber-blue mb-1.5 px-2">Group {groupId}</h3>
+            <!-- Group Header with Edit and Reset -->
+            <div class="flex items-center justify-between mb-1.5 px-2">
+              {#if editingGroupId === groupId}
+                <div class="flex items-center gap-2 flex-1">
+                  <input
+                    type="text"
+                    bind:value={editingGroupName}
+                    class="flex-1 px-2 py-1 text-xs bg-space-700 border border-cyber-blue rounded text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-cyber-green"
+                    placeholder="Group name..."
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter') saveGroupName(groupId);
+                      if (e.key === 'Escape') cancelEditingGroup();
+                    }}
+                  />
+                  <button
+                    onclick={() => saveGroupName(groupId)}
+                    class="px-2 py-1 text-xs bg-cyber-green text-space-900 rounded font-bold hover:bg-cyber-green/80"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onclick={cancelEditingGroup}
+                    class="px-2 py-1 text-xs bg-gray-600 text-white rounded font-bold hover:bg-gray-500"
+                  >
+                    ✕
+                  </button>
+                </div>
+              {:else}
+                <div class="flex items-center gap-2 flex-1">
+                  <span class="text-xs font-bold text-cyber-blue hover:text-cyber-green transition-colors">
+                    {getGroupDisplayName(groupId)}
+                  </span>
+                  {#if tournamentState === 'registration'}
+                    <button
+                      class="ml-2 px-2 py-1 text-xs bg-cyber-green text-black rounded hover:bg-cyber-green/80"
+                      onclick={() => startEditingGroup(groupId, getGroupDisplayName(groupId))}
+                    >
+                      Edit
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+              <button
+                onclick={() => handleResetGroup(groupId)}
+                class="px-2 py-1 text-xs bg-red-600 text-white rounded font-bold hover:bg-red-500 transition-colors"
+                title="Reset group data"
+              >
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+              </button>
+            </div>
             <table class="w-full text-xs">
               <thead>
                 <tr class="border-b border-space-600">
@@ -378,7 +488,18 @@
               {/if}
             </div>
         {/each}
-      </div>
+    </div>
+
+    <!-- Full Tournament Reset Button -->
+    <div class="text-center pt-8 border-t border-space-600 mt-8">
+      <button
+        onclick={() => handleResetTournament()}
+        class="text-red-400/70 hover:text-red-400 text-base font-semibold transition-colors hover:underline"
+      >
+        <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+        Reset Entire Tournament
+      </button>
     </div>
   </div>
+</div>
 </div>
