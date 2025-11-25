@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 1,
+            "activePatchIndex": 2,
             "patches": [
                 {
                     "date": 1763988815053,
@@ -12,6 +12,10 @@
                 {
                     "date": 1763989564157,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,7 +1,7 @@\n <script>\r\n   import './app.css';\r\n-  let { children } = $props();\r\n+  let { children, tournamentId } = $props();\r\n </script>\r\n \r\n <!-- Professional Gaming Navbar -->\r\n <nav class=\"w-full bg-space-900/98 backdrop-blur-xl border-b border-cyber-green/40 sticky top-0 z-50 shadow-xl\">\r\n"
+                },
+                {
+                    "date": 1764024924369,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -20,8 +20,9 @@\n         {#if tournamentId}\r\n           <a href={`/tournament/${tournamentId}`} class=\"text-sm font-black gradient-text hover:scale-105 transition-all duration-200\">Dashboard</a>\r\n           <a href={`/tournament/${tournamentId}/groups`} class=\"text-sm font-black gradient-text hover:scale-105 transition-all duration-200\">Groups</a>\r\n           <a href={`/tournament/${tournamentId}/brackets`} class=\"text-sm font-black gradient-text hover:scale-105 transition-all duration-200\">Brackets</a>\r\n+          <a href={`/tournament/${tournamentId}/statistics`} class=\"text-sm font-black gradient-text hover:scale-105 transition-all duration-200\">Statistics</a>\r\n         {/if}\r\n       </div>\r\n     </div>\r\n   </div>\r\n"
                 }
             ],
             "date": 1763988815053,

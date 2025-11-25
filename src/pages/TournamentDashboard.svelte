@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, addPlayer, startGroupStage, resetTournament, updateTournamentName, updatePlayerName } from '$lib/api';
+  import { getState, addPlayer, startGroupStage, resetTournament, updateTournamentName, updatePlayerName, updatePlayerPhoto } from '$lib/api';
 
   let { tournamentId } = $props<{ tournamentId: string }>();
   let players = $state([] as any[]);
@@ -12,6 +12,12 @@
   // Player edit state
   let editingPlayerId = $state<string | null>(null);
   let editingPlayerName = $state('');
+
+  // Photo editing state
+  let editingPhotoPlayerId = $state<string | null>(null);
+  let selectedFile = $state<File | null>(null);
+  let imagePreview = $state<string | null>(null);
+  let showPhotoModal = $state(false);
 
   // Editing state for tournament name
   let isEditingName = $state(false);
@@ -137,6 +143,67 @@
       'from-indigo-500 to-purple-500',
     ];
     return gradients[index % gradients.length];
+  }
+
+  // Simple Photo Editing Functions
+
+  function startEditingPhoto(playerId: string) {
+    editingPhotoPlayerId = playerId;
+    selectedFile = null;
+    imagePreview = null;
+    showPhotoModal = true;
+  }
+
+  function cancelPhotoEditing() {
+    showPhotoModal = false;
+    editingPhotoPlayerId = null;
+    selectedFile = null;
+    imagePreview = null;
+  }
+
+  async function handleFileSelect(event: Event) {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a valid image file (JPEG, PNG, GIF, or WebP)');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size must be less than 5MB');
+      return;
+    }
+
+    selectedFile = file;
+
+    // Create image preview
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      imagePreview = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function savePlayerPhoto() {
+    if (!editingPhotoPlayerId || !imagePreview) return;
+
+    try {
+      await updatePlayerPhoto(tournamentId, editingPhotoPlayerId, imagePreview);
+      // Update local state
+      const playerIndex = players.findIndex(p => p.id === editingPhotoPlayerId);
+      if (playerIndex !== -1) {
+        players[playerIndex].profilePhoto = imagePreview;
+      }
+      cancelPhotoEditing();
+    } catch (error) {
+      console.error('Failed to save photo:', error);
+      alert('Failed to save photo');
+    }
   }
 
   onMount(() => {
@@ -298,10 +365,30 @@
 
               <!-- Player Avatar -->
               <div class="mb-2 relative flex justify-center">
-                <div class="w-12 h-12 rounded-full bg-gradient-to-br {getPlayerGradient(index)} flex items-center justify-center shadow-xl relative">
-                  <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                  <div class="absolute bottom-0 right-0 w-3 h-3 bg-cyber-green rounded-full animate-pulse shadow-lg shadow-cyber-green/50 border-2 border-space-900"></div>
-                </div>
+                {#if player.profilePhoto}
+                  <img
+                    src={player.profilePhoto}
+                    alt="Profile"
+                    class="w-20 h-20 rounded-full object-cover"
+                  />
+                {:else}
+                  <div class="w-12 h-12 rounded-full bg-gradient-to-br {getPlayerGradient(index)} flex items-center justify-center shadow-xl relative">
+                    <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                    <div class="absolute bottom-0 right-0 w-3 h-3 bg-cyber-green rounded-full animate-pulse shadow-lg shadow-cyber-green/50 border-2 border-space-900"></div>
+                  </div>
+                {/if}
+
+                {#if tournamentState === 'registration'}
+                  <button
+                    onclick={() => startEditingPhoto(player.id)}
+                    class="absolute -bottom-1 -right-1 w-6 h-6 bg-cyber-blue rounded-full flex items-center justify-center shadow-lg hover:bg-cyber-blue/80 transition-colors"
+                    title="Edit profile photo"
+                  >
+                    <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-8.38 8.38a1 1 0 01-.464.263l-4 1a1 1 0 01-1.213-1.213l1-4a1 1 0 01.263-.464l8.38-8.38zM11.37 5.793L4 13.162V16h2.838l7.371-7.371-3.839-3.836z"/>
+                    </svg>
+                  </button>
+                {/if}
               </div>
 
               <!-- Player Name -->
@@ -365,5 +452,93 @@
 {#if showConfetti}
   <div class="confetti-container">
     <!-- Confetti animation placeholder - could add canvas-confetti library -->
+  </div>
+{/if}
+
+<!-- Photo Editing Modal -->
+{#if showPhotoModal}
+  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="glass rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between p-6 border-b border-space-600 flex-shrink-0">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+          <svg class="w-5 h-5 text-cyber-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+          Edit Profile Photo
+        </h2>
+        <button onclick={cancelPhotoEditing} class="p-2 hover:bg-space-700 rounded-lg transition-colors">
+          <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Content -->
+      <div class="p-6 overflow-y-auto flex-1 min-h-0">
+        {#if !selectedFile}
+          <!-- File Selection -->
+          <div class="text-center py-8">
+            <svg class="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+            <h3 class="text-lg font-bold text-white mb-2">Upload Profile Photo</h3>
+            <p class="text-gray-400 mb-6">Select an image file to crop and use as profile photo</p>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/gif,imagewebp"
+              onchange={handleFileSelect}
+              class="hidden"
+              id="photo-upload"
+            />
+            <label
+              for="photo-upload"
+              class="inline-block bg-gradient-to-r from-cyber-blue to-blue-500 text-white font-bold px-6 py-3 rounded-lg shadow-glow-blue hover:scale-105 transition-all duration-300 cursor-pointer"
+            >
+              Choose Image
+            </label>
+          </div>
+        {:else if imagePreview}
+          <!-- Image Preview -->
+          <div class="space-y-4">
+            <div class="text-center">
+              <h3 class="text-lg font-bold text-white mb-2">Preview</h3>
+              <p class="text-gray-400 text-sm">This is how your profile photo will look</p>
+            </div>
+
+            <!-- Image Preview -->
+            <div class="flex justify-center">
+              <img
+                src={imagePreview}
+                alt="Profile photo preview"
+                class="w-32 h-32 rounded-full object-cover border-4 border-cyber-green shadow-xl"
+              />
+            </div>
+
+            <!-- Save Controls -->
+            <div class="flex justify-center gap-3">
+              <button
+                onclick={savePlayerPhoto}
+                class="bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 font-bold px-6 py-3 rounded-lg shadow-glow-green hover:scale-105 transition-all duration-300"
+              >
+                Save Profile Photo
+              </button>
+              <button
+                onclick={() => { selectedFile = null; imagePreview = null; }}
+                class="bg-gray-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-gray-500 transition-colors"
+              >
+                Choose Different Image
+              </button>
+            </div>
+          </div>
+        {:else}
+          <!-- Loading -->
+          <div class="text-center py-8">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-cyber-green mx-auto mb-4"></div>
+            <p class="text-gray-400">Loading image...</p>
+          </div>
+        {/if}
+      </div>
+    </div>
   </div>
 {/if}

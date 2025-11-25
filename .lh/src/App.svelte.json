@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 5,
+            "activePatchIndex": 6,
             "patches": [
                 {
                     "date": 1763989068918,
@@ -28,6 +28,10 @@
                 {
                     "date": 1763989750782,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -22,13 +22,13 @@\n <Layout {tournamentId}>\r\n   {#if path === '/' || path === ''}\r\n     <TournamentList />\r\n   {:else if path.startsWith('/tournament/') && !page && tournamentId}\r\n-    <TournamentDashboard tournamentId={tournamentId} />\r\n+    <TournamentDashboard tournamentId={tournamentId!} />\r\n   {:else if path.startsWith('/tournament/') && page === 'groups' && tournamentId}\r\n-    <Groups tournamentId={tournamentId} />\r\n+    <Groups tournamentId={tournamentId!} />\r\n   {:else if path.startsWith('/tournament/') && page === 'brackets' && tournamentId}\r\n-    <Brackets tournamentId={tournamentId} />\r\n+    <Brackets tournamentId={tournamentId!} />\r\n   {:else}\r\n     <div class=\"text-center mt-10\">\r\n       <h1 class=\"text-2xl font-bold\">404 Not Found</h1>\r\n       <a href=\"/\" class=\"text-blue-500 underline\">Go Home</a>\r\n"
+                },
+                {
+                    "date": 1764024913892,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -3,8 +3,9 @@\n   import TournamentList from './pages/TournamentList.svelte';\r\n   import TournamentDashboard from './pages/TournamentDashboard.svelte';\r\n   import Groups from './pages/Groups.svelte';\r\n   import Brackets from './pages/Brackets.svelte';\r\n+  import Statistics from './pages/Statistics.svelte';\r\n \r\n   const path = window.location.pathname;\r\n   const pathParts = path.split('/').filter(p => p);\r\n \r\n@@ -27,8 +28,10 @@\n   {:else if path.startsWith('/tournament/') && page === 'groups' && tournamentId}\r\n     <Groups tournamentId={tournamentId!} />\r\n   {:else if path.startsWith('/tournament/') && page === 'brackets' && tournamentId}\r\n     <Brackets tournamentId={tournamentId!} />\r\n+  {:else if path.startsWith('/tournament/') && page === 'statistics' && tournamentId}\r\n+    <Statistics tournamentId={tournamentId!} />\r\n   {:else}\r\n     <div class=\"text-center mt-10\">\r\n       <h1 class=\"text-2xl font-bold\">404 Not Found</h1>\r\n       <a href=\"/\" class=\"text-blue-500 underline\">Go Home</a>\r\n"
                 }
             ],
             "date": 1763989068918,

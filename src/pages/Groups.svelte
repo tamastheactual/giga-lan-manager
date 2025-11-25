@@ -371,7 +371,12 @@
                         {index + 1}
                       </div>
                     </td>
-                    <td class="py-1 px-1 font-bold text-white text-xs">{player.name}</td>
+                    <td class="py-1 px-1 font-bold text-white text-xs flex items-center gap-2">
+                      {#if player.profilePhoto}
+                        <img src={player.profilePhoto} alt="Profile" class="w-6 h-6 rounded-full object-cover inline-block" />
+                      {/if}
+                      {player.name}
+                    </td>                    
                     <td class="text-center py-1 px-1 text-gray-400">{(player.wins || 0) + (player.draws || 0) + (player.losses || 0)}</td>
                     <td class="text-center py-1 px-1 text-cyber-green font-bold">{player.wins || 0}</td>
                     <td class="text-center py-1 px-1 text-yellow-500 font-bold">{player.draws || 0}</td>
@@ -414,9 +419,13 @@
                 <div class="p-2 rounded bg-space-700/50 {matchSelections[match.id]?.[match.player1Id] === 'win' ? 'ring-1 ring-cyber-green' : matchSelections[match.id]?.[match.player1Id] === 'loss' ? 'opacity-60' : ''} transition-all">
                   <div class="flex items-center justify-between mb-1.5">
                     <div class="flex items-center gap-2">
-                      <div class="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-                        <svg class="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                      </div>
+                      {#if player1?.profilePhoto}
+                        <img src={player1.profilePhoto} alt="Profile" class="w-6 h-6 rounded-full object-cover" />
+                      {:else}
+                        <div class="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
+                          <svg class="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                        </div>
+                      {/if}
                       <div>
                         <div class="font-bold text-xs text-white">{player1?.name || 'Unknown'}</div>
                         <div class="text-xs text-gray-400">{player1?.points || 0}pts</div>
@@ -451,9 +460,13 @@
                 <div class="p-2 rounded bg-space-700/50 {matchSelections[match.id]?.[match.player2Id] === 'win' ? 'ring-1 ring-cyber-green' : matchSelections[match.id]?.[match.player2Id] === 'loss' ? 'opacity-60' : ''} transition-all">
                   <div class="flex items-center justify-between mb-1.5">
                     <div class="flex items-center gap-2">
-                      <div class="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                        <svg class="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                      </div>
+                      {#if player2?.profilePhoto}
+                        <img src={player2.profilePhoto} alt="Profile" class="w-6 h-6 rounded-full object-cover" />
+                      {:else}
+                        <div class="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                          <svg class="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                        </div>
+                      {/if}
                       <div>
                         <div class="font-bold text-xs text-white">{player2?.name || 'Unknown'}</div>
                         <div class="text-xs text-gray-400">{player2?.points || 0}pts</div>

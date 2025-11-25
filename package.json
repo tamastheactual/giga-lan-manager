@@ -14,6 +14,7 @@
     "@sveltejs/vite-plugin-svelte": "6.2.1",
     "@tsconfig/svelte": "5.0.6",
     "@types/cors": "2.8.19",
+    "@types/cropperjs": "^1.1.5",
     "@types/express": "5.0.5",
     "@types/node": "24.10.1",
     "autoprefixer": "10.4.22",
@@ -29,6 +30,7 @@
   "dependencies": {
     "body-parser": "2.2.0",
     "cors": "2.8.5",
+    "cropperjs": "^1.6.1",
     "express": "5.1.0",
     "redis": "5.10.0",
     "tailwindcss": "3.4.17",

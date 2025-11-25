@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 6,
+            "activePatchIndex": 10,
             "patches": [
                 {
                     "date": 1763982604551,
@@ -32,6 +32,22 @@
                 {
                     "date": 1764024233970,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -255,4 +255,5 @@\n \r\n ---\r\n \r\n - **Code Splitting**: Route-based lazy loading\r\n+\r\n"
+                },
+                {
+                    "date": 1764030368249,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -15,9 +15,10 @@\n └── pages/                # Route-based page components\r\n     ├── TournamentList.svelte     # Tournament lobby and creation\r\n     ├── TournamentDashboard.svelte # Tournament overview and management\r\n     ├── Groups.svelte       # Group stage match management\r\n-    └── Brackets.svelte     # Playoff bracket display and interaction\r\n+    ├── Brackets.svelte     # Playoff bracket display and interaction\r\n+    └── Statistics.svelte   # Tournament statistics and player rankings\r\n ```\r\n \r\n ## Core Components\r\n \r\n@@ -255,5 +256,4 @@\n \r\n ---\r\n \r\n - **Code Splitting**: Route-based lazy loading\r\n-\r\n"
+                },
+                {
+                    "date": 1764030377992,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -117,12 +117,12 @@\n // Match operations\r\n submitMatch(tournamentId: string, matchId: string, results: MatchResults): Promise<void>\r\n submitBracketWinner(tournamentId: string, matchId: string, winnerId: string): Promise<void>\r\n \r\n-// Administrative\r\n updateTournamentName(tournamentId: string, name: string): Promise<void>\r\n updateGroupName(tournamentId: string, podId: string, name: string): Promise<void>\r\n resetGroupData(tournamentId: string, podId: string): Promise<void>\r\n+updatePlayerPhoto(tournamentId: string, playerId: string, photoData: string): Promise<void>\r\n ```\r\n \r\n ### Error Handling\r\n - **Network Errors**: Automatic retry logic for transient failures\r\n"
+                },
+                {
+                    "date": 1764030387453,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -40,9 +40,9 @@\n - **Responsive Design**: Collapsible navigation for mobile devices\r\n \r\n **Navigation States**:\r\n - **Tournament Lobby**: Always available\r\n-- **Tournament Pages**: Dashboard, Groups, Brackets (when tournament exists)\r\n+- **Tournament Pages**: Dashboard, Groups, Brackets, Statistics (when tournament exists)\r\n \r\n ### TournamentList.svelte - Tournament Lobby\r\n **Purpose**: Central hub for tournament management and creation\r\n - **Tournament Creation**: Form to create new tournaments\r\n"
+                },
+                {
+                    "date": 1764030398379,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -87,13 +87,27 @@\n - **Champion Podium**: Immersive celebration for completed tournaments\r\n - **Match History**: Complete bracket remains viewable after completion\r\n \r\n **Special Features**:\r\n-- **Podium Layout**: 1st, 2nd, 3rd place with trophy and medal emojis\r\n+- **Podium Layout**: 1st, 2nd, 3rd place celebration display\r\n - **Confetti Effects**: Animated celebration elements\r\n - **Responsive Bracket**: Horizontal scrolling for large brackets\r\n - **State-Aware Display**: Different UI for active vs completed tournaments\r\n \r\n+### Statistics.svelte - Tournament Statistics\r\n+**Purpose**: Comprehensive tournament statistics and player performance analysis\r\n+- **Tournament Overview**: Key metrics and completion status\r\n+- **Player Rankings**: Performance-based leaderboard with statistics\r\n+- **Match Statistics**: Win/loss/draw distribution and completion rates\r\n+- **Group Performance**: Individual group statistics and progress tracking\r\n+\r\n+**Features**:\r\n+- **Real-time Updates**: Statistics update as tournament progresses\r\n+- **Player Profiles**: Profile photos in rankings and statistics\r\n+- **Performance Metrics**: Win rates, points per game, and rankings\r\n+- **Tournament Timeline**: Visual representation of tournament phases\r\n+- **Responsive Layout**: Optimized display for different screen sizes\r\n+\r\n ## API Client (lib/api.ts)\r\n \r\n ### Tournament Management\r\n ```typescript\r\n"
                 }
             ],
             "date": 1763982604551,

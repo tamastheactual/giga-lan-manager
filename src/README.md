@@ -16,7 +16,8 @@ src/
     ├── TournamentList.svelte     # Tournament lobby and creation
     ├── TournamentDashboard.svelte # Tournament overview and management
     ├── Groups.svelte       # Group stage match management
-    └── Brackets.svelte     # Playoff bracket display and interaction
+    ├── Brackets.svelte     # Playoff bracket display and interaction
+    └── Statistics.svelte   # Tournament statistics and player rankings
 ```
 
 ## Core Components
@@ -40,7 +41,7 @@ src/
 
 **Navigation States**:
 - **Tournament Lobby**: Always available
-- **Tournament Pages**: Dashboard, Groups, Brackets (when tournament exists)
+- **Tournament Pages**: Dashboard, Groups, Brackets, Statistics (when tournament exists)
 
 ### TournamentList.svelte - Tournament Lobby
 **Purpose**: Central hub for tournament management and creation
@@ -87,10 +88,24 @@ src/
 - **Match History**: Complete bracket remains viewable after completion
 
 **Special Features**:
-- **Podium Layout**: 1st, 2nd, 3rd place with trophy and medal emojis
+- **Podium Layout**: 1st, 2nd, 3rd place celebration display
 - **Confetti Effects**: Animated celebration elements
 - **Responsive Bracket**: Horizontal scrolling for large brackets
 - **State-Aware Display**: Different UI for active vs completed tournaments
+
+### Statistics.svelte - Tournament Statistics
+**Purpose**: Comprehensive tournament statistics and player performance analysis
+- **Tournament Overview**: Key metrics and completion status
+- **Player Rankings**: Performance-based leaderboard with statistics
+- **Match Statistics**: Win/loss/draw distribution and completion rates
+- **Group Performance**: Individual group statistics and progress tracking
+
+**Features**:
+- **Real-time Updates**: Statistics update as tournament progresses
+- **Player Profiles**: Profile photos in rankings and statistics
+- **Performance Metrics**: Win rates, points per game, and rankings
+- **Tournament Timeline**: Visual representation of tournament phases
+- **Responsive Layout**: Optimized display for different screen sizes
 
 ## API Client (lib/api.ts)
 
@@ -117,10 +132,10 @@ resetTournament(tournamentId: string): Promise<void>
 submitMatch(tournamentId: string, matchId: string, results: MatchResults): Promise<void>
 submitBracketWinner(tournamentId: string, matchId: string, winnerId: string): Promise<void>
 
-// Administrative
 updateTournamentName(tournamentId: string, name: string): Promise<void>
 updateGroupName(tournamentId: string, podId: string, name: string): Promise<void>
 resetGroupData(tournamentId: string, podId: string): Promise<void>
+updatePlayerPhoto(tournamentId: string, playerId: string, photoData: string): Promise<void>
 ```
 
 ### Error Handling
@@ -256,4 +271,3 @@ Registration → Group Stage → Playoffs → Completed
 ---
 
 - **Code Splitting**: Route-based lazy loading
-

@@ -9,6 +9,7 @@ export interface Player {
     draws: number;
     losses: number;
     scoreDifferential: number; // For tiebreakers
+    profilePhoto?: string; // Base64-encoded image data
 }
 
 export interface Match {
@@ -600,4 +601,12 @@ export class TournamentManager {
         if (!p) throw new Error('Player not found');
         p.name = name.trim();
     }
+
+    // Update player photo
+    updatePlayerPhoto(playerId: string, photo: string) {
+        const p = this.players.find(pl => pl.id === playerId);
+        if (!p) throw new Error('Player not found');
+        p.profilePhoto = photo;
+    }
+
 }

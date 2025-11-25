@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 4,
+            "activePatchIndex": 5,
             "patches": [
                 {
                     "date": 1763988603933,
@@ -24,6 +24,10 @@
                 {
                     "date": 1764018311554,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -91,4 +91,13 @@\n         body: JSON.stringify({ name })\r\n     });\r\n     return res.json();\r\n }\r\n+\r\n+export async function updatePlayerName(tournamentId: string, playerId: string, name: string) {\r\n+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/player/${playerId}`, {\r\n+        method: 'PUT',\r\n+        headers: { 'Content-Type': 'application/json' },\r\n+        body: JSON.stringify({ name })\r\n+    });\r\n+    return res.json();\r\n+}\r\n"
+                },
+                {
+                    "date": 1764026847785,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -100,4 +100,13 @@\n         body: JSON.stringify({ name })\r\n     });\r\n     return res.json();\r\n }\r\n+\r\n+export async function updatePlayerPhoto(tournamentId: string, playerId: string, photo: string) {\r\n+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/player/${playerId}/photo`, {\r\n+        method: 'PUT',\r\n+        headers: { 'Content-Type': 'application/json' },\r\n+        body: JSON.stringify({ photo })\r\n+    });\r\n+    return res.json();\r\n+}\r\n"
                 }
             ],
             "date": 1763988603933,

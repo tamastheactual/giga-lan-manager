@@ -101,3 +101,12 @@ export async function updatePlayerName(tournamentId: string, playerId: string, n
     });
     return res.json();
 }
+
+export async function updatePlayerPhoto(tournamentId: string, playerId: string, photo: string) {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/player/${playerId}/photo`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo })
+    });
+    return res.json();
+}

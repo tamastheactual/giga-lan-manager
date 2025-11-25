@@ -21,6 +21,7 @@
           <a href={`/tournament/${tournamentId}`} class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Dashboard</a>
           <a href={`/tournament/${tournamentId}/groups`} class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Groups</a>
           <a href={`/tournament/${tournamentId}/brackets`} class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Brackets</a>
+          <a href={`/tournament/${tournamentId}/statistics`} class="text-sm font-black gradient-text hover:scale-105 transition-all duration-200">Statistics</a>
         {/if}
       </div>
     </div>

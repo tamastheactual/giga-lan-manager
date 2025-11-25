@@ -45,7 +45,7 @@ const saveState = async (tournamentId: string) => {
 };
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' })); 
 
 // API Routes
 app.get('/api/health', (req, res) => {
@@ -246,6 +246,21 @@ app.put('/api/tournament/:tournamentId/player/:playerId', async (req, res) => {
   if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   try {
     tournament.updatePlayerName(playerId, name);
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Update player photo
+app.put('/api/tournament/:tournamentId/player/:playerId/photo', async (req, res) => {
+  const { tournamentId, playerId } = req.params;
+  const { photo } = req.body;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  try {
+    tournament.updatePlayerPhoto(playerId, photo);
     await saveState(tournamentId);
     res.json({ success: true });
   } catch (e: any) {

@@ -152,7 +152,11 @@
                   <div class="relative z-10">
                     <div class="text-4xl mb-1">🥈</div>
                     <div class="w-12 h-12 mx-auto mb-2 rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center shadow-lg">
-                      <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                      {#if runnerUp.profilePhoto}
+                        <img src={runnerUp.profilePhoto} alt="2nd Place" class="w-12 h-12 rounded-full object-cover" />
+                      {:else}
+                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                      {/if}
                     </div>
                     <h3 class="text-sm font-black text-gray-300 mb-1">2ND PLACE</h3>
                     <div class="text-lg font-black text-white mb-1">{runnerUp.name}</div>
@@ -172,7 +176,11 @@
                 <div class="relative z-10">
                   <div class="text-5xl mb-2">👑</div>
                   <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-xl ring-4 ring-yellow-400/30">
-                    <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                    {#if champion.profilePhoto}
+                      <img src={champion.profilePhoto} alt="Champion" class="w-16 h-16 rounded-full object-cover" />
+                    {:else}
+                      <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                    {/if}
                   </div>
                   <h3 class="text-lg font-black bg-gradient-to-r from-yellow-400 to-yellow-500 bg-clip-text text-transparent mb-2">CHAMPION</h3>
                   <div class="text-2xl font-black text-white mb-2">{champion.name}</div>
@@ -194,7 +202,11 @@
                   <div class="relative z-10">
                     <div class="text-4xl mb-1">🥉</div>
                     <div class="w-12 h-12 mx-auto mb-2 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg">
-                      <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                      {#if thirdPlace.profilePhoto}
+                        <img src={thirdPlace.profilePhoto} alt="3rd Place" class="w-12 h-12 rounded-full object-cover" />
+                      {:else}
+                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                      {/if}
                     </div>
                     <h3 class="text-sm font-black text-orange-400 mb-1">3RD PLACE</h3>
                     <div class="text-lg font-black text-white mb-1">{thirdPlace.name}</div>
@@ -263,9 +275,13 @@
                         >
                           <div class="flex items-center justify-between">
                             <div class="flex items-center gap-1.5">
-                              <div class="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-                                <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                              </div>
+                              {#if player1?.profilePhoto}
+                                <img src={player1.profilePhoto} alt="Profile" class="w-5 h-5 rounded-full object-cover" />
+                              {:else}
+                                <div class="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
+                                  <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                                </div>
+                              {/if}
                               <div>
                                 <div class="font-bold text-xs text-white">{getPlayerName(match.player1Id)}</div>
                                 {#if player1}
@@ -288,9 +304,13 @@
                         >
                           <div class="flex items-center justify-between">
                             <div class="flex items-center gap-1.5">
-                              <div class="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                                <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                              </div>
+                              {#if player2?.profilePhoto}
+                                <img src={player2.profilePhoto} alt="Profile" class="w-5 h-5 rounded-full object-cover" />
+                              {:else}
+                                <div class="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                                  <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                                </div>
+                              {/if}
                               <div>
                                 <div class="font-bold text-xs text-white">{getPlayerName(match.player2Id)}</div>
                                 {#if player2}

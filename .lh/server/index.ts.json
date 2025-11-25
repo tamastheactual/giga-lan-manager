@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 14,
+            "activePatchIndex": 16,
             "patches": [
                 {
                     "date": 1763988509840,
@@ -64,6 +64,14 @@
                 {
                     "date": 1764018283781,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -237,8 +237,22 @@\n         res.status(400).json({ error: e.message });\r\n     }\r\n });\r\n \r\n+// Update a player's name\r\n+app.put('/api/tournament/:tournamentId/player/:playerId', async (req, res) => {\r\n+  const { tournamentId, playerId } = req.params;\r\n+  const { name } = req.body;\r\n+  const tournament = tournaments.get(tournamentId);\r\n+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });\r\n+  try {\r\n+    tournament.updatePlayerName(playerId, name);\r\n+    await saveState(tournamentId);\r\n+    res.json({ success: true });\r\n+  } catch (e: any) {\r\n+    res.status(400).json({ error: e.message });\r\n+  }\r\n+});\r\n \r\n // Serve static files from the Svelte app build\r\n const __filename = fileURLToPath(import.meta.url);\r\n const __dirname = path.dirname(__filename);\r\n"
+                },
+                {
+                    "date": 1764026838741,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -252,8 +252,23 @@\n     res.status(400).json({ error: e.message });\r\n   }\r\n });\r\n \r\n+// Update player photo\r\n+app.put('/api/tournament/:tournamentId/player/:playerId/photo', async (req, res) => {\r\n+  const { tournamentId, playerId } = req.params;\r\n+  const { photo } = req.body;\r\n+  const tournament = tournaments.get(tournamentId);\r\n+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });\r\n+  try {\r\n+    tournament.updatePlayerPhoto(playerId, photo);\r\n+    await saveState(tournamentId);\r\n+    res.json({ success: true });\r\n+  } catch (e: any) {\r\n+    res.status(400).json({ error: e.message });\r\n+  }\r\n+});\r\n+\r\n // Serve static files from the Svelte app build\r\n const __filename = fileURLToPath(import.meta.url);\r\n const __dirname = path.dirname(__filename);\r\n // In production (docker), dist is at /app/dist. In dev, it might be different.\r\n"
+                },
+                {
+                    "date": 1764030267337,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -44,9 +44,9 @@\n     }\r\n };\r\n \r\n app.use(cors());\r\n-app.use(bodyParser.json());\r\n+app.use(bodyParser.json({ limit: '10mb' })); // Increase limit to 10MB for photo uploads\r\n \r\n // API Routes\r\n app.get('/api/health', (req, res) => {\r\n   res.json({ status: 'ok' });\r\n"
                 }
             ],
             "date": 1763988509840,

@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 7,
+            "activePatchIndex": 10,
             "patches": [
                 {
                     "date": 1763989257102,
@@ -36,6 +36,18 @@
                 {
                     "date": 1764023367143,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -542,10 +542,11 @@\n                 }\r\n             }\r\n         }\r\n \r\n-        // If this is the final match, mark tournament as completed\r\n-        if (match.bracketType === 'finals') {\r\n+        // Check if all bracket matches are completed\r\n+        const allBracketMatchesCompleted = this.bracketMatches.every(m => m.winnerId);\r\n+        if (allBracketMatchesCompleted) {\r\n             this.state = 'completed';\r\n         }\r\n     }\r\n \r\n"
+                },
+                {
+                    "date": 1764026810428,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -599,5 +599,12 @@\n         const p = this.players.find(pl => pl.id === playerId);\r\n         if (!p) throw new Error('Player not found');\r\n         p.name = name.trim();\r\n     }\r\n+\r\n+        updatePlayerPhoto(playerId: string, photo: string) {\r\n+        const p = this.players.find(pl => pl.id === playerId);\r\n+        if (!p) throw new Error('Player not found');\r\n+        p.profilePhoto = photo;\r\n+    }\r\n+\r\n }\r\n"
+                },
+                {
+                    "date": 1764026815830,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -599,10 +599,10 @@\n         const p = this.players.find(pl => pl.id === playerId);\r\n         if (!p) throw new Error('Player not found');\r\n         p.name = name.trim();\r\n     }\r\n-\r\n-        updatePlayerPhoto(playerId: string, photo: string) {\r\n+    // Update player photo\r\n+    updatePlayerPhoto(playerId: string, photo: string) {\r\n         const p = this.players.find(pl => pl.id === playerId);\r\n         if (!p) throw new Error('Player not found');\r\n         p.profilePhoto = photo;\r\n     }\r\n"
+                },
+                {
+                    "date": 1764026955985,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -8,8 +8,9 @@\n     wins: number;\r\n     draws: number;\r\n     losses: number;\r\n     scoreDifferential: number; // For tiebreakers\r\n+    profilePhoto?: string; // Base64-encoded image data\r\n }\r\n \r\n export interface Match {\r\n     id: string;\r\n@@ -599,8 +600,9 @@\n         const p = this.players.find(pl => pl.id === playerId);\r\n         if (!p) throw new Error('Player not found');\r\n         p.name = name.trim();\r\n     }\r\n+\r\n     // Update player photo\r\n     updatePlayerPhoto(playerId: string, photo: string) {\r\n         const p = this.players.find(pl => pl.id === playerId);\r\n         if (!p) throw new Error('Player not found');\r\n"
                 }
             ],
             "date": 1763989257102,
