@@ -97,22 +97,34 @@ function validateGroupStage(tournament: any, numPlayers: number): { valid: boole
 function validateBrackets(tournament: any, numPlayers: number): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
     const bracketMatches = tournament.bracketMatches;
+    const numGroups = tournament.pods.length;
     
-    // Expected structures based on player count
-    let expectedPlayoffPlayers: number;
-    let expectedStructure: { [key: string]: number } = {};
+    // Calculate playoff players: top 2 from each group, capped at 8
+    let expectedPlayoffPlayers = Math.min(numGroups * 2, 8);
     
-    if (numPlayers <= 5) {
+    // Adjust to valid bracket sizes (4, 6, or 8)
+    if (expectedPlayoffPlayers <= 4) {
         expectedPlayoffPlayers = Math.min(4, numPlayers);
-        expectedStructure = { 'semifinals': 2, 'finals': 1, '3rd-place': 1 };
-    } else if (numPlayers <= 8) {
-        expectedPlayoffPlayers = 4;
-        expectedStructure = { 'semifinals': 2, 'finals': 1, '3rd-place': 1 };
-    } else if (numPlayers <= 13) {
+    } else if (expectedPlayoffPlayers <= 6) {
         expectedPlayoffPlayers = 6;
-        expectedStructure = { 'quarterfinals': 3, 'semifinals': 2, 'finals': 1, '3rd-place': 1 };
     } else {
         expectedPlayoffPlayers = 8;
+    }
+    
+    // Expected structures based on total players and playoff players
+    let expectedStructure: { [key: string]: number } = {};
+    
+    if (numPlayers === 4 && expectedPlayoffPlayers === 4) {
+        // Only exactly 4-player tournaments get direct finals
+        expectedStructure = { 'finals': 1, '3rd-place': 1 };
+    } else if (expectedPlayoffPlayers === 4) {
+        // 4 qualifiers from multiple groups: need semifinals
+        expectedStructure = { 'semifinals': 2, 'finals': 1, '3rd-place': 1 };
+    } else if (expectedPlayoffPlayers === 6) {
+        // 6 players advance: seeds 1&2 get byes to semifinals, seeds 3-6 play in quarterfinals
+        expectedStructure = { 'quarterfinals': 2, 'semifinals': 2, 'finals': 1, '3rd-place': 1 };
+    } else {
+        // 8 players: full quarterfinals
         expectedStructure = { 'quarterfinals': 4, 'semifinals': 2, 'finals': 1, '3rd-place': 1 };
     }
     

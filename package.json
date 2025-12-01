@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"ts-node --esm server/index.ts\"",
+    "dev": "concurrently \"vite\" \"tsx --watch server/index.ts\"",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "start:server": "ts-node --esm server/index.ts"
+    "start:server": "tsx server/index.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "6.2.1",
@@ -23,11 +23,12 @@
     "svelte": "5.43.14",
     "svelte-check": "4.3.4",
     "ts-node": "10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "5.9.3",
     "vite": "7.2.4"
   },
   "dependencies": {
-    "body-parser": "2.2.0",
+    "body-parser": "^2.2.1",
     "cors": "2.8.5",
     "express": "5.1.0",
     "redis": "5.10.0",
