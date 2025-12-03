@@ -13,7 +13,7 @@
   line-height: 1.6;
   font-weight: 400;
   color: #e8eef5;
-  background: linear-gradient(135deg, #0a0e27 0%, #151937 100%);
+  background: linear-gradient(135deg, #0a0e1a 0%, #121830 50%, #1a2040 100%);
   min-height: 100vh;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -34,28 +34,36 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a0e27;
+  background: #0a0e1a;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a3052;
+  background: #252b50;
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #00ff88;
+  background: #23B7D1;
 }
 
 /* Glass morphism utility */
 .glass {
-  background: rgba(30, 36, 71, 0.7);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(26, 32, 64, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(35, 183, 209, 0.15);
 }
 
 /* Gradient text */
 .gradient-text {
-  background: linear-gradient(135deg, #00ff88 0%, #00d4ff 100%);
+  background: linear-gradient(135deg, #23B7D1 0%, #4A5394 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Orange accent gradient */
+.gradient-text-accent {
+  background: linear-gradient(135deg, #FF914D 0%, #23B7D1 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -63,7 +71,7 @@ body {
 
 /* Button hover effects */
 .btn-glow:hover {
-  box-shadow: 0 0 30px rgba(0, 255, 136, 0.6);
+  box-shadow: 0 0 30px rgba(35, 183, 209, 0.6);
   transform: translateY(-2px);
 }
 

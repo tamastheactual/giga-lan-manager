@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 1,
+            "activePatchIndex": 2,
             "patches": [
                 {
                     "date": 1764075105428,
@@ -12,6 +12,10 @@
                 {
                     "date": 1764075373306,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -35,7 +35,8 @@\n     \"express\": \"5.1.0\",\r\n     \"express-session\": \"^1.17.3\",\r\n     \"redis\": \"5.10.0\",\r\n     \"tailwindcss\": \"3.4.17\",\r\n-    \"uuid\": \"13.0.0\"\r\n+    \"uuid\": \"13.0.0\",\r\n+    \"connect-redis\": \"^6.1.0\"\r\n   }\r\n }\r\n"
+                },
+                {
+                    "date": 1764770151014,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -3,40 +3,40 @@\n   \"private\": true,\r\n   \"version\": \"0.0.0\",\r\n   \"type\": \"module\",\r\n   \"scripts\": {\r\n-    \"dev\": \"concurrently \\\"vite\\\" \\\"ts-node --esm server/index.ts\\\"\",\r\n+    \"dev\": \"concurrently \\\"vite\\\" \\\"tsx --watch server/index.ts\\\"\",\r\n     \"build\": \"vite build\",\r\n     \"preview\": \"vite preview\",\r\n     \"check\": \"svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json\",\r\n-    \"start:server\": \"ts-node --esm server/index.ts\"\r\n+    \"start:server\": \"tsx server/index.ts\"\r\n   },\r\n   \"devDependencies\": {\r\n     \"@sveltejs/vite-plugin-svelte\": \"6.2.1\",\r\n     \"@tsconfig/svelte\": \"5.0.6\",\r\n     \"@types/cors\": \"2.8.19\",\r\n     \"@types/cropperjs\": \"^1.1.5\",\r\n     \"@types/express\": \"5.0.5\",\r\n+    \"@types/express-session\": \"^1.17.7\",\r\n     \"@types/node\": \"24.10.1\",\r\n-    \"@types/express-session\": \"^1.17.7\",\r\n     \"autoprefixer\": \"10.4.22\",\r\n     \"concurrently\": \"9.2.1\",\r\n     \"nodemon\": \"3.1.11\",\r\n     \"postcss\": \"8.5.6\",\r\n     \"svelte\": \"5.43.14\",\r\n     \"svelte-check\": \"4.3.4\",\r\n     \"ts-node\": \"10.9.2\",\r\n+    \"tsx\": \"^4.21.0\",\r\n     \"typescript\": \"5.9.3\",\r\n     \"vite\": \"7.2.4\"\r\n   },\r\n   \"dependencies\": {\r\n-    \"body-parser\": \"2.2.0\",\r\n+    \"body-parser\": \"^2.2.1\",\r\n     \"cors\": \"2.8.5\",\r\n     \"cropperjs\": \"^1.6.1\",\r\n     \"express\": \"5.1.0\",\r\n-    \"express-session\": \"^1.17.3\",\r\n+    \"express-session\": \"^1.18.2\",\r\n     \"redis\": \"5.10.0\",\r\n     \"tailwindcss\": \"3.4.17\",\r\n-    \"uuid\": \"13.0.0\",\r\n-    \"connect-redis\": \"^6.1.0\"\r\n+    \"uuid\": \"13.0.0\"\r\n   }\r\n }\r\n"
                 }
             ],
             "date": 1764075105428,

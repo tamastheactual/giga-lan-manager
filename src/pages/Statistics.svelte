@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState } from '$lib/api';
+  import { getState, type GameType, GAME_CONFIGS } from '$lib/api';
 
   let { tournamentId } = $props<{ tournamentId: string }>();
 
   let tournamentData = $state(null) as any;
   let loading = $state(true);
   let error = $state(null) as string | null;
+  let gameType = $state<GameType>('cs16');
 
   // Reactive statements to compute statistics
   let playerStats: any[] = $state([]);
@@ -14,22 +15,194 @@
   let groupStats: any[] = $state([]);
   let tournamentOverview: any = $state(null);
 
+  // Game-specific labels
+  const gameConfig = $derived(GAME_CONFIGS[gameType]);
+  const scoreLabel = $derived(gameConfig?.groupStage.scoreLabel || 'Rounds');
+  const isKillBased = $derived(gameConfig?.groupStage.scoreType === 'kills');
+  const isHealthBased = $derived(gameConfig?.groupStage.scoreType === 'health');
+
+  // Calculate total score (rounds/kills) per player across entire tournament
+  function calculatePlayerScoreStats(players: any[], matches: any[], bracketMatches: any[]) {
+    const scoreStats: Record<string, { scoreWon: number; scoreLost: number; matchesPlayed: number; bestMatch: number; worstMatch: number; mapsWon: number }> = {};
+    
+    // Initialize stats for all players
+    players.forEach((p: any) => {
+      scoreStats[p.id] = { scoreWon: 0, scoreLost: 0, matchesPlayed: 0, bestMatch: 0, worstMatch: Infinity, mapsWon: 0 };
+    });
+
+    // Group stage matches
+    matches.forEach((match: any) => {
+      if (!match.result || !match.completed) return;
+      
+      const p1Id = match.player1Id;
+      const p2Id = match.player2Id;
+      const p1Result = match.result[p1Id];
+      const p2Result = match.result[p2Id];
+      
+      // Always count the match as played
+      if (scoreStats[p1Id]) scoreStats[p1Id].matchesPlayed++;
+      if (scoreStats[p2Id]) scoreStats[p2Id].matchesPlayed++;
+      
+      // Track scores if available
+      if (p1Result?.score !== undefined && p2Result?.score !== undefined) {
+        // Track for player 1
+        if (scoreStats[p1Id]) {
+          scoreStats[p1Id].scoreWon += p1Result.score;
+          scoreStats[p1Id].scoreLost += p2Result.score;
+          scoreStats[p1Id].bestMatch = Math.max(scoreStats[p1Id].bestMatch, p1Result.score);
+          scoreStats[p1Id].worstMatch = Math.min(scoreStats[p1Id].worstMatch, p1Result.score);
+          // Track map/match wins
+          if (p1Result.score > p2Result.score) scoreStats[p1Id].mapsWon++;
+        }
+        
+        // Track for player 2
+        if (scoreStats[p2Id]) {
+          scoreStats[p2Id].scoreWon += p2Result.score;
+          scoreStats[p2Id].scoreLost += p1Result.score;
+          scoreStats[p2Id].bestMatch = Math.max(scoreStats[p2Id].bestMatch, p2Result.score);
+          scoreStats[p2Id].worstMatch = Math.min(scoreStats[p2Id].worstMatch, p2Result.score);
+          // Track map/match wins
+          if (p2Result.score > p1Result.score) scoreStats[p2Id].mapsWon++;
+        }
+      }
+    });
+
+    // Bracket matches (BO3 - each MAP counts as a match, not each series)
+    bracketMatches.forEach((match: any) => {
+      if (!match.winnerId) return;
+      
+      const p1Id = match.player1Id;
+      const p2Id = match.player2Id;
+      
+      // Count each map/game as a separate match
+      if (match.games && Array.isArray(match.games)) {
+        match.games.forEach((game: any) => {
+          if (game.player1Score !== undefined && game.player2Score !== undefined) {
+            // Only count maps that were actually played
+            if (game.player1Score === 0 && game.player2Score === 0) return;
+            
+            // Each map is a match
+            if (scoreStats[p1Id]) {
+              scoreStats[p1Id].scoreWon += game.player1Score;
+              scoreStats[p1Id].scoreLost += game.player2Score;
+              scoreStats[p1Id].matchesPlayed++;
+              scoreStats[p1Id].bestMatch = Math.max(scoreStats[p1Id].bestMatch, game.player1Score);
+              scoreStats[p1Id].worstMatch = Math.min(scoreStats[p1Id].worstMatch, game.player1Score);
+              // Track map wins
+              if (game.player1Score > game.player2Score) scoreStats[p1Id].mapsWon++;
+            }
+            if (scoreStats[p2Id]) {
+              scoreStats[p2Id].scoreWon += game.player2Score;
+              scoreStats[p2Id].scoreLost += game.player1Score;
+              scoreStats[p2Id].matchesPlayed++;
+              scoreStats[p2Id].bestMatch = Math.max(scoreStats[p2Id].bestMatch, game.player2Score);
+              scoreStats[p2Id].worstMatch = Math.min(scoreStats[p2Id].worstMatch, game.player2Score);
+              // Track map wins
+              if (game.player2Score > game.player1Score) scoreStats[p2Id].mapsWon++;
+            }
+          }
+        });
+      } else {
+        // Fallback: if no games array, count series as 2 maps (minimum for BO3 winner)
+        // This is an estimate for legacy data without detailed map scores
+        if (scoreStats[p1Id]) scoreStats[p1Id].matchesPlayed += 2;
+        if (scoreStats[p2Id]) scoreStats[p2Id].matchesPlayed += 2;
+      }
+    });
+
+    // Clean up worstMatch for players with no matches
+    Object.values(scoreStats).forEach(stats => {
+      if (stats.worstMatch === Infinity) stats.worstMatch = 0;
+    });
+
+    return scoreStats;
+  }
+
+  // Determine final tournament placement for a player
+  function getTournamentPlacement(playerId: string, bracketMatches: any[]): number {
+    // Check if player is champion (winner of finals)
+    const finals = bracketMatches.find((m: any) => m.bracketType === 'finals');
+    if (finals?.winnerId === playerId) return 1;
+    
+    // Check if player is runner-up (loser of finals)
+    if (finals?.winnerId && (finals.player1Id === playerId || finals.player2Id === playerId)) {
+      return 2;
+    }
+    
+    // Check if player won 3rd place match
+    const thirdPlace = bracketMatches.find((m: any) => m.bracketType === '3rd-place');
+    if (thirdPlace?.winnerId === playerId) return 3;
+    
+    // Check if player lost 3rd place match (4th place)
+    if (thirdPlace?.winnerId && (thirdPlace.player1Id === playerId || thirdPlace.player2Id === playerId)) {
+      return 4;
+    }
+    
+    // Check semifinals losers (5th-6th)
+    const semis = bracketMatches.filter((m: any) => m.bracketType === 'semifinals');
+    for (const semi of semis) {
+      if (semi.winnerId && (semi.player1Id === playerId || semi.player2Id === playerId) && semi.winnerId !== playerId) {
+        return 5;
+      }
+    }
+    
+    // Check quarterfinals losers (7th-8th)
+    const quarters = bracketMatches.filter((m: any) => m.bracketType === 'quarterfinals');
+    for (const quarter of quarters) {
+      if (quarter.winnerId && (quarter.player1Id === playerId || quarter.player2Id === playerId) && quarter.winnerId !== playerId) {
+        return 7;
+      }
+    }
+    
+    // Player didn't make playoffs - use group stage rank (high number)
+    return 100;
+  }
+
   // Update computed values when tournamentData changes
   $effect(() => {
     if (tournamentData?.players && Array.isArray(tournamentData.players)) {
+      // Set gameType from tournament data
+      gameType = tournamentData.gameType || 'cs16';
+      
+      const groupMatches = Array.isArray(tournamentData.matches) ? tournamentData.matches : [];
+      const bracketMatchesArr = Array.isArray(tournamentData.bracketMatches) ? tournamentData.bracketMatches : [];
+      const scoreStats = calculatePlayerScoreStats(tournamentData.players, groupMatches, bracketMatchesArr);
+
       playerStats = tournamentData.players.map((player: any) => {
-        const totalGames = (player.wins || 0) + (player.draws || 0) + (player.losses || 0);
-        const winRate = totalGames > 0 ? ((player.wins || 0) / totalGames) * 100 : 0;
-        const avgPoints = totalGames > 0 ? (player.points || 0) / totalGames : 0;
+        const stats = scoreStats[player.id] || { scoreWon: 0, scoreLost: 0, matchesPlayed: 0, bestMatch: 0, worstMatch: 0, mapsWon: 0 };
+        const totalScore = stats.scoreWon + stats.scoreLost;
+        const scoreWinRate = totalScore > 0 ? (stats.scoreWon / totalScore) * 100 : 0;
+        const avgScorePerMatch = stats.matchesPlayed > 0 ? stats.scoreWon / stats.matchesPlayed : 0;
+        // For health-based games: average HP per win (only count wins, not all matches)
+        const avgScorePerWin = stats.mapsWon > 0 ? stats.scoreWon / stats.mapsWon : 0;
+        const scoreDiff = stats.scoreWon - stats.scoreLost;
+        const placement = getTournamentPlacement(player.id, bracketMatchesArr);
+        // For health-based games: calculate actual match win rate
+        const matchWinRate = stats.matchesPlayed > 0 ? (stats.mapsWon / stats.matchesPlayed) * 100 : 0;
 
         return {
           ...player,
-          totalGames,
-          winRate: Math.round(winRate * 10) / 10,
-          avgPoints: Math.round(avgPoints * 10) / 10,
-          performance: (player.points || 0) + ((player.wins || 0) * 2) + (player.draws || 0) // Custom performance metric
+          scoreWon: stats.scoreWon,
+          scoreLost: stats.scoreLost,
+          scoreDiff,
+          matchesPlayed: stats.matchesPlayed,
+          scoreWinRate: Math.round(scoreWinRate * 10) / 10,
+          matchWinRate: Math.round(matchWinRate * 10) / 10,
+          avgScorePerMatch: Math.round(avgScorePerMatch * 10) / 10,
+          avgScorePerWin: Math.round(avgScorePerWin * 10) / 10,
+          bestMatch: stats.bestMatch,
+          worstMatch: stats.worstMatch,
+          mapsWon: stats.mapsWon,
+          placement
         };
-      }).sort((a: any, b: any) => (b.performance || 0) - (a.performance || 0));
+      }).sort((a: any, b: any) => {
+        // Primary: Tournament placement (1st, 2nd, 3rd, etc.)
+        if (a.placement !== b.placement) return a.placement - b.placement;
+        // Secondary: Points (group stage ranking)
+        if (b.points !== a.points) return b.points - a.points;
+        // Tertiary: Score won
+        return b.scoreWon - a.scoreWon;
+      });
     } else {
       playerStats = [];
     }
@@ -38,28 +211,58 @@
   $effect(() => {
     if (tournamentData) {
       const groupMatches = Array.isArray(tournamentData.matches) ? tournamentData.matches : [];
-      const bracketMatches = Array.isArray(tournamentData.bracketMatches) ? tournamentData.bracketMatches : [];
+      const bracketMatchesArr = Array.isArray(tournamentData.bracketMatches) ? tournamentData.bracketMatches : [];
 
-      const totalMatches = groupMatches.length + bracketMatches.length;
-      const completedGroupMatches = groupMatches.filter((m: any) => m.completed === true).length;
-      const completedBracketMatches = bracketMatches.filter((m: any) => m.winnerId).length;
-      const totalCompleted = completedGroupMatches + completedBracketMatches;
-
-      // Calculate win/draw/loss distribution
-      let totalWins = 0, totalDraws = 0, totalLosses = 0;
-
-      groupMatches.forEach((match: any) => {
-        if (match.result && typeof match.result === 'object') {
-          Object.values(match.result).forEach((result: any) => {
-            if (result && typeof result === 'object' && result.points === 3) totalWins++;
-            else if (result && typeof result === 'object' && result.points === 1) totalDraws++;
-            else totalLosses++;
-          });
+      // Count actual maps played in brackets (not just series count)
+      let bracketMapsPlayed = 0;
+      let completedBracketMaps = 0;
+      bracketMatchesArr.forEach((match: any) => {
+        if (match.games && Array.isArray(match.games) && match.games.length > 0) {
+          // Count maps that were actually played (non-zero scores)
+          const playedGames = match.games.filter((g: any) => g.player1Score > 0 || g.player2Score > 0);
+          bracketMapsPlayed += playedGames.length;
+          if (match.winnerId) {
+            completedBracketMaps += playedGames.length;
+          }
+        } else if (match.winnerId) {
+          // Fallback: legacy data without games array - estimate 2 maps per completed series
+          bracketMapsPlayed += 2;
+          completedBracketMaps += 2;
         }
       });
 
-      bracketMatches.forEach((match: any) => {
-        if (match.winnerId) totalWins++; // Each bracket match produces one winner
+      const totalMatches = groupMatches.length + bracketMapsPlayed;
+      const completedGroupMatches = groupMatches.filter((m: any) => m.completed === true).length;
+      const totalCompleted = completedGroupMatches + completedBracketMaps;
+
+      // Calculate total score (rounds/kills) played in tournament
+      let totalScorePlayed = 0;
+      let highestScore = 0;
+      let closestMatch = { diff: Infinity, score: '' };
+
+      groupMatches.forEach((match: any) => {
+        if (match.result && match.completed) {
+          const scores = Object.values(match.result).map((r: any) => r?.score || 0);
+          if (scores.length === 2) {
+            totalScorePlayed += scores[0] + scores[1];
+            highestScore = Math.max(highestScore, ...scores);
+            const diff = Math.abs(scores[0] - scores[1]);
+            if (diff < closestMatch.diff && diff > 0) {
+              closestMatch = { diff, score: `${Math.max(...scores)}-${Math.min(...scores)}` };
+            }
+          }
+        }
+      });
+
+      bracketMatchesArr.forEach((match: any) => {
+        if (match.winnerId && match.games) {
+          match.games.forEach((game: any) => {
+            if (game.player1Score || game.player2Score) {
+              totalScorePlayed += (game.player1Score || 0) + (game.player2Score || 0);
+              highestScore = Math.max(highestScore, game.player1Score || 0, game.player2Score || 0);
+            }
+          });
+        }
       });
 
       matchStats = {
@@ -67,11 +270,12 @@
         completedMatches: totalCompleted,
         completionRate: totalMatches > 0 ? Math.round((totalCompleted / totalMatches) * 100) : 0,
         groupMatches: groupMatches.length,
-        bracketMatches: bracketMatches.length,
-        totalWins,
-        totalDraws,
-        totalLosses,
-        avgPointsPerMatch: totalMatches > 0 ? Math.round((totalWins * 3 + totalDraws * 1) / totalMatches * 10) / 10 : 0
+        bracketMatches: bracketMapsPlayed,
+        bracketSeries: bracketMatchesArr.length,
+        totalScorePlayed,
+        avgScorePerMatch: totalCompleted > 0 ? Math.round(totalScorePlayed / totalCompleted * 10) / 10 : 0,
+        highestScore,
+        closestMatch: closestMatch.diff < Infinity ? closestMatch.score : 'N/A'
       };
     } else {
       matchStats = null;
@@ -83,18 +287,24 @@
       groupStats = tournamentData.pods.map((pod: any) => {
         const podMatches = Array.isArray(tournamentData.matches) ? tournamentData.matches.filter((m: any) => m.podId === pod.id) : [];
         const completedMatches = podMatches.filter((m: any) => m.completed === true).length;
-        const totalPoints = Array.isArray(pod.players) ? pod.players.reduce((sum: number, playerId: string) => {
-          const player = tournamentData.players.find((p: any) => p.id === playerId);
-          return sum + (player?.points || 0);
-        }, 0) : 0;
+        
+        // Calculate total score (rounds/kills) in this group
+        let totalScore = 0;
+        podMatches.forEach((match: any) => {
+          if (match.result && match.completed) {
+            Object.values(match.result).forEach((r: any) => {
+              totalScore += r?.score || 0;
+            });
+          }
+        });
 
         return {
           ...pod,
           totalMatches: podMatches.length,
           completedMatches,
           completionRate: podMatches.length > 0 ? Math.round((completedMatches / podMatches.length) * 100) : 0,
-          totalPoints,
-          avgPoints: Array.isArray(pod.players) && pod.players.length > 0 ? Math.round(totalPoints / pod.players.length * 10) / 10 : 0
+          totalScore,
+          avgScorePerMatch: completedMatches > 0 ? Math.round(totalScore / completedMatches * 10) / 10 : 0
         };
       });
     } else {
@@ -104,16 +314,12 @@
 
   $effect(() => {
     if (tournamentData) {
-      const startTime = new Date(); // Would need to be stored in tournament data
-      const currentTime = new Date();
-      const duration = Math.floor((currentTime.getTime() - startTime.getTime()) / (1000 * 60)); // minutes
-
       tournamentOverview = {
         name: tournamentData.name || 'Unknown Tournament',
         state: tournamentData.state || 'unknown',
         playerCount: Array.isArray(tournamentData.players) ? tournamentData.players.length : 0,
         groupCount: Array.isArray(tournamentData.pods) ? tournamentData.pods.length : 0,
-        duration: `${duration} minutes`,
+        gameType: tournamentData.gameType || 'cs16',
         isCompleted: tournamentData.state === 'completed'
       };
     } else {
@@ -132,6 +338,27 @@
     } finally {
       loading = false;
     }
+  }
+
+  // Export tournament data as JSON file
+  function exportTournamentData() {
+    if (!tournamentData) return;
+    
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      tournamentId,
+      ...tournamentData
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tournament-${tournamentData.name?.replace(/[^a-z0-9]/gi, '-') || tournamentId}-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   onMount(loadTournamentData);
@@ -154,6 +381,19 @@
           TOURNAMENT STATISTICS
         </h1>
       </div>
+      
+      <!-- Export Button -->
+      {#if tournamentData}
+        <button
+          onclick={exportTournamentData}
+          class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyber-green to-brand-cyan text-space-900 font-bold rounded-lg hover:opacity-90 transition-opacity shadow-lg"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          Export JSON
+        </button>
+      {/if}
     </div>
 
     {#if loading}
@@ -207,7 +447,7 @@
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
             <div class="text-center">
               <div class="text-3xl font-black text-cyber-green">{stats.totalMatches}</div>
-              <div class="text-xs text-gray-400">Total Matches</div>
+              <div class="text-xs text-gray-400">Total Maps</div>
             </div>
             <div class="text-center">
               <div class="text-3xl font-black text-cyber-blue">{stats.completedMatches}</div>
@@ -219,49 +459,49 @@
             </div>
             <div class="text-center">
               <div class="text-3xl font-black text-yellow-400">{stats.bracketMatches}</div>
-              <div class="text-xs text-gray-400">Playoffs</div>
+              <div class="text-xs text-gray-400">Playoff Maps</div>
             </div>
           </div>
 
-          <!-- Win/Loss/Draw Distribution -->
+          <!-- Score Statistics (Rounds/Kills/HP based on game) -->
           <div class="mb-4">
-            <h3 class="text-sm font-bold text-gray-300 mb-2">Match Outcomes</h3>
+            <h3 class="text-sm font-bold text-gray-300 mb-2">{isHealthBased ? 'Health' : isKillBased ? 'Kill' : 'Round'} Statistics</h3>
             <div class="flex gap-2">
-              <div class="flex-1 bg-green-900/30 rounded p-2 text-center">
-                <div class="text-lg font-bold text-green-400">{stats.totalWins}</div>
-                <div class="text-xs text-gray-400">Wins</div>
+              <div class="flex-1 bg-cyan-900/30 rounded p-3 text-center">
+                <div class="text-2xl font-black text-cyan-400">{stats.totalScorePlayed}</div>
+                <div class="text-xs text-gray-400">Total {isHealthBased ? 'HP' : isKillBased ? 'Kills' : 'Rounds'}</div>
               </div>
-              <div class="flex-1 bg-yellow-900/30 rounded p-2 text-center">
-                <div class="text-lg font-bold text-yellow-400">{stats.totalDraws}</div>
-                <div class="text-xs text-gray-400">Draws</div>
+              <div class="flex-1 bg-purple-900/30 rounded p-3 text-center">
+                <div class="text-2xl font-black text-purple-400">{stats.avgScorePerMatch}</div>
+                <div class="text-xs text-gray-400">Avg/Match</div>
               </div>
-              <div class="flex-1 bg-red-900/30 rounded p-2 text-center">
-                <div class="text-lg font-bold text-red-400">{stats.totalLosses}</div>
-                <div class="text-xs text-gray-400">Losses</div>
+              <div class="flex-1 bg-orange-900/30 rounded p-3 text-center">
+                <div class="text-2xl font-black text-orange-400">{stats.highestScore}</div>
+                <div class="text-xs text-gray-400">Best Score</div>
+              </div>
+              <div class="flex-1 bg-green-900/30 rounded p-3 text-center">
+                <div class="text-2xl font-black text-green-400">{stats.closestMatch}</div>
+                <div class="text-xs text-gray-400">Closest</div>
               </div>
             </div>
-          </div>
-
-          <div class="text-center text-sm text-gray-400">
-            Average Points per Match: <span class="text-cyber-green font-bold">{stats.avgPointsPerMatch}</span>
           </div>
         </div>
       {/if}
 
-      <!-- Player Performance Rankings -->
+      <!-- Player Performance Rankings (CS-Focused: Rounds Won) -->
       <div class="glass rounded-lg p-6 mb-6">
         <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
           <svg class="w-5 h-5 text-cyber-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
           </svg>
-          Player Performance Rankings
+          Final Tournament Rankings
         </h2>
 
         <div class="space-y-2">
           {#each playerStats as player, index}
-            <div class="flex items-center gap-4 p-3 rounded-lg bg-space-700/50 hover:bg-space-700 transition-colors">
+            <div class="flex items-center gap-3 p-3 rounded-lg bg-space-700/50 hover:bg-space-700 transition-colors">
               <!-- Rank -->
-              <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm
+              <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0
                 {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900' :
                  index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' :
                  index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-space-900' :
@@ -270,7 +510,7 @@
               </div>
 
               <!-- Player Avatar -->
-              <div class="w-10 h-10 rounded-full flex items-center justify-center">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0">
                 {#if player.profilePhoto}
                   <img src={player.profilePhoto} alt="Profile" class="w-10 h-10 rounded-full object-cover" />
                 {:else}
@@ -281,28 +521,48 @@
               </div>
 
               <!-- Player Info -->
-              <div class="flex-1">
-                <div class="font-bold text-white">{player.name}</div>
+              <div class="flex-1 min-w-0">
+                <div class="font-bold text-white truncate">{player.name}</div>
                 <div class="text-xs text-gray-400">
-                  {player.totalGames} games • {player.wins}W {player.draws}D {player.losses}L
+                  {player.matchesPlayed} matches • Best: {player.bestMatch}
                 </div>
               </div>
 
-              <!-- Stats -->
-              <div class="text-right">
-                <div class="text-lg font-black text-cyber-green">{player.points}</div>
-                <div class="text-xs text-gray-400">Points</div>
+              <!-- Score Won (Primary Stat - Kills/Rounds/HP based on game) -->
+              <div class="text-center px-2">
+                <div class="text-xl font-black text-cyan-400">{player.scoreWon}</div>
+                <div class="text-xs text-gray-400">{isHealthBased ? 'Total HP' : isKillBased ? 'Total Kills' : 'Rounds Won'}</div>
               </div>
 
-              <div class="text-right">
-                <div class="text-lg font-black text-cyber-blue">{player.winRate}%</div>
-                <div class="text-xs text-gray-400">Win Rate</div>
+              <!-- Score Difference (K/D for kills, +/- for rounds) - Hidden for health-based games -->
+              {#if !isHealthBased}
+              <div class="text-center px-2">
+                <div class="text-lg font-bold {player.scoreDiff > 0 ? 'text-green-400' : player.scoreDiff < 0 ? 'text-red-400' : 'text-gray-400'}">
+                  {player.scoreDiff > 0 ? '+' : ''}{player.scoreDiff}
+                </div>
+                <div class="text-xs text-gray-400">{isKillBased ? 'K/D Diff' : '+/- Rounds'}</div>
+              </div>
+              {/if}
+
+              <!-- Win Rate -->
+              <div class="text-center px-2">
+                <div class="text-lg font-bold text-purple-400">{isHealthBased ? player.matchWinRate : player.scoreWinRate}%</div>
+                <div class="text-xs text-gray-400">{isHealthBased ? 'Win Rate' : isKillBased ? 'K/D %' : 'Win %'}</div>
               </div>
 
-              <div class="text-right">
-                <div class="text-lg font-black text-cyber-pink">{player.avgPoints}</div>
-                <div class="text-xs text-gray-400">Avg Pts</div>
+              <!-- Avg Score/Match (Avg HP per Win for Worms) -->
+              <div class="text-center px-2">
+                <div class="text-lg font-bold text-orange-400">{isHealthBased ? player.avgScorePerWin : player.avgScorePerMatch}</div>
+                <div class="text-xs text-gray-400">{isHealthBased ? 'Avg HP/Win' : 'Avg/Match'}</div>
               </div>
+              
+              <!-- Maps/Rounds Won (important for UT2004 and Worms) -->
+              {#if isKillBased || isHealthBased}
+              <div class="text-center px-2">
+                <div class="text-lg font-bold text-yellow-400">{player.mapsWon}</div>
+                <div class="text-xs text-gray-400">{isHealthBased ? 'Rounds Won' : 'Maps Won'}</div>
+              </div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -315,7 +575,7 @@
             <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
             </svg>
-            Group Performance
+            Group Performance ({isHealthBased ? 'HP' : isKillBased ? 'Kills' : 'Rounds'})
           </h2>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -332,12 +592,12 @@
                     <div class="text-xs text-gray-400">Matches</div>
                   </div>
                   <div>
-                    <div class="text-lg font-bold text-cyber-blue">{group.completedMatches}</div>
-                    <div class="text-xs text-gray-400">Completed</div>
+                    <div class="text-lg font-bold text-cyan-400">{group.totalScore}</div>
+                    <div class="text-xs text-gray-400">{isHealthBased ? 'HP' : isKillBased ? 'Kills' : 'Rounds'}</div>
                   </div>
                   <div>
-                    <div class="text-lg font-bold text-cyber-pink">{group.avgPoints}</div>
-                    <div class="text-xs text-gray-400">Avg Pts</div>
+                    <div class="text-lg font-bold text-purple-400">{group.avgScorePerMatch}</div>
+                    <div class="text-xs text-gray-400">Avg/Match</div>
                   </div>
                 </div>
 
@@ -392,7 +652,7 @@
             <div class="flex-1">
               <div class="font-bold text-white">Group Stage</div>
               <div class="text-sm text-gray-400">
-                {tournamentData.matches?.filter(m => m.completed).length || 0} of {tournamentData.matches?.length || 0} matches completed
+                {tournamentData.matches?.filter((m: any) => m.completed).length || 0} of {tournamentData.matches?.length || 0} matches completed
                 {#if tournamentData.state === 'group'}
                   <span class="text-cyber-blue font-bold">(Current Phase)</span>
                 {/if}
@@ -408,7 +668,7 @@
             <div class="flex-1">
               <div class="font-bold text-white">Playoffs</div>
               <div class="text-sm text-gray-400">
-                {tournamentData.bracketMatches?.filter(m => m.winnerId).length || 0} of {tournamentData.bracketMatches?.length || 0} matches completed
+                {tournamentData.bracketMatches?.filter((m: any) => m.winnerId).length || 0} of {tournamentData.bracketMatches?.length || 0} matches completed
                 {#if tournamentData.state === 'playoffs'}
                   <span class="text-cyber-pink font-bold">(Current Phase)</span>
                 {/if}

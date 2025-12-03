@@ -5,25 +5,9 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import session from 'express-session';
-import RedisStore from 'connect-redis';
-
-// Add session types to Express Request
-declare module 'express-serve-static-core' {
-  interface Request {
-    session: session.Session & Partial<session.SessionData>;
-  }
-}
-
-declare module 'express-session' {
-  interface SessionData {
-    admin?: boolean;
-  }
-}
-
-declare module 'connect-redis';
 
 import { TournamentManager } from './tournament.js';
+import { type GameType, GAME_CONFIGS, getAllGames } from './gameTypes.js';
 
 const app = express();
 const port = 3000;
@@ -63,6 +47,7 @@ const saveState = async (tournamentId: string) => {
 
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' })); 
+<<<<<<< HEAD
 
 // Session middleware (requires npm install express-session connect-redis)
 app.use(session({
@@ -72,6 +57,8 @@ app.use(session({
   saveUninitialized: false,
   cookie: { secure: false } // Set to true in production with HTTPS
 }));
+=======
+>>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
 
 // API Routes
 app.get('/api/health', (req, res) => {
@@ -84,11 +71,17 @@ app.get('/api/tournaments', (req, res) => {
     id: t.id,
     name: t.name,
     state: t.state,
+<<<<<<< HEAD
     playerCount: t.players.length
+=======
+    playerCount: t.players.length,
+    gameType: t.gameType
+>>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
   }));
   res.json(tournamentList);
 });
 
+<<<<<<< HEAD
 app.post('/api/tournaments', async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
@@ -98,6 +91,25 @@ app.post('/api/tournaments', async (req, res) => {
   await redisClient.sAdd('tournaments:list', id);
   await saveState(id);
   res.json({ id, name });
+=======
+// Get available games
+app.get('/api/games', (req, res) => {
+  res.json(getAllGames());
+});
+
+app.post('/api/tournaments', async (req, res) => {
+  const { name, gameType } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  if (!gameType || !GAME_CONFIGS[gameType as GameType]) {
+    return res.status(400).json({ error: 'Valid game type is required' });
+  }
+  const id = uuidv4();
+  const tournament = new TournamentManager(id, name, gameType as GameType);
+  tournaments.set(id, tournament);
+  await redisClient.sAdd('tournaments:list', id);
+  await saveState(id);
+  res.json({ id, name, gameType });
+>>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
 });
 
 // Delete a tournament
@@ -117,6 +129,51 @@ app.delete('/api/tournament/:tournamentId', async (req, res) => {
     }
 });
 
+<<<<<<< HEAD
+=======
+// Import a tournament from JSON
+app.post('/api/tournaments/import', async (req, res) => {
+    try {
+        const importData = req.body;
+        
+        if (!importData || !importData.id || !importData.name) {
+            return res.status(400).json({ error: 'Invalid tournament data' });
+        }
+        
+        // Use the original ID or generate a new one if it conflicts
+        let id = importData.tournamentId || importData.id;
+        if (tournaments.has(id)) {
+            // Generate new ID if tournament with this ID already exists
+            id = uuidv4();
+        }
+        
+        // Create a new tournament manager and restore state
+        const gameType = (importData.gameType || 'cs16') as GameType;
+        const tournament = new TournamentManager(id, importData.name, gameType);
+        
+        // Restore all data
+        tournament.players = importData.players || [];
+        tournament.pods = importData.pods || [];
+        tournament.matches = importData.matches || [];
+        tournament.bracketMatches = importData.bracketMatches || [];
+        tournament.state = importData.state || 'setup';
+        
+        tournaments.set(id, tournament);
+        await redisClient.sAdd('tournaments:list', id);
+        await saveState(id);
+        
+        res.json({ 
+            success: true, 
+            id, 
+            name: tournament.name,
+            message: `Tournament "${tournament.name}" imported successfully`
+        });
+    } catch (e: any) {
+        res.status(500).json({ error: 'Failed to import tournament', details: e.message });
+    }
+});
+
+>>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
 // Get tournament state
 app.get('/api/tournament/:tournamentId/state', (req, res) => {
   const { tournamentId } = req.params;
@@ -126,6 +183,11 @@ app.get('/api/tournament/:tournamentId/state', (req, res) => {
   res.json({
     id: tournament.id,
     name: tournament.name,
+<<<<<<< HEAD
+=======
+    gameType: tournament.gameType,
+    gameConfig: tournament.getGameConfig(),
+>>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
     players: tournament.players,
     pods: tournament.pods,
     matches: tournament.matches,
@@ -147,6 +209,7 @@ app.post('/api/tournament/:tournamentId/players', async (req, res) => {
     res.json(player);
 });
 
+<<<<<<< HEAD
 app.post('/api/login', (req, res) => {
   const { password } = req.body;
   if (password === 'admin123') { // Hardcoded for demo; use env var or DB
@@ -178,6 +241,9 @@ function requireAdmin(req: any, res: any, next: any) {
 
 // Protect edit routes (example for starting tournament)
 app.post('/api/tournament/:tournamentId/start', requireAdmin, async (req, res) => {
+=======
+app.post('/api/tournament/:tournamentId/start', async (req, res) => {
+>>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
     const { tournamentId } = req.params;
     const tournament = tournaments.get(tournamentId);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
@@ -234,6 +300,30 @@ app.post('/api/tournament/:tournamentId/bracket-match/:id', async (req, res) => 
     }
 });
 
+<<<<<<< HEAD
+=======
+// Submit a single game result for BO3 bracket match
+app.post('/api/tournament/:tournamentId/bracket-match/:id/game', async (req, res) => {
+    const { tournamentId, id } = req.params;
+    const tournament = tournaments.get(tournamentId);
+    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+    const { gameNumber, mapName, player1Score, player2Score, winnerId } = req.body;
+    try {
+        tournament.submitBracketGameResult(id, {
+            gameNumber,
+            mapName,
+            player1Score,
+            player2Score,
+            winnerId
+        });
+        await saveState(tournamentId);
+        res.json({ success: true });
+    } catch (e: any) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+>>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
 app.post('/api/tournament/:tournamentId/reset', async (req, res) => {
     const { tournamentId } = req.params;
     const tournament = tournaments.get(tournamentId);
@@ -323,6 +413,23 @@ app.put('/api/tournament/:tournamentId/player/:playerId/photo', async (req, res)
     res.status(400).json({ error: e.message });
   }
 });
+<<<<<<< HEAD
+=======
+
+// Remove player
+app.delete('/api/tournament/:tournamentId/player/:playerId', async (req, res) => {
+  const { tournamentId, playerId } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  try {
+    tournament.removePlayer(playerId);
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+>>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
 
 // Serve static files from the Svelte app build
 const __filename = fileURLToPath(import.meta.url);
