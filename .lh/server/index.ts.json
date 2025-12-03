@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 16,
+            "activePatchIndex": 25,
             "patches": [
                 {
                     "date": 1763988509840,
@@ -72,6 +72,42 @@
                 {
                     "date": 1764030267337,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -44,9 +44,9 @@\n     }\r\n };\r\n \r\n app.use(cors());\r\n-app.use(bodyParser.json());\r\n+app.use(bodyParser.json({ limit: '10mb' })); // Increase limit to 10MB for photo uploads\r\n \r\n // API Routes\r\n app.get('/api/health', (req, res) => {\r\n   res.json({ status: 'ok' });\r\n"
+                },
+                {
+                    "date": 1764074503636,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -4,8 +4,10 @@\n import bodyParser from 'body-parser';\r\n import path from 'path';\r\n import { fileURLToPath } from 'url';\r\n import { v4 as uuidv4 } from 'uuid';\r\n+import session from 'express-session';\r\n+import RedisStore from 'connect-redis';\r\n \r\n import { TournamentManager } from './tournament.js';\r\n \r\n const app = express();\r\n@@ -44,10 +46,19 @@\n     }\r\n };\r\n \r\n app.use(cors());\r\n-app.use(bodyParser.json({ limit: '10mb' })); // Increase limit to 10MB for photo uploads\r\n+app.use(bodyParser.json({ limit: '10mb' })); \r\n \r\n+// Session middleware (requires npm install express-session connect-redis)\r\n+app.use(session({\r\n+  store: new RedisStore({ client: redisClient }),\r\n+  secret: 'your-secret-key', // Change to a secure key\r\n+  resave: false,\r\n+  saveUninitialized: false,\r\n+  cookie: { secure: false } // Set to true in production with HTTPS\r\n+}));\r\n+\r\n // API Routes\r\n app.get('/api/health', (req, res) => {\r\n   res.json({ status: 'ok' });\r\n });\r\n@@ -120,9 +131,39 @@\n     await saveState(tournamentId);\r\n     res.json(player);\r\n });\r\n \r\n-app.post('/api/tournament/:tournamentId/start', async (req, res) => {\r\n+app.post('/api/login', (req, res) => {\r\n+  const { password } = req.body;\r\n+  if (password === 'admin123') { // Hardcoded for demo; use env var or DB\r\n+    req.session.admin = true;\r\n+    res.json({ success: true });\r\n+  } else {\r\n+    res.status(401).json({ error: 'Invalid password' });\r\n+  }\r\n+});\r\n+\r\n+app.post('/api/logout', (req, res) => {\r\n+  req.session.destroy(() => {\r\n+    res.json({ success: true });\r\n+  });\r\n+});\r\n+\r\n+app.get('/api/admin/status', (req, res) => {\r\n+  res.json({ isAdmin: !!req.session.admin });\r\n+});\r\n+\r\n+// Middleware to protect edit routes\r\n+function requireAdmin(req: any, res: any, next: any) {\r\n+  if (req.session.admin) {\r\n+    next();\r\n+  } else {\r\n+    res.status(403).json({ error: 'Admin access required' });\r\n+  }\r\n+}\r\n+\r\n+// Protect edit routes (example for starting tournament)\r\n+app.post('/api/tournament/:tournamentId/start', requireAdmin, async (req, res) => {\r\n     const { tournamentId } = req.params;\r\n     const tournament = tournaments.get(tournamentId);\r\n     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });\r\n     try {\r\n"
+                },
+                {
+                    "date": 1764075119894,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -7,8 +7,15 @@\n import { v4 as uuidv4 } from 'uuid';\r\n import session from 'express-session';\r\n import RedisStore from 'connect-redis';\r\n \r\n+// Add session types to Express Request\r\n+declare module 'express-serve-static-core' {\r\n+  interface Request {\r\n+    session: session.Session & Partial<session.SessionData>;\r\n+  }\r\n+}\r\n+\r\n import { TournamentManager } from './tournament.js';\r\n \r\n const app = express();\r\n const port = 3000;\r\n"
+                },
+                {
+                    "date": 1764075219460,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -5,9 +5,9 @@\n import path from 'path';\r\n import { fileURLToPath } from 'url';\r\n import { v4 as uuidv4 } from 'uuid';\r\n import session from 'express-session';\r\n-import RedisStore from 'connect-redis';\r\n+import { RedisStore } from 'connect-redis';\r\n \r\n // Add session types to Express Request\r\n declare module 'express-serve-static-core' {\r\n   interface Request {\r\n"
+                },
+                {
+                    "date": 1764075232276,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -14,8 +14,14 @@\n     session: session.Session & Partial<session.SessionData>;\r\n   }\r\n }\r\n \r\n+declare module 'express-session' {\r\n+  interface SessionData {\r\n+    admin?: boolean;\r\n+  }\r\n+}\r\n+\r\n import { TournamentManager } from './tournament.js';\r\n \r\n const app = express();\r\n const port = 3000;\r\n"
+                },
+                {
+                    "date": 1764075386394,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -5,9 +5,9 @@\n import path from 'path';\r\n import { fileURLToPath } from 'url';\r\n import { v4 as uuidv4 } from 'uuid';\r\n import session from 'express-session';\r\n-import { RedisStore } from 'connect-redis';\r\n+import RedisStore from 'connect-redis';\r\n \r\n // Add session types to Express Request\r\n declare module 'express-serve-static-core' {\r\n   interface Request {\r\n"
+                },
+                {
+                    "date": 1764075453626,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -19,8 +19,9 @@\n   interface SessionData {\r\n     admin?: boolean;\r\n   }\r\n }\r\n+declare module 'connect-redis';\r\n \r\n import { TournamentManager } from './tournament.js';\r\n \r\n const app = express();\r\n"
+                },
+                {
+                    "date": 1764075599707,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -19,11 +19,10 @@\n   interface SessionData {\r\n     admin?: boolean;\r\n   }\r\n }\r\n-declare module 'connect-redis';\r\n \r\n-import { TournamentManager } from './tournament.js';\r\n+// import { TournamentManager } from './tournament.js';\r\n \r\n const app = express();\r\n const port = 3000;\r\n \r\n@@ -64,9 +63,9 @@\n app.use(bodyParser.json({ limit: '10mb' })); \r\n \r\n // Session middleware (requires npm install express-session connect-redis)\r\n app.use(session({\r\n-  store: new RedisStore({ client: redisClient }),\r\n+  store: new (RedisStore as any)({ client: redisClient }),\r\n   secret: 'your-secret-key', // Change to a secure key\r\n   resave: false,\r\n   saveUninitialized: false,\r\n   cookie: { secure: false } // Set to true in production with HTTPS\r\n"
+                },
+                {
+                    "date": 1764075693236,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -20,9 +20,9 @@\n     admin?: boolean;\r\n   }\r\n }\r\n \r\n-// import { TournamentManager } from './tournament.js';\r\n+import { TournamentManager } from './tournament.js';\r\n \r\n const app = express();\r\n const port = 3000;\r\n \r\n"
+                },
+                {
+                    "date": 1764075755189,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -20,8 +20,10 @@\n     admin?: boolean;\r\n   }\r\n }\r\n \r\n+declare module 'connect-redis';\r\n+\r\n import { TournamentManager } from './tournament.js';\r\n \r\n const app = express();\r\n const port = 3000;\r\n"
                 }
             ],
             "date": 1763988509840,

@@ -1,6 +1,11 @@
-<script>
+<script lang="ts">
   import './app.css';
-  let { children, tournamentId } = $props();
+  let { children, tournamentId, isAdmin } = $props();
+
+  async function logout() {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.reload();
+  }
 </script>
 
 <!-- Professional Gaming Navbar -->
@@ -27,6 +32,15 @@
     </div>
   </div>
 </nav>
+
+<!-- Admin Login / Logout -->
+<div class="max-w-7xl mx-auto px-6 py-3 text-right">
+  {#if isAdmin}
+    <button onclick={logout} class="text-sm text-red-400 hover:text-red-300">Logout</button>
+  {:else}
+    <a href="/login" class="text-sm text-cyber-blue hover:text-cyber-green">Admin Login</a>
+  {/if}
+</div>
 
 <!-- Full Width Main Content -->
 <main class="w-full">

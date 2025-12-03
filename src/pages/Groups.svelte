@@ -299,98 +299,103 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         {#each Object.entries(groupsWithPlayers) as [groupId, groupPlayers] (groupId)}
           <div class="glass rounded-lg p-2">
-            <!-- Group Header with Edit and Reset -->
-            <div class="flex items-center justify-between mb-1.5 px-2">
-              {#if editingGroupId === groupId}
-                <div class="flex items-center gap-2 flex-1">
-                  <input
-                    type="text"
-                    bind:value={editingGroupName}
-                    class="flex-1 px-2 py-1 text-xs bg-space-700 border border-cyber-blue rounded text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-cyber-green"
-                    placeholder="Group name..."
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter') saveGroupName(groupId);
-                      if (e.key === 'Escape') cancelEditingGroup();
-                    }}
-                  />
-                  <button
-                    onclick={() => saveGroupName(groupId)}
-                    class="px-2 py-1 text-xs bg-cyber-green text-space-900 rounded font-bold hover:bg-cyber-green/80"
-                  >
-                    ✓
-                  </button>
-                  <button
-                    onclick={cancelEditingGroup}
-                    class="px-2 py-1 text-xs bg-gray-600 text-white rounded font-bold hover:bg-gray-500"
-                  >
-                    ✕
-                  </button>
-                </div>
-              {:else}
-                <div class="flex items-center gap-2 flex-1">
-                  <span class="text-xs font-bold text-cyber-blue hover:text-cyber-green transition-colors">
-                    {getGroupDisplayName(groupId)}
-                  </span>
-                  {#if tournamentState === 'registration'}
-                    <button
-                      class="ml-2 px-2 py-1 text-xs bg-cyber-green text-black rounded hover:bg-cyber-green/80"
-                      onclick={() => startEditingGroup(groupId, getGroupDisplayName(groupId))}
-                    >
-                      Edit
-                    </button>
-                  {/if}
-                </div>
-              {/if}
-              <button
-                onclick={() => handleResetGroup(groupId)}
-                class="px-2 py-1 text-xs bg-red-600 text-white rounded font-bold hover:bg-red-500 transition-colors"
-                title="Reset group data"
-              >
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-              </button>
+        <!-- Group Header with Edit and Reset -->
+        <div class="flex items-center justify-between mb-1.5 px-2">
+          {#if editingGroupId === groupId}
+            <div class="flex items-center gap-2 flex-1">
+          <input
+            type="text"
+            bind:value={editingGroupName}
+            class="flex-1 px-2 py-1 text-xs bg-space-700 border border-cyber-blue rounded text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-cyber-green"
+            placeholder="Group name..."
+            onkeydown={(e) => {
+              if (e.key === 'Enter') saveGroupName(groupId);
+              if (e.key === 'Escape') cancelEditingGroup();
+            }}
+          />
+          {#if isAdmin}
+            <button
+              onclick={() => saveGroupName(groupId)}
+              class="px-2 py-1 text-xs bg-cyber-green text-space-900 rounded font-bold hover:bg-cyber-green/80"
+            >
+              ✓
+            </button>
+            <button
+              onclick={cancelEditingGroup}
+              class="px-2 py-1 text-xs bg-gray-600 text-white rounded font-bold hover:bg-gray-500"
+            >
+              ✕
+            </button>
+          {/if}
             </div>
-            <table class="w-full text-xs">
-              <thead>
-                <tr class="border-b border-space-600">
-                  <th class="text-left py-1 px-1 text-gray-400 font-bold text-xs">#</th>
-                  <th class="text-left py-1 px-1 text-gray-400 font-bold text-xs">Player</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">P</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">W</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">D</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">L</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">Pts</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each groupPlayers as player, index (player.id)}
-                  <tr class="border-b border-space-700/50 hover:bg-space-700/30 transition-colors">
-                    <td class="py-1 px-1">
-                      <div class="w-4 h-4 rounded-full flex items-center justify-center font-bold text-xs {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900' : index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' : 'bg-space-600 text-gray-400'}">
-                        {index + 1}
-                      </div>
-                    </td>
-                    <td class="py-1 px-1 font-bold text-white text-xs flex items-center gap-2">
-                      {#if player.profilePhoto}
-                        <img src={player.profilePhoto} alt="Profile" class="w-6 h-6 rounded-full object-cover inline-block" />
-                      {/if}
-                      {player.name}
-                    </td>                    
-                    <td class="text-center py-1 px-1 text-gray-400">{(player.wins || 0) + (player.draws || 0) + (player.losses || 0)}</td>
-                    <td class="text-center py-1 px-1 text-cyber-green font-bold">{player.wins || 0}</td>
-                    <td class="text-center py-1 px-1 text-yellow-500 font-bold">{player.draws || 0}</td>
-                    <td class="text-center py-1 px-1 text-red-400 font-bold">{player.losses || 0}</td>
-                    <td class="text-center py-1 px-1 text-cyber-green font-black">{player.points || 0}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
+          {:else}
+            <div class="flex items-center gap-2 flex-1">
+          <span class="text-xs font-bold text-cyber-blue hover:text-cyber-green transition-colors">
+            {getGroupDisplayName(groupId)}
+          </span>
+          {#if isAdmin}
+            {#if tournamentState === 'registration'}
+              <button
+            class="ml-2 px-2 py-1 text-xs bg-cyber-green text-black rounded hover:bg-cyber-green/80"
+            onclick={() => startEditingGroup(groupId, getGroupDisplayName(groupId))}
+              >
+            Edit
+              </button>
+            {/if}
+          {/if}
+            </div>
+          {/if}
+          {#if isAdmin}
+            <button
+          onclick={() => handleResetGroup(groupId)}
+          class="px-2 py-1 text-xs bg-red-600 text-white rounded font-bold hover:bg-red-500 transition-colors"
+          title="Reset group data"
+            >
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+            </button>
+          {/if}
+        </div>
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-space-600">
+          <th class="text-left py-1 px-1 text-gray-400 font-bold text-xs">#</th>
+          <th class="text-left py-1 px-1 text-gray-400 font-bold text-xs">Player</th>
+          <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">P</th>
+          <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">W</th>
+          <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">D</th>
+          <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">L</th>
+          <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">Pts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each groupPlayers as player, index (player.id)}
+          <tr class="border-b border-space-700/50 hover:bg-space-700/30 transition-colors">
+            <td class="py-1 px-1">
+              <div class="w-4 h-4 rounded-full flex items-center justify-center font-bold text-xs {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900' : index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' : 'bg-space-600 text-gray-400'}">
+            {index + 1}
+              </div>
+            </td>
+            <td class="py-1 px-1 font-bold text-white text-xs flex items-center gap-2">
+              {#if player.profilePhoto}
+            <img src={player.profilePhoto} alt="Profile" class="w-6 h-6 rounded-full object-cover inline-block" />
+              {/if}
+              {player.name}
+            </td>                    
+            <td class="text-center py-1 px-1 text-gray-400">{(player.wins || 0) + (player.draws || 0) + (player.losses || 0)}</td>
+            <td class="text-center py-1 px-1 text-cyber-green font-bold">{player.wins || 0}</td>
+            <td class="text-center py-1 px-1 text-yellow-500 font-bold">{player.draws || 0}</td>
+            <td class="text-center py-1 px-1 text-red-400 font-bold">{player.losses || 0}</td>
+            <td class="text-center py-1 px-1 text-cyber-green font-black">{player.points || 0}</td>
+          </tr>
+            {/each}
+          </tbody>
+        </table>
           </div>
         {/each}
       </div>
-    </div>
-
+        </div>
     <!-- Matches Section -->
     <div>
       <h2 class="text-base font-bold mb-2 text-white">Round {currentRound} Matches</h2>

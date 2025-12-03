@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 2,
+            "activePatchIndex": 6,
             "patches": [
                 {
                     "date": 1763988815053,
@@ -16,6 +16,22 @@
                 {
                     "date": 1764024924369,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -20,8 +20,9 @@\n         {#if tournamentId}\r\n           <a href={`/tournament/${tournamentId}`} class=\"text-sm font-black gradient-text hover:scale-105 transition-all duration-200\">Dashboard</a>\r\n           <a href={`/tournament/${tournamentId}/groups`} class=\"text-sm font-black gradient-text hover:scale-105 transition-all duration-200\">Groups</a>\r\n           <a href={`/tournament/${tournamentId}/brackets`} class=\"text-sm font-black gradient-text hover:scale-105 transition-all duration-200\">Brackets</a>\r\n+          <a href={`/tournament/${tournamentId}/statistics`} class=\"text-sm font-black gradient-text hover:scale-105 transition-all duration-200\">Statistics</a>\r\n         {/if}\r\n       </div>\r\n     </div>\r\n   </div>\r\n"
+                },
+                {
+                    "date": 1764074602679,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,7 +1,13 @@\n-<script>\r\n+<script lang=\"ts\">\r\n   import './app.css';\r\n   let { children, tournamentId } = $props();\r\n+  export let isAdmin: boolean;\r\n+\r\n+  async function logout() {\r\n+    await fetch('/api/logout', { method: 'POST' });\r\n+    window.location.reload();\r\n+  }\r\n </script>\r\n \r\n <!-- Professional Gaming Navbar -->\r\n <nav class=\"w-full bg-space-900/98 backdrop-blur-xl border-b border-cyber-green/40 sticky top-0 z-50 shadow-xl\">\r\n@@ -27,8 +33,17 @@\n     </div>\r\n   </div>\r\n </nav>\r\n \r\n+<!-- Admin Login / Logout -->\r\n+<div class=\"max-w-7xl mx-auto px-6 py-3 text-right\">\r\n+  {#if isAdmin}\r\n+    <button onclick={logout} class=\"text-sm text-red-400 hover:text-red-300\">Logout</button>\r\n+  {:else}\r\n+    <a href=\"/login\" class=\"text-sm text-cyber-blue hover:text-cyber-green\">Admin Login</a>\r\n+  {/if}\r\n+</div>\r\n+\r\n <!-- Full Width Main Content -->\r\n <main class=\"w-full\">\r\n   {@render children()}\r\n </main>\r\n"
+                },
+                {
+                    "date": 1764074920719,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,7 +1,7 @@\n <script lang=\"ts\">\r\n   import './app.css';\r\n-  let { children, tournamentId } = $props();\r\n+  let { children, tournamentId, isAdmin } = $props();\r\n   export let isAdmin: boolean;\r\n \r\n   async function logout() {\r\n     await fetch('/api/logout', { method: 'POST' });\r\n"
+                },
+                {
+                    "date": 1764074927294,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,8 +1,8 @@\n <script lang=\"ts\">\r\n   import './app.css';\r\n+  export let isAdmin: boolean;\r\n   let { children, tournamentId, isAdmin } = $props();\r\n-  export let isAdmin: boolean;\r\n \r\n   async function logout() {\r\n     await fetch('/api/logout', { method: 'POST' });\r\n     window.location.reload();\r\n"
+                },
+                {
+                    "date": 1764074940487,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,8 +1,8 @@\n <script lang=\"ts\">\r\n   import './app.css';\r\n+  let { children, tournamentId, isAdmin } = $props();\r\n   export let isAdmin: boolean;\r\n-  let { children, tournamentId, isAdmin } = $props();\r\n \r\n   async function logout() {\r\n     await fetch('/api/logout', { method: 'POST' });\r\n     window.location.reload();\r\n"
                 }
             ],
             "date": 1763988815053,

@@ -5,6 +5,23 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import session from 'express-session';
+import RedisStore from 'connect-redis';
+
+// Add session types to Express Request
+declare module 'express-serve-static-core' {
+  interface Request {
+    session: session.Session & Partial<session.SessionData>;
+  }
+}
+
+declare module 'express-session' {
+  interface SessionData {
+    admin?: boolean;
+  }
+}
+
+declare module 'connect-redis';
 
 import { TournamentManager } from './tournament.js';
 
@@ -46,6 +63,15 @@ const saveState = async (tournamentId: string) => {
 
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' })); 
+
+// Session middleware (requires npm install express-session connect-redis)
+app.use(session({
+  store: new (RedisStore as any)({ client: redisClient }),
+  secret: 'your-secret-key', // Change to a secure key
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false } // Set to true in production with HTTPS
+}));
 
 // API Routes
 app.get('/api/health', (req, res) => {
@@ -121,7 +147,37 @@ app.post('/api/tournament/:tournamentId/players', async (req, res) => {
     res.json(player);
 });
 
-app.post('/api/tournament/:tournamentId/start', async (req, res) => {
+app.post('/api/login', (req, res) => {
+  const { password } = req.body;
+  if (password === 'admin123') { // Hardcoded for demo; use env var or DB
+    req.session.admin = true;
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ error: 'Invalid password' });
+  }
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.json({ success: true });
+  });
+});
+
+app.get('/api/admin/status', (req, res) => {
+  res.json({ isAdmin: !!req.session.admin });
+});
+
+// Middleware to protect edit routes
+function requireAdmin(req: any, res: any, next: any) {
+  if (req.session.admin) {
+    next();
+  } else {
+    res.status(403).json({ error: 'Admin access required' });
+  }
+}
+
+// Protect edit routes (example for starting tournament)
+app.post('/api/tournament/:tournamentId/start', requireAdmin, async (req, res) => {
     const { tournamentId } = req.params;
     const tournament = tournaments.get(tournamentId);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
