@@ -247,21 +247,19 @@
     // For games that don't allow ties, scores must be different
     if (!tieAllowed && player1Score === player2Score) return false;
     
-    // CS16 specific: MR15 format (first to 15 rounds wins)
-    // Valid results: 15-X where X is 0-14, or 15-15 (tie)
     if (gameType === 'cs16') {
-      const winScore = 15;
-      const maxLoserScore = 14; // In regulation, loser can have max 14
+      const winScore = 16; 
+      const maxLoserScore = 15;
       
       if (player1Score > player2Score) {
-        // Player 1 wins - must have exactly 15, loser max 14
+        // Player 1 wins - must have exactly 16, loser max 15
         if (player1Score !== winScore || player2Score > maxLoserScore) return false;
       } else if (player2Score > player1Score) {
-        // Player 2 wins - must have exactly 15, loser max 14
+        // Player 2 wins - must have exactly 16, loser max 15
         if (player2Score !== winScore || player1Score > maxLoserScore) return false;
       } else {
         // Tie - only valid at 15-15
-        if (player1Score !== 15) return false;
+        if (player1Score !== 15 || player2Score !== 15) return false;
       }
     }
     return true;
@@ -279,8 +277,8 @@
     }
     
     if (gameType === 'cs16') {
-      const winScore = 15;
-      const maxLoserScore = 14;
+      const winScore = 16;
+      const maxLoserScore = 15;
       
       if (player1Score > player2Score) {
         if (player1Score !== winScore) {
@@ -296,7 +294,7 @@
         if (player1Score > maxLoserScore) {
           return `Loser cannot have more than ${maxLoserScore} rounds`;
         }
-      } else if (player1Score !== 15) {
+      } else if (player1Score !== 15 || player2Score !== 15) {
         return 'Ties only valid at 15-15';
       }
     }

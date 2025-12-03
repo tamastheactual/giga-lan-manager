@@ -54,11 +54,11 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         playoffs: {
             format: 'Best of 3 maps (BO3)',
             mapsPerMatch: 3,
-            description: 'All 3 maps played, first to 10 per map',
-            maxDuration: '~45 minutes',
+            description: 'MR9 per map (first to 10 wins)',
+            maxDuration: '~90 minutes',
             scoreType: 'rounds',
             scoreLabel: 'Rounds Won',
-            maxScorePerMap: 19,
+            maxScorePerMap: 10,
             roundsPerMap: 19
         },
         rules: [
