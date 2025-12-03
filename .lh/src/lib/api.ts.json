@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 10,
+            "activePatchIndex": 11,
             "patches": [
                 {
                     "date": 1763988603933,
@@ -48,6 +48,10 @@
                 {
                     "date": 1764771501891,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -57,10 +57,10 @@\n             description: 'MR9 per map (first to 10 wins)',\r\n             maxDuration: '~90 minutes',\r\n             scoreType: 'rounds',\r\n             scoreLabel: 'Rounds Won',\r\n-            maxScorePerMap: 10, // MR9 = first to 10\r\n-            roundsPerMap: 19 // Changed from 19 to reflect MR9 (18 max)\r\n+            maxScorePerMap: 10,\r\n+            roundsPerMap: 19\r\n         },\r\n         rules: [\r\n             'Group Stage: 1 random map per match',\r\n             'Playoffs: All 3 maps played in player-decided order',\r\n"
+                },
+                {
+                    "date": 1764777010304,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -280,22 +280,23 @@\n     return res.json();\r\n }\r\n \r\n // Submit a single game result for BO3 bracket match\r\n-export async function submitBracketGameResult(\r\n-    tournamentId: string, \r\n-    matchId: string, \r\n-    gameResult: {\r\n-        gameNumber: number;\r\n-        mapName?: string;\r\n-        player1Score: number;\r\n-        player2Score: number;\r\n-        winnerId: string;\r\n-    }\r\n-) {\r\n-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/bracket-match/${matchId}/game`, {\r\n+export async function submitBracketGameResult(tournamentId: string, matchId: string, gameResult: any) {\r\n+    const response = await fetch(`/api/tournament/${tournamentId}/bracket/${matchId}/game`, {\r\n         method: 'POST',\r\n         headers: { 'Content-Type': 'application/json' },\r\n         body: JSON.stringify(gameResult)\r\n     });\r\n-    return res.json();\r\n+    if (!response.ok) throw new Error('Failed to submit game result');\r\n+    return response.json();\r\n }\r\n+\r\n+export async function updateBracketMatch(tournamentId: string, matchId: string, winnerId: string, games: any) {\r\n+    const response = await fetch(`/api/tournament/${tournamentId}/bracket/${matchId}`, {\r\n+        method: 'PUT',\r\n+        headers: { 'Content-Type': 'application/json' },\r\n+        body: JSON.stringify({ winnerId, games })\r\n+    });\r\n+    if (!response.ok) throw new Error('Failed to update bracket match');\r\n+    return response.json();\r\n+}\r\n"
                 }
             ],
             "date": 1763988603933,

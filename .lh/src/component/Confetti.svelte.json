@@ -1,0 +1,22 @@
+{
+    "sourceFile": "src/component/Confetti.svelte",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 1,
+            "patches": [
+                {
+                    "date": 1764776406953,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                },
+                {
+                    "date": 1764776928961,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -3,9 +3,8 @@\n     show?: boolean; \r\n     duration?: number;\r\n   }>();\r\n \r\n-  // Auto-hide after duration\r\n   $effect(() => {\r\n     if (show) {\r\n       const timer = setTimeout(() => {\r\n         show = false;\r\n"
+                }
+            ],
+            "date": 1764776406953,
+            "name": "Commit-0",
+            "content": "<script lang=\"ts\">\r\n  let { show = $bindable(false), duration = 3000 } = $props<{ \r\n    show?: boolean; \r\n    duration?: number;\r\n  }>();\r\n\r\n  // Auto-hide after duration\r\n  $effect(() => {\r\n    if (show) {\r\n      const timer = setTimeout(() => {\r\n        show = false;\r\n      }, duration);\r\n      return () => clearTimeout(timer);\r\n    }\r\n  });\r\n</script>\r\n\r\n{#if show}\r\n  <div class=\"confetti-container\">\r\n    {#each Array(50) as _, i}\r\n      <div \r\n        class=\"confetti\" \r\n        style=\"\r\n          --rotation: {Math.random() * 360}deg;\r\n          --x-start: {Math.random() * 100}vw;\r\n          --x-end: {(Math.random() - 0.5) * 200}px;\r\n          --delay: {Math.random() * 0.5}s;\r\n          --duration: {2 + Math.random() * 2}s;\r\n          --color: {['#06B6D4', '#22C55E', '#FBCF24', '#EC4899', '#A855F7', '#F97316'][i % 6]};\r\n        \"\r\n      ></div>\r\n    {/each}\r\n  </div>\r\n{/if}\r\n\r\n<style>\r\n  .confetti-container {\r\n    position: fixed;\r\n    top: 0;\r\n    left: 0;\r\n    width: 100vw;\r\n    height: 100vh;\r\n    pointer-events: none;\r\n    z-index: 9999;\r\n    overflow: hidden;\r\n  }\r\n\r\n  .confetti {\r\n    position: absolute;\r\n    width: 10px;\r\n    height: 10px;\r\n    background-color: var(--color);\r\n    top: -10px;\r\n    left: var(--x-start);\r\n    opacity: 1;\r\n    animation: confetti-fall var(--duration) linear var(--delay) forwards;\r\n    transform: rotate(var(--rotation));\r\n  }\r\n\r\n  .confetti::before {\r\n    content: '';\r\n    position: absolute;\r\n    width: 100%;\r\n    height: 100%;\r\n    background-color: inherit;\r\n    transform: rotate(45deg);\r\n  }\r\n\r\n  @keyframes confetti-fall {\r\n    0% {\r\n      transform: translateY(0) translateX(0) rotate(var(--rotation));\r\n      opacity: 1;\r\n    }\r\n    100% {\r\n      transform: translateY(100vh) translateX(var(--x-end)) rotate(calc(var(--rotation) + 720deg));\r\n      opacity: 0;\r\n    }\r\n  }\r\n</style>"
+        }
+    ]
+}

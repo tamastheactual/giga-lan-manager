@@ -281,21 +281,22 @@ export async function removePlayer(tournamentId: string, playerId: string) {
 }
 
 // Submit a single game result for BO3 bracket match
-export async function submitBracketGameResult(
-    tournamentId: string, 
-    matchId: string, 
-    gameResult: {
-        gameNumber: number;
-        mapName?: string;
-        player1Score: number;
-        player2Score: number;
-        winnerId: string;
-    }
-) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/bracket-match/${matchId}/game`, {
+export async function submitBracketGameResult(tournamentId: string, matchId: string, gameResult: any) {
+    const response = await fetch(`/api/tournament/${tournamentId}/bracket/${matchId}/game`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gameResult)
     });
-    return res.json();
+    if (!response.ok) throw new Error('Failed to submit game result');
+    return response.json();
+}
+
+export async function updateBracketMatch(tournamentId: string, matchId: string, winnerId: string, games: any) {
+    const response = await fetch(`/api/tournament/${tournamentId}/bracket/${matchId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ winnerId, games })
+    });
+    if (!response.ok) throw new Error('Failed to update bracket match');
+    return response.json();
 }

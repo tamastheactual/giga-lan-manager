@@ -1,8 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, submitBracketWinner, submitBracketGameResult, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getState, updateBracketMatch, submitBracketGameResult, type GameType, GAME_CONFIGS } from '$lib/api';
+  import Confetti from '../components/Confetti.svelte';
 
   let { tournamentId } = $props<{ tournamentId: string }>();
+
+  // Add missing state variables
+  let tournamentData = $state(null) as any;
+  let loading = $state(true);
+  let error = $state(null) as string | null;
 
   let bracketMatches = $state([]) as any[];
   let groupMatches = $state([]) as any[];
@@ -15,13 +21,40 @@
   let editingMatchId = $state<string | null>(null);
   let mapScores = $state<{ player1Score: number; player2Score: number }[]>([]);
 
+  // Confetti state
+  let showConfetti = $state(false);
+  let winnerName = $state('');
+  let tournamentComplete = $state(false);
+
   // Derived game config
   const gameConfig = $derived(gameType ? GAME_CONFIGS[gameType] : null);
   const mapsPerMatch = $derived(gameConfig?.playoffs.mapsPerMatch || 3);
-  const maxScorePerMap = $derived(gameConfig?.playoffs.maxScorePerMap || gameConfig?.groupStage.maxScore); // undefined = no limit
+  const maxScorePerMap = $derived(gameConfig?.playoffs.maxScorePerMap || gameConfig?.groupStage.maxScore);
   const scoreLabel = $derived(gameConfig?.playoffs.scoreLabel || 'Rounds');
   const isKillBased = $derived(gameConfig?.groupStage.scoreType === 'kills');
   const isHealthBased = $derived(gameConfig?.groupStage.scoreType === 'health');
+
+  // Add helper functions
+  function getPlayer(playerId: string) {
+    return players.find(p => p.id === playerId);
+  }
+
+  function getPlayerName(playerId: string) {
+    return getPlayer(playerId)?.name || 'TBD';
+  }
+
+  function getRunnerUp() {
+    const finals = bracketMatches.find((m: any) => m.bracketType === 'finals');
+    if (!finals || !finals.winnerId) return null;
+    const loserId = finals.player1Id === finals.winnerId ? finals.player2Id : finals.player1Id;
+    return getPlayer(loserId);
+  }
+
+  function getThirdPlace() {
+    const thirdPlaceMatch = bracketMatches.find((m: any) => m.bracketType === '3rd-place');
+    if (!thirdPlaceMatch || !thirdPlaceMatch.winnerId) return null;
+    return getPlayer(thirdPlaceMatch.winnerId);
+  }
 
   // Calculate total score (rounds/kills) for a player (group stage + bracket matches)
   function getPlayerTotalScore(playerId: string): number {
@@ -95,59 +128,81 @@
   }
 
   async function loadState() {
-    const data = await getState(tournamentId);
-    // With $state, direct assignment triggers reactivity
-    bracketMatches = data.bracketMatches;
-    groupMatches = data.matches || [];
-    players = data.players;
-    tournamentState = data.state;
-    gameType = data.gameType || 'cs16';
-
-    // Find champion (winner of finals)
-    const final = bracketMatches.find(m => m.bracketType === 'finals');
-    if (final?.winnerId) {
-      champion = players.find(p => p.id === final.winnerId);
+    try {
+      loading = true;
+      error = null;
+      tournamentData = await getState(tournamentId);
+      
+      // Extract data from tournamentData
+      bracketMatches = tournamentData.bracketMatches || [];
+      groupMatches = tournamentData.matches || [];
+      players = tournamentData.players || [];
+      tournamentState = tournamentData.state || '';
+      champion = tournamentData.champion || null;
+      gameType = tournamentData.gameType || 'cs16';
+      
+      // Check if tournament is complete and champion is declared
+      checkForChampion();
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load bracket data';
+      console.error('Error loading bracket data:', err);
+    } finally {
+      loading = false;
     }
   }
 
-  function getPlayerName(id: string) {
-    if (!id) return 'TBD';
-    return players.find(p => p.id === id)?.name || 'Unknown';
+  function checkForChampion() {
+    if (!tournamentData?.bracketMatches) return;
+
+    // Find the finals match
+    const finals = tournamentData.bracketMatches.find((m: any) => m.bracketType === 'finals');
+    
+    if (finals?.winnerId) {
+      // Tournament champion declared
+      tournamentComplete = true;
+      const championPlayer = finals.player1Id === finals.winnerId 
+        ? getPlayer(finals.player1Id) 
+        : getPlayer(finals.player2Id);
+      
+      if (championPlayer) {
+        winnerName = championPlayer.name;
+        champion = championPlayer;
+        // Show confetti after a brief delay for page load
+        setTimeout(() => {
+          showConfetti = true;
+        }, 500);
+      }
+    } else {
+      tournamentComplete = false;
+      showConfetti = false;
+    }
   }
 
-  function getPlayer(id: string) {
-    return players.find(p => p.id === id);
-  }
+async function handleDeclareWinner(matchId: string, winnerId: string) {
+  if (!confirm('Are you sure you want to declare this player as the winner?')) return;
   
-  function getRunnerUp() {
-    const final = bracketMatches.find(m => m.bracketType === 'finals');
-    if (final?.winnerId) {
-      const loserId = final.player1Id === final.winnerId ? final.player2Id : final.player1Id;
-      return players.find(p => p.id === loserId);
+  try {
+    await updateBracketMatch(tournamentId, matchId, winnerId, null);
+    
+    // Find winner name for confetti
+    const match = bracketMatches.find(m => m.id === matchId); // Changed from allMatches
+    const winner = match?.player1Id === winnerId 
+      ? getPlayer(match.player1Id) 
+      : match?.player2Id === winnerId 
+        ? getPlayer(match.player2Id) 
+        : null;
+    
+    if (winner) {
+      winnerName = winner.name;
+      showConfetti = true;
     }
-    return null;
+    
+    await loadState();
+  } catch (error) {
+    console.error('Failed to declare winner:', error);
+    alert('Failed to declare winner');
   }
-  
-  function getThirdPlace() {
-    const thirdPlaceMatch = bracketMatches.find(m => m.bracketType === '3rd-place');
-    if (thirdPlaceMatch?.winnerId) {
-      return players.find(p => p.id === thirdPlaceMatch.winnerId);
-    }
-    return null;
-  }
-
-  async function handleWinner(matchId: string, winnerId: string) {
-      if (!winnerId) return;
-      console.log('Selecting winner:', { matchId, winnerId });
-      try {
-        await submitBracketWinner(tournamentId, matchId, winnerId);
-        console.log('Winner submitted successfully');
-        await loadState();
-        console.log('State reloaded, bracketMatches:', bracketMatches.length);
-       } catch (error) {
-         console.error('Error selecting winner:', error);
-       }
-   }
+}
 
   // BO3 Functions
   function startEditingMatch(matchId: string) {
@@ -357,6 +412,7 @@
   onMount(loadState);
 </script>
 
+<!-- Update the template to include loading/error states -->
 <div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3">
   <div class="max-w-[1800px] mx-auto">
     
@@ -374,7 +430,19 @@
       </div>
     </div>
 
-    {#if tournamentState !== 'playoffs' && tournamentState !== 'completed'}
+    {#if loading}
+      <div class="glass rounded-lg p-8 text-center">
+        <div class="animate-spin w-12 h-12 border-4 border-cyber-blue border-t-transparent rounded-full mx-auto mb-4"></div>
+        <p class="text-gray-400">Loading bracket data...</p>
+      </div>
+    {:else if error}
+      <div class="glass rounded-lg p-8 text-center">
+        <svg class="w-12 h-12 mx-auto mb-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <p class="text-red-400">{error}</p>
+      </div>
+    {:else if tournamentState !== 'playoffs' && tournamentState !== 'completed'}
       <div class="glass rounded-lg p-8 text-center">
         <svg class="w-12 h-12 mx-auto mb-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         <p class="text-base text-gray-400 mb-1">Playoffs have not started yet</p>
@@ -708,3 +776,6 @@
     {/if}
   </div>
 </div>
+
+<!-- Confetti (shows on champion declaration) -->
+<Confetti bind:show={showConfetti} duration={5000} />

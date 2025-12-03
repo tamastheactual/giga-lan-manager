@@ -115,3 +115,30 @@ body {
   pointer-events: none;
   z-index: 9999;
 }
+
+@keyframes confetti-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px currentColor) drop-shadow(0 0 5px currentColor);
+  }
+  50% {
+    filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 10px currentColor);
+  }
+}
+
+.confetti {
+  animation: confetti-fall var(--duration) linear var(--delay) forwards,
+             confetti-glow 1s ease-in-out infinite;
+}
+
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-20px) scale(1.05);
+  }
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 2s ease-in-out infinite;
+}

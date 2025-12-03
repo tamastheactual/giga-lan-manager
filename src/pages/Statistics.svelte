@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getState, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { Chart, registerables } from 'chart.js';
+
+  Chart.register(...registerables);
 
   let { tournamentId } = $props<{ tournamentId: string }>();
 
@@ -8,6 +11,11 @@
   let loading = $state(true);
   let error = $state(null) as string | null;
   let gameType = $state<GameType>('cs16');
+
+  let playerPerformanceChart = $state<HTMLCanvasElement | undefined>(undefined);
+  let scoreDistributionChart = $state<HTMLCanvasElement | undefined>(undefined);
+  let winLossChart = $state<HTMLCanvasElement | undefined>(undefined);
+  let progressTimelineChart = $state<HTMLCanvasElement | undefined>(undefined);
 
   // Reactive statements to compute statistics
   let playerStats: any[] = $state([]);
@@ -361,7 +369,292 @@
     URL.revokeObjectURL(url);
   }
 
-  onMount(loadTournamentData);
+  function initializeCharts() {
+    if (!tournamentData || !playerStats || playerStats.length === 0) return;
+
+    if (playerPerformanceChart) {
+      const ctx = playerPerformanceChart.getContext('2d');
+      if (ctx) {
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: playerStats.map(p => p.name),
+            datasets: [
+              {
+                label: 'Points',
+                data: playerStats.map(p => p.points),
+                backgroundColor: 'rgba(6, 182, 212, 0.8)',
+                borderColor: 'rgba(6, 182, 212, 1)',
+                borderWidth: 2,
+                shadowOffsetX: 0,
+                shadowOffsetY: 0,
+                shadowBlur: 15,
+                shadowColor: 'rgba(6, 182, 212, 0.7)'
+              },
+              {
+                label: 'Wins',
+                data: playerStats.map(p => p.wins),
+                backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                borderColor: 'rgba(34, 197, 94, 1)',
+                borderWidth: 2,
+                shadowOffsetX: 0,
+                shadowOffsetY: 0,
+                shadowBlur: 15,
+                shadowColor: 'rgba(34, 197, 94, 0.7)'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                labels: { 
+                  color: '#fff',
+                  font: { size: 14, weight: 'bold' },
+                  padding: 15
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { color: '#9ca3af', font: { size: 12 } },
+                grid: { color: 'rgba(156, 163, 175, 0.1)' }
+              },
+              x: {
+                ticks: { color: '#9ca3af', font: { size: 12 } },
+                grid: { color: 'rgba(156, 163, 175, 0.1)' }
+              }
+            }
+          }
+        });
+      }
+    }
+
+    if (scoreDistributionChart) {
+      const ctx = scoreDistributionChart.getContext('2d');
+      if (ctx) {
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: playerStats.map(p => p.name),
+            datasets: [
+              {
+                label: `${scoreLabel} Won`,
+                data: playerStats.map(p => p.scoreWon || 0),
+                borderColor: 'rgba(34, 197, 94, 1)',
+                backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                tension: 0.4,
+                fill: true,
+                borderWidth: 3,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                pointBackgroundColor: 'rgba(34, 197, 94, 1)',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                shadowOffsetX: 0,
+                shadowOffsetY: 0,
+                shadowBlur: 20,
+                shadowColor: 'rgba(34, 197, 94, 0.8)'
+              },
+              {
+                label: `${scoreLabel} Lost`,
+                data: playerStats.map(p => p.scoreLost || 0),
+                borderColor: 'rgba(239, 68, 68, 1)',
+                backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                tension: 0.4,
+                fill: true,
+                borderWidth: 3,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                pointBackgroundColor: 'rgba(239, 68, 68, 1)',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                shadowOffsetX: 0,
+                shadowOffsetY: 0,
+                shadowBlur: 20,
+                shadowColor: 'rgba(239, 68, 68, 0.8)'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                labels: { 
+                  color: '#fff',
+                  font: { size: 14, weight: 'bold' },
+                  padding: 15
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { color: '#9ca3af', font: { size: 12 } },
+                grid: { color: 'rgba(156, 163, 175, 0.1)' }
+              },
+              x: {
+                ticks: { color: '#9ca3af', font: { size: 12 } },
+                grid: { color: 'rgba(156, 163, 175, 0.1)' }
+              }
+            }
+          }
+        });
+      }
+    }
+
+    if (winLossChart) {
+      const ctx = winLossChart.getContext('2d');
+      if (ctx) {
+        const totalWins = playerStats.reduce((sum, p) => sum + p.wins, 0);
+        const totalDraws = playerStats.reduce((sum, p) => sum + p.draws, 0);
+        const totalLosses = playerStats.reduce((sum, p) => sum + p.losses, 0);
+
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Wins', 'Draws', 'Losses'],
+            datasets: [{
+              data: [totalWins, totalDraws, totalLosses],
+              backgroundColor: [
+                'rgba(34, 197, 94, 0.9)',
+                'rgba(251, 191, 36, 0.9)',
+                'rgba(239, 68, 68, 0.9)'
+              ],
+              borderColor: [
+                'rgba(34, 197, 94, 1)',
+                'rgba(251, 191, 36, 1)',
+                'rgba(239, 68, 68, 1)'
+              ],
+              borderWidth: 3,
+              hoverOffset: 25, 
+              offset: 10, 
+              shadowOffsetX: 0,
+              shadowOffsetY: 0,
+              shadowBlur: 25,
+              shadowColor: 'rgba(255, 255, 255, 0.5)'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '60%', 
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { 
+                  color: '#fff',
+                  font: { size: 14, weight: 'bold' },
+                  padding: 20,
+                  usePointStyle: true,
+                  pointStyle: 'circle'
+                }
+              },
+              tooltip: {
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                titleColor: '#fff',
+                bodyColor: '#fff',
+                borderColor: 'rgba(6, 182, 212, 0.5)',
+                borderWidth: 2,
+                padding: 12,
+                cornerRadius: 8,
+                displayColors: true
+              }
+            }
+          }
+        });
+      }
+    }
+
+    if (progressTimelineChart && playerStats.length > 0) {
+      const ctx = progressTimelineChart.getContext('2d');
+      if (ctx) {
+        const topPlayers = playerStats.slice(0, Math.min(5, playerStats.length));
+        
+        new Chart(ctx, {
+          type: 'radar',
+          data: {
+            labels: ['Points', 'Wins', 'Win Rate %', `${scoreLabel} Won`, 'Matches Played'],
+            datasets: topPlayers.map((player, index) => {
+              const colors = [
+                { bg: 'rgba(6, 182, 212, 0.3)', border: 'rgba(6, 182, 212, 1)', glow: 'rgba(6, 182, 212, 0.8)' },
+                { bg: 'rgba(34, 197, 94, 0.3)', border: 'rgba(34, 197, 94, 1)', glow: 'rgba(34, 197, 94, 0.8)' },
+                { bg: 'rgba(251, 191, 36, 0.3)', border: 'rgba(251, 191, 36, 1)', glow: 'rgba(251, 191, 36, 0.8)' },
+                { bg: 'rgba(236, 72, 153, 0.3)', border: 'rgba(236, 72, 153, 1)', glow: 'rgba(236, 72, 153, 0.8)' },
+                { bg: 'rgba(168, 85, 247, 0.3)', border: 'rgba(168, 85, 247, 1)', glow: 'rgba(168, 85, 247, 0.8)' }
+              ];
+              const color = colors[index % colors.length];
+              return {
+                label: player.name,
+                data: [
+                  player.points,
+                  player.wins * 3,
+                  player.scoreWinRate || 0,
+                  (player.scoreWon || 0) / 10,
+                  player.matchesPlayed * 2
+                ],
+                backgroundColor: color.bg,
+                borderColor: color.border,
+                borderWidth: 3,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                pointBackgroundColor: color.border,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                shadowOffsetX: 0,
+                shadowOffsetY: 0,
+                shadowBlur: 20,
+                shadowColor: color.glow
+              };
+            })
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { 
+                  color: '#fff',
+                  font: { size: 12, weight: 'bold' },
+                  padding: 15,
+                  usePointStyle: true
+                }
+              }
+            },
+            scales: {
+              r: {
+                beginAtZero: true,
+                ticks: { 
+                  color: '#9ca3af',
+                  backdropColor: 'transparent',
+                  font: { size: 11 }
+                },
+                grid: { 
+                  color: 'rgba(156, 163, 175, 0.2)',
+                  circular: true
+                },
+                pointLabels: { 
+                  color: '#fff',
+                  font: { size: 13, weight: 'bold' }
+                }
+              }
+            }
+          }
+        });
+      }
+    }
+  }
+
+  onMount(async () => {
+    loadTournamentData();
+    
+    setTimeout(initializeCharts, 100);
+  });
+
 </script>
 
 <div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3">
@@ -694,6 +987,55 @@
         </div>
       </div>
 
+      <div class="glass rounded-lg p-6 mb-6">
+        <h2 class="text-2xl font-bold mb-6 text-white flex items-center gap-2">
+          <svg class="w-6 h-6 text-cyber-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Tournament Charts & Analytics
+        </h2>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Player Performance Chart -->
+          <div class="bg-space-700/50 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-white mb-4">Player Performance</h3>
+            <div class="h-80">
+              <canvas bind:this={playerPerformanceChart}></canvas>
+            </div>
+          </div>
+
+          <!-- Score Distribution Chart -->
+          <div class="bg-space-700/50 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-white mb-4">{scoreLabel} Distribution</h3>
+            <div class="h-80">
+              <canvas bind:this={scoreDistributionChart}></canvas>
+            </div>
+          </div>
+
+          <!-- Win/Loss Distribution -->
+          <div class="bg-space-700/50 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-white mb-4">Match Results Distribution</h3>
+            <div class="h-80 flex items-center justify-center">
+              <canvas bind:this={winLossChart}></canvas>
+            </div>
+          </div>
+
+          <!-- Player Comparison Radar -->
+          <div class="bg-space-700/50 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-white mb-4">Top 5 Players Comparison</h3>
+            <div class="h-80">
+              <canvas bind:this={progressTimelineChart}></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    {:else}
+      <div class="glass rounded-lg p-12 text-center">
+        <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <p class="text-gray-400">No tournament data available</p>
+      </div>
     {/if}
   </div>
 </div>
