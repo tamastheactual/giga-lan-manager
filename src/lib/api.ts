@@ -42,12 +42,12 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         logo: '/games/CounterStrike.png',
         groupStage: {
             format: 'MR15 (30 rounds max)',
-            description: 'Best of 30 rounds, first to 16 wins',
+            description: 'Best of 30 rounds, first to 16 wins or 15-15 tie',
             maxDuration: '~30 minutes',
             tiesPossible: true,
             scoreType: 'rounds',
             scoreLabel: 'Rounds Won',
-            maxScore: 30,
+            maxScore: 16,
             maxRounds: 30,
             tieAllowed: true
         },

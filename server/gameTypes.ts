@@ -51,7 +51,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
             tiesPossible: true,
             scoreType: 'rounds',
             scoreLabel: 'Rounds',
-            maxScore: 15
+            maxScore: 16
         },
         
         playoffs: {
