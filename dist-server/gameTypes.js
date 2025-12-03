@@ -12,7 +12,7 @@ export const GAME_CONFIGS = {
             tiesPossible: true,
             scoreType: 'rounds',
             scoreLabel: 'Rounds',
-            maxScore: 15
+            maxScore: 16
         },
         playoffs: {
             format: 'BO3',

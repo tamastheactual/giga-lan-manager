@@ -47,8 +47,6 @@ export interface Pod {
     players: string[];
     matchId: string;
     name?: string; // Custom group name
-<<<<<<< HEAD
-=======
 }
 
 // BO3 game result for bracket matches
@@ -58,7 +56,6 @@ export interface BracketGameResult {
     player1Score: number;
     player2Score: number;
     winnerId: string;
->>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
 }
 
 export interface BracketMatch {
@@ -82,21 +79,13 @@ export interface BracketMatch {
 export class TournamentManager {
     id: string;
     name: string;
-<<<<<<< HEAD
-=======
     gameType: GameType; // Which game this tournament is for
->>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
     players: Player[] = [];
     pods: Pod[] = [];
     matches: Match[] = [];
     bracketMatches: BracketMatch[] = [];
     state: 'registration' | 'group' | 'playoffs' | 'completed' = 'registration';
 
-<<<<<<< HEAD
-    constructor(id: string, name: string) {
-        this.id = id;
-        this.name = name;
-=======
     constructor(id: string, name: string, gameType: GameType = 'cs16') {
         this.id = id;
         this.name = name;
@@ -106,7 +95,6 @@ export class TournamentManager {
     // Get game configuration
     getGameConfig() {
         return getGameConfig(this.gameType);
->>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
     }
 
     addPlayer(name: string): Player {

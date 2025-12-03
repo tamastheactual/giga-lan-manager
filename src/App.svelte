@@ -18,12 +18,12 @@
   } else {
     page = pathParts[0] || null;
   }
-<<<<<<< HEAD
+</script>
 
-  async function checkAdminStatus() {
-    const res = await fetch('/api/admin/status');
-    const data = await res.json();
-    isAdmin = data.isAdmin;
+<Layout {tournamentId}>
+  {#if path === '/' || path === ''}
+    <TournamentList />
+  {:else if path.startsWith('/tournament/') && !page && tournamentId}
     <TournamentDashboard tournamentId={tournamentId!} />
   {:else if path.startsWith('/tournament/') && page === 'groups' && tournamentId}
     <Groups tournamentId={tournamentId!} />
@@ -38,4 +38,3 @@
     </div>
   {/if}
 </Layout>
->>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2

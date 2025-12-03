@@ -4,8 +4,6 @@
 
   let { tournamentId } = $props<{ tournamentId: string }>();
 
-  let { tournamentId } = $props<{ tournamentId: string }>();
-
   let bracketMatches = $state([]) as any[];
   let groupMatches = $state([]) as any[];
   let players = $state([]) as any[];
@@ -103,10 +101,7 @@
     groupMatches = data.matches || [];
     players = data.players;
     tournamentState = data.state;
-<<<<<<< HEAD
-=======
     gameType = data.gameType || 'cs16';
->>>>>>> af825c2c61492a36b9eda13c09f52ada7b5ad9c2
 
     // Find champion (winner of finals)
     const final = bracketMatches.find(m => m.bracketType === 'finals');
