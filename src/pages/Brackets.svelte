@@ -452,14 +452,14 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
   }
 
   // Track tallest round to normalize column heights for alignment
-  const maxMatchesInRound = $derived(() => {
+  const maxMatchesInRound = $derived.by(() => {
     const rounds = getRounds().filter(r => !getMatchesForRound(r).every(m => m.bracketType === '3rd-place'));
     if (rounds.length === 0) return 1;
     return Math.max(...rounds.map(r => getMatchesForRound(r).filter(m => m.bracketType !== '3rd-place').length || 1));
   });
 
   const baseMatchHeight = 260;
-  const maxColumnHeight = $derived(() => Math.max(600, maxMatchesInRound * baseMatchHeight + 40));
+  const maxColumnHeight = $derived.by(() => Math.max(600, maxMatchesInRound * baseMatchHeight + 40));
 
   function getRoundLabel(round: number, totalRounds: number) {
     const roundMatches = getMatchesForRound(round);
@@ -500,14 +500,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     const bracketContainer = document.querySelector('[data-bracket-container]');
     if (!bracketContainer) return;
     
-    const scrollContainer = bracketContainer.querySelector('.flex.gap-8');
+    const scrollContainer = bracketContainer.querySelector('.flex.gap-16');
     if (!scrollContainer) return;
     
     (bracketContainer as HTMLElement).style.position = 'relative';
     scrollContainer.appendChild(svg);
-    
-    // Get scroll offset
-    const scrollLeft = (scrollContainer as HTMLElement).scrollLeft;
     
     // Find all rows that have a next destination (winners AND losers)
     const allRows = document.querySelectorAll('[data-next-row-id]');
@@ -525,21 +522,26 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       const sourceRect = sourceRow.getBoundingClientRect();
       const targetRect = targetRow.getBoundingClientRect();
       
-      // Calculate positions relative to scroll container (accounting for scroll)
-      const x1 = sourceRect.right - scrollRect.left + scrollLeft;
+      // Calculate positions relative to scroll container's content (not viewport)
+      const x1 = sourceRect.right - scrollRect.left;
       const y1 = sourceRect.top + sourceRect.height / 2 - scrollRect.top;
-      const x2 = targetRect.left - scrollRect.left + scrollLeft;
+      const x2 = targetRect.left - scrollRect.left;
       const y2 = targetRect.top + targetRect.height / 2 - scrollRect.top;
       
       // Create L-shaped path: horizontal -> vertical -> horizontal
-      const midX = x1 + 30;
+      // Break in the middle between the two cards
+      const midX = (x1 + x2) / 2;
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       
       const d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
       
       path.setAttribute('d', d);
       path.setAttribute('stroke', isWinner ? '#10b981' : '#f59e0b'); // Green for winners, amber for losers
-      path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke-width', isWinner ? '2' : '3');
+      // Make loser lines dashed to distinguish from winner lines when they overlap
+      if (!isWinner) {
+        path.setAttribute('stroke-dasharray', '8 4');
+      }
       path.setAttribute('fill', 'none');
       path.style.transition = 'all 0.3s';
       
@@ -560,30 +562,10 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     }
   });
   
-  // Handle scroll to redraw connectors with proper positioning
-  let scrollTimeout: number;
-  function handleBracketScroll() {
-    clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(() => drawConnectorLines(), 50) as unknown as number;
-  }
-  
   onMount(async () => {
     await loadState();
     // Draw connectors after DOM is ready
     setTimeout(drawConnectorLines, 100);
-  });
-  
-  // Set up scroll listener after mount
-  $effect(() => {
-    const bracketContainer = document.querySelector('[data-bracket-container]');
-    const scrollContainer = bracketContainer?.querySelector('.flex.gap-8') as HTMLElement;
-    if (scrollContainer) {
-      scrollContainer.addEventListener('scroll', handleBracketScroll);
-      
-      return () => {
-        scrollContainer.removeEventListener('scroll', handleBracketScroll);
-      };
-    }
   });
   
   // Measure Finals card height dynamically
@@ -819,7 +801,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           
           <div class="relative" data-bracket-container>
             <!-- Championship Bracket -->
-            <div class="flex gap-8 overflow-x-auto pb-4 px-2">
+            <div class="flex gap-16 overflow-x-auto pb-4 px-2">
               {#each getRounds() as round, roundIndex}
                 {@const roundMatchesAll = getMatchesForRound(round)}
                 {@const isThirdPlaceRound = roundMatchesAll.every(m => m.bracketType === '3rd-place')}
@@ -838,8 +820,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                 {@const semifinals = semifinalRound ? getMatchesForRound(semifinalRound).filter(m => m.bracketType === 'semifinals') : []}
                 
                 <!-- Slot-based vertical centering so Semis sit between their Quarter pairs -->
-                {@const slots = Math.max(roundMatches.length, Math.pow(2, totalRounds - roundIndex - 1))}
-                {@const slotHeight = maxColumnHeight / slots}
+                {@const totalSlotsInColumn = Math.pow(2, totalRounds - 1)}
+                {@const singleSlotHeight = maxColumnHeight / totalSlotsInColumn}
+                {@const hasThirdPlace = isFinals && getRounds().some(r => getMatchesForRound(r).some(m => m.bracketType === '3rd-place'))}
+                {@const slotsThisMatchOccupies = Math.pow(2, roundIndex)}
+                {@const marginTop = 0}
                 <div class="flex-shrink-0 w-72">
                   <!-- Round Header -->
                   <div class="text-center mb-4">
@@ -848,7 +833,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                     </div>
                   </div>
                   
-                  <div class="flex flex-col" style={`height: ${maxColumnHeight}px;`}>
+                  <div class="flex flex-col {totalRounds === 1 ? 'gap-4' : 'justify-center'}" style={totalRounds > 1 ? `height: ${maxColumnHeight}px;` : ''}>
                   {#each roundMatches as match, matchIndex}
                     {@const player1 = getPlayer(match.player1Id)}
                     {@const player2 = getPlayer(match.player2Id)}
@@ -874,12 +859,17 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                     {@const loserRowId = match.winnerId === match.player1Id ? player2RowId : match.winnerId === match.player2Id ? player1RowId : null}
                     <!-- Create boxes for positioning -->
                     {@const matchCardHeight = isFinals ? (finalsCardHeight || 220) : baseMatchHeight}
-                    <div class="flex items-center justify-center" style={`min-height: ${slotHeight}px;`}>
+                    {@const boxHeight = hasThirdPlace && isFinals ? singleSlotHeight * 2 : singleSlotHeight * slotsThisMatchOccupies}
+                    <!-- Each match container spans multiple slots (quarters=1, semis=2, finals=4) -->
+                    <!-- For single-round brackets (only Finals), don't use slot-based heights -->
+                    <!-- For Finals with 3rd place, split the column height between them -->
+                    {@const finalsBoxHeight = hasThirdPlace && isFinals && totalRounds > 1 ? maxColumnHeight / 2 : boxHeight}
+                    <div class="flex items-center justify-center flex-shrink-0" style={totalRounds > 1 ? `height: ${finalsBoxHeight}px; margin-top: ${marginTop}px;` : ''}>
                       <div class="w-full" data-match-id={matchId} data-finals-card={isFinals ? 'true' : null}>
                       <!-- NO CONNECTOR LINES FOR NOW - JUST SHOW THE BRACKETS -->
 
                       <!-- Match Card -->
-                      <div class="glass rounded-xl overflow-hidden relative z-10 transform transition-all duration-300 {isEditing ? 'ring-2 ring-brand-cyan scale-105 shadow-2xl' : hasWinner ? 'shadow-lg shadow-cyber-green/20' : 'hover:scale-102 hover:shadow-xl'} border border-space-600">
+                      <div class="glass rounded-xl overflow-hidden relative z-10 transform transition-all duration-300 {isEditing ? 'ring-2 ring-brand-cyan scale-105 shadow-2xl' : hasWinner ? 'shadow-lg shadow-cyber-green/20' : 'hover:scale-102 hover:shadow-xl'} border {isFinals ? 'border-yellow-400 ring-4 ring-yellow-500/50' : 'border-space-600'}">
                         <!-- Match Header -->
                         <div class="bg-gradient-to-r from-space-700 to-space-800 px-3 py-2 flex items-center justify-between border-b border-space-600">
                           <div class="flex items-center gap-2">
@@ -1127,8 +1117,13 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                   
                   <!-- Second box for Finals column: 3rd place (editable + stats) -->
                   {#if isFinals && thirdPlaceMatches.length > 0}
-                    <div class="flex items-start justify-center pt-6" style={`min-height: ${Math.max(baseMatchHeight, finalsCardHeight || baseMatchHeight)}px;`}>
-                      <div class="w-full px-4">
+                    {@const totalSlotsInColumn = Math.pow(2, totalRounds - 1)}
+                    {@const singleSlotHeight = maxColumnHeight / totalSlotsInColumn}
+                    <!-- For single-round brackets, don't use slot-based heights -->
+                    <!-- For multi-round brackets, split the column height with Finals -->
+                    {@const thirdPlaceBoxHeight = totalRounds > 1 ? maxColumnHeight / 2 : 0}
+                    <div class="flex items-center justify-center flex-shrink-0" style={totalRounds > 1 ? `height: ${thirdPlaceBoxHeight}px;` : ''}>
+                      <div class="w-full">
                         {#each thirdPlaceMatches as match3rd}
                           {@const player1 = getPlayer(match3rd.player1Id)}
                           {@const player2 = getPlayer(match3rd.player2Id)}
@@ -1140,11 +1135,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             return acc;
                           }, { player1: 0, player2: 0 }) : { player1: 0, player2: 0 }}
                           
-                          <div class="text-center mb-3">
-                            <span class="text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">3RD PLACE</span>
-                          </div>
-                          
-                          <div class="glass rounded-xl overflow-hidden relative z-10 border border-space-600 shadow-lg" data-match-id={`match-3rd-place`}>
+                          <div class="glass rounded-xl overflow-hidden relative z-10 transform transition-all duration-300 {isEditing3rd ? 'ring-2 ring-brand-cyan scale-105 shadow-2xl' : hasWinner ? 'shadow-lg shadow-cyber-green/20' : 'hover:scale-102 hover:shadow-xl'} border border-orange-500 ring-4 ring-orange-600/50" data-match-id={`match-3rd-place`}>
                             <div class="bg-gradient-to-r from-space-700 to-space-800 px-3 py-2 flex items-center justify-between border-b border-space-600">
                               <div class="flex items-center gap-2">
                                 <span class="text-xs font-bold text-gray-400">3rd Place</span>
@@ -1161,11 +1152,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                     {seriesScore.player1}-{seriesScore.player2}
                                   </div>
                                 {/if}
-                                <span class="text-xs font-bold text-brand-cyan">BO{mapsPerMatch}</span>
+                                <span class="text-xs font-bold text-brand-orange">BO{mapsPerMatch}</span>
                               </div>
                             </div>
-                            <div class="p-3 space-y-3 bg-gradient-to-br from-space-800 to-space-900">
-                              {#if isEditing3rd}
+
+                          {#if isEditing3rd}
                                 <!-- Reuse BO3 editor for 3rd place -->
                                 <div class="flex items-center justify-between text-sm bg-space-700/50 rounded-lg p-2">
                                   <div class="flex items-center gap-2 flex-1">
@@ -1272,21 +1263,21 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                 {#if !match3rd.winnerId && match3rd.player1Id && match3rd.player2Id}
                                   <button
                                     type="button"
-                                    class="w-full p-3 text-center text-sm font-bold text-amber-400 hover:bg-amber-500/10 transition-all duration-300 border border-amber-500/40 hover:text-amber-300 hover:shadow-inner rounded-lg"
+                                    class="w-full p-3 text-center text-sm font-bold text-brand-cyan hover:bg-brand-cyan/10 transition-all duration-300 border-b border-space-600 hover:text-brand-cyan hover:shadow-inner"
                                     onclick={() => startEditingMatch(match3rd.id)}
                                   >
                                     <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                                    Enter Match Scores (3rd)
+                                    Enter Match Scores
                                   </button>
                                 {/if}
 
                                 {#if match3rd.games && match3rd.games.length > 0}
-                                  <div class="px-3 py-2 bg-space-800/50 border border-space-600/50 rounded-lg space-y-1.5">
+                                  <div class="px-3 py-2 bg-space-800/50 border-b border-space-600/50 space-y-1.5">
                                     {#each match3rd.games as game, idx}
                                       <div class="flex items-center justify-between text-xs">
                                         <div class="flex items-center gap-2 flex-1">
                                           <span class="text-gray-400 font-bold">G{idx + 1}:</span>
-                                          <span class="text-amber-300 font-medium">{game.mapName || `Map ${idx + 1}`}</span>
+                                          <span class="text-brand-cyan font-medium">{game.mapName || `Map ${idx + 1}`}</span>
                                         </div>
                                         <div class="flex items-center gap-2 font-bold">
                                           <span class="text-white">{game.player1Score}</span>
@@ -1303,41 +1294,76 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   </div>
                                 {/if}
 
-                                <!-- Player rows with IDs so connectors can target them -->
-                                {#if match3rd.player1Id}
-                                  <div 
-                                    id="match-3rd-place-p1"
-                                    class="px-3 py-2 mt-2 rounded-lg {match3rd.winnerId === match3rd.player1Id ? 'bg-gradient-to-r from-amber-500/15 to-transparent ring-1 ring-amber-500/40' : 'bg-space-800/40'}"
-                                  >
-                                    <div class="flex items-center justify-between">
-                                      <div class="flex items-center gap-2 flex-1">
-                                        <img src={getPlayerImageUrl(getPlayerName(match3rd.player1Id))} alt="Profile" class="w-8 h-8 rounded-full object-cover" />
-                                        <div class="font-bold text-sm text-white">{getPlayerName(match3rd.player1Id)}</div>
+                                <!-- Player 1 -->
+                                <div 
+                                  id="match-3rd-place-p1"
+                                  data-player-id={match3rd.player1Id}
+                                  data-is-winner={match3rd.winnerId === match3rd.player1Id}
+                                  class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match3rd.winnerId === match3rd.player1Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== match3rd.player1Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                                >
+                                  <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                                      <div class="relative flex-shrink-0">
+                                        <img src={getPlayerImageUrl(getPlayerName(match3rd.player1Id))} alt="Profile" class="w-10 h-10 rounded-full object-cover {match3rd.winnerId === match3rd.player1Id ? 'ring-2 ring-cyber-green' : ''}" />
+                                        {#if match3rd.winnerId === match3rd.player1Id}
+                                          <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-cyber-green rounded-full flex items-center justify-center">
+                                            <svg class="w-3 h-3 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                          </div>
+                                        {/if}
                                       </div>
-                                      {#if hasWinner}
-                                        <div class="text-lg font-black {match3rd.winnerId === match3rd.player1Id ? 'text-amber-400' : 'text-gray-600'}">{seriesScore.player1}</div>
-                                      {/if}
-                                    </div>
-                                  </div>
-                                {/if}
-                                {#if match3rd.player2Id}
-                                  <div 
-                                    id="match-3rd-place-p2"
-                                    class="px-3 py-2 mt-2 rounded-lg {match3rd.winnerId === match3rd.player2Id ? 'bg-gradient-to-r from-amber-500/15 to-transparent ring-1 ring-amber-500/40' : 'bg-space-800/40'}"
-                                  >
-                                    <div class="flex items-center justify-between">
-                                      <div class="flex items-center gap-2 flex-1">
-                                        <img src={getPlayerImageUrl(getPlayerName(match3rd.player2Id))} alt="Profile" class="w-8 h-8 rounded-full object-cover" />
-                                        <div class="font-bold text-sm text-white">{getPlayerName(match3rd.player2Id)}</div>
+                                      <div class="min-w-0 flex-1">
+                                        <div class="font-bold text-sm text-white truncate">{getPlayerName(match3rd.player1Id)}</div>
+                                        {#if hasWinner}
+                                          <div class="text-xs text-gray-400 mt-0.5">
+                                            <span class="font-bold {match3rd.winnerId === match3rd.player1Id ? 'text-cyber-green' : ''}">{seriesScore.player1}</span>
+                                            <span class="text-gray-500 mx-1">maps</span>
+                                          </div>
+                                        {/if}
                                       </div>
-                                      {#if hasWinner}
-                                        <div class="text-lg font-black {match3rd.winnerId === match3rd.player2Id ? 'text-amber-400' : 'text-gray-600'}">{seriesScore.player2}</div>
-                                      {/if}
                                     </div>
+                                    {#if hasWinner}
+                                      <div class="text-right flex-shrink-0 ml-2">
+                                        <div class="text-2xl font-black {match3rd.winnerId === match3rd.player1Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player1}</div>
+                                      </div>
+                                    {/if}
                                   </div>
-                                {/if}
+                                </div>
+                                
+                                <!-- Player 2 -->
+                                <div 
+                                  id="match-3rd-place-p2"
+                                  data-player-id={match3rd.player2Id}
+                                  data-is-winner={match3rd.winnerId === match3rd.player2Id}
+                                  class="w-full text-left px-3 py-3 transition-all duration-300 {match3rd.winnerId === match3rd.player2Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== match3rd.player2Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                                >
+                                  <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                                      <div class="relative flex-shrink-0">
+                                        <img src={getPlayerImageUrl(getPlayerName(match3rd.player2Id))} alt="Profile" class="w-10 h-10 rounded-full object-cover {match3rd.winnerId === match3rd.player2Id ? 'ring-2 ring-cyber-green' : ''}" />
+                                        {#if match3rd.winnerId === match3rd.player2Id}
+                                          <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-cyber-green rounded-full flex items-center justify-center">
+                                            <svg class="w-3 h-3 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                          </div>
+                                        {/if}
+                                      </div>
+                                      <div class="min-w-0 flex-1">
+                                        <div class="font-bold text-sm text-white truncate">{getPlayerName(match3rd.player2Id)}</div>
+                                        {#if hasWinner}
+                                          <div class="text-xs text-gray-400 mt-0.5">
+                                            <span class="font-bold {match3rd.winnerId === match3rd.player2Id ? 'text-cyber-green' : ''}">{seriesScore.player2}</span>
+                                            <span class="text-gray-500 mx-1">maps</span>
+                                          </div>
+                                        {/if}
+                                      </div>
+                                    </div>
+                                    {#if hasWinner}
+                                      <div class="text-right flex-shrink-0 ml-2">
+                                        <div class="text-2xl font-black {match3rd.winnerId === match3rd.player2Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player2}</div>
+                                      </div>
+                                    {/if}
+                                  </div>
+                                </div>
                               {/if}
-                            </div>
                           </div>
                         {/each}
                       </div>
