@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getState, updateBracketMatch, submitBracketGameResult, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getPlayerImageUrl } from '$lib/playerImages';
   import Confetti from '../components/Confetti.svelte';
+  import Footer from '../components/Footer.svelte';
 
   let { tournamentId } = $props<{ tournamentId: string }>();
 
@@ -16,20 +18,26 @@
   let tournamentState = $state('');
   let champion = $state(null) as any;
   let gameType = $state<GameType | null>(null);
+  let mapPool = $state([]) as string[];
+  let playoffsRoundLimit = $state<number | undefined>(undefined);
 
   // BO3 match editing state
   let editingMatchId = $state<string | null>(null);
   let mapScores = $state<{ player1Score: number; player2Score: number }[]>([]);
+  let selectedMaps = $state<string[]>([]); // Selected map per game in BO3
 
   // Confetti state
   let showConfetti = $state(false);
   let winnerName = $state('');
   let tournamentComplete = $state(false);
+  
+  // Finals card height tracking
+  let finalsCardHeight = $state(0);
 
   // Derived game config
   const gameConfig = $derived(gameType ? GAME_CONFIGS[gameType] : null);
   const mapsPerMatch = $derived(gameConfig?.playoffs.mapsPerMatch || 3);
-  const maxScorePerMap = $derived(gameConfig?.playoffs.maxScorePerMap || gameConfig?.groupStage.maxScore);
+  const maxScorePerMap = $derived(playoffsRoundLimit !== undefined ? playoffsRoundLimit : (gameConfig?.playoffs.maxScorePerMap || gameConfig?.groupStage.maxScore));
   const scoreLabel = $derived(gameConfig?.playoffs.scoreLabel || 'Rounds');
   const isKillBased = $derived(gameConfig?.groupStage.scoreType === 'kills');
   const isHealthBased = $derived(gameConfig?.groupStage.scoreType === 'health');
@@ -140,6 +148,8 @@
       tournamentState = tournamentData.state || '';
       champion = tournamentData.champion || null;
       gameType = tournamentData.gameType || 'cs16';
+      mapPool = tournamentData.mapPool || [];
+      playoffsRoundLimit = tournamentData.playoffsRoundLimit;
       
       // Check if tournament is complete and champion is declared
       checkForChampion();
@@ -216,21 +226,28 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
         player1Score: g.player1Score || 0,
         player2Score: g.player2Score || 0
       }));
+      selectedMaps = match.games.map((g: any) => g.mapName || '');
     } else {
       mapScores = Array(mapsPerMatch).fill(null).map(() => ({ player1Score: 0, player2Score: 0 }));
+      selectedMaps = Array(mapsPerMatch).fill('');
     }
   }
 
   function cancelEditingMatch() {
     editingMatchId = null;
     mapScores = [];
+    selectedMaps = [];
   }
 
   function updateMapScore(mapIndex: number, player: 'player1' | 'player2', value: number) {
     if (!mapScores[mapIndex]) {
       mapScores[mapIndex] = { player1Score: 0, player2Score: 0 };
     }
-    const newValue = maxScorePerMap !== undefined ? Math.max(0, Math.min(value, maxScorePerMap)) : Math.max(0, value);
+    // For UT2004, allow negative values (suicides), otherwise clamp to 0 minimum
+    const minValue = gameType === 'ut2004' ? -999 : 0;
+    const newValue = maxScorePerMap !== undefined 
+      ? Math.max(minValue, Math.min(value, maxScorePerMap)) 
+      : Math.max(minValue, value);
     if (player === 'player1') {
       mapScores[mapIndex].player1Score = newValue;
     } else {
@@ -242,20 +259,26 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
 
   function getMapWinner(mapIndex: number): 'player1' | 'player2' | null {
     const scores = mapScores[mapIndex];
-    if (!scores) return null;
+    if (!scores) {
+      console.log(`[Brackets] Map ${mapIndex} - no scores`);
+      return null;
+    }
     
-    // For CS16 playoffs: winner must have exactly 10 rounds, loser max 9
+    // For CS16 playoffs: winner must have exactly maxScorePerMap rounds, loser max maxScorePerMap-1
     if (gameType === 'cs16') {
-      const winScore = 10;
-      const maxLoserScore = 9;
+      const winScore = maxScorePerMap || 10;
+      const maxLoserScore = winScore - 1;
       
       if (scores.player1Score === winScore && scores.player2Score <= maxLoserScore) {
+        console.log(`[Brackets] Map ${mapIndex} - player1 wins with`, scores);
         return 'player1';
       }
       if (scores.player2Score === winScore && scores.player1Score <= maxLoserScore) {
+        console.log(`[Brackets] Map ${mapIndex} - player2 wins with`, scores);
         return 'player2';
       }
       // Invalid score or incomplete
+      console.log(`[Brackets] Map ${mapIndex} - invalid/incomplete`, scores);
       return null;
     }
     
@@ -286,12 +309,32 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
 
   function canSubmitSeries(): boolean {
     // Must have a series winner
-    if (getSeriesWinner() === null) return false;
+    const winner = getSeriesWinner();
+    console.log('[Brackets] canSubmitSeries - winner:', winner, 'series score:', getSeriesScore());
+    if (winner === null) return false;
+    
+    // Check for duplicate maps (no two games can have the same map)
+    const selectedMapsList: string[] = [];
+    for (let i = 0; i < mapScores.length; i++) {
+      const scores = mapScores[i];
+      if (!scores) continue;
+      if (scores.player1Score === 0 && scores.player2Score === 0) continue;
+      
+      const selectedMap = selectedMaps[i];
+      if (selectedMap) {
+        // Check if this map was already selected for another game
+        if (selectedMapsList.includes(selectedMap)) {
+          console.log(`[Brackets] Map ${selectedMap} selected more than once`);
+          return false;
+        }
+        selectedMapsList.push(selectedMap);
+      }
+    }
     
     // For CS16, validate all maps that have scores are valid
     if (gameType === 'cs16') {
-      const winScore = 10;
-      const maxLoserScore = 9;
+      const winScore = maxScorePerMap || 10;
+      const maxLoserScore = winScore - 1;
       
       for (let i = 0; i < mapsPerMatch; i++) {
         const scores = mapScores[i];
@@ -303,10 +346,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           (scores.player1Score === winScore && scores.player2Score <= maxLoserScore) ||
           (scores.player2Score === winScore && scores.player1Score <= maxLoserScore);
         
+        console.log(`[Brackets] Map ${i} validation:`, scores, 'valid:', isValidMap);
         if (!isValidMap) return false;
       }
     }
     
+    console.log('[Brackets] canSubmitSeries - returning true');
     return true;
   }
 
@@ -315,9 +360,25 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     if (!scores) return null;
     if (scores.player1Score === 0 && scores.player2Score === 0) return null;
     
+    const selectedMap = selectedMaps[mapIndex];
+    
+    // Check if this map is selected elsewhere
+    if (selectedMap) {
+      for (let i = 0; i < mapScores.length; i++) {
+        if (i === mapIndex) continue; // Skip self
+        const otherScores = mapScores[i];
+        if (!otherScores) continue;
+        if (otherScores.player1Score === 0 && otherScores.player2Score === 0) continue;
+        
+        if (selectedMaps[i] === selectedMap) {
+          return `${selectedMap} already selected for another map`;
+        }
+      }
+    }
+    
     if (gameType === 'cs16') {
-      const winScore = 10;
-      const maxLoserScore = 9;
+      const winScore = maxScorePerMap || 10;
+      const maxLoserScore = winScore - 1;
       const { player1Score, player2Score } = scores;
       
       // Check for tie
@@ -325,7 +386,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
         return 'No ties';
       }
       
-      // Check winner has exactly 10
+      // Check winner has exactly winScore
       if (player1Score > player2Score) {
         if (player1Score !== winScore) {
           return `Winner needs ${winScore}`;
@@ -363,7 +424,8 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       if (!gameWinner) continue;
       
       const winnerId = gameWinner === 'player1' ? match.player1Id : match.player2Id;
-      const mapName = gameConfig?.maps?.[i] || `Map ${i + 1}`;
+      // Use selected map if available from map pool, otherwise use default
+      const mapName = selectedMaps[i] || gameConfig?.maps?.[i] || `Map ${i + 1}`;
       
       await submitBracketGameResult(tournamentId, editingMatchId, {
         gameNumber: i + 1,
@@ -389,6 +451,16 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       return bracketMatches.filter(m => m.round === round);
   }
 
+  // Track tallest round to normalize column heights for alignment
+  const maxMatchesInRound = $derived(() => {
+    const rounds = getRounds().filter(r => !getMatchesForRound(r).every(m => m.bracketType === '3rd-place'));
+    if (rounds.length === 0) return 1;
+    return Math.max(...rounds.map(r => getMatchesForRound(r).filter(m => m.bracketType !== '3rd-place').length || 1));
+  });
+
+  const baseMatchHeight = 260;
+  const maxColumnHeight = $derived(() => Math.max(600, maxMatchesInRound * baseMatchHeight + 40));
+
   function getRoundLabel(round: number, totalRounds: number) {
     const roundMatches = getMatchesForRound(round);
     const hasThirdPlace = roundMatches.some(m => m.bracketType === '3rd-place');
@@ -409,12 +481,127 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     return `Round ${round}`;
   }
 
-  onMount(loadState);
+  // Draw connector lines from winner rows to their destination rows
+  function drawConnectorLines() {
+    // Remove any existing connector SVG
+    const existingSvg = document.getElementById('bracket-connectors');
+    if (existingSvg) existingSvg.remove();
+    
+    // Create SVG overlay that doesn't scroll with content
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'bracket-connectors';
+    svg.style.position = 'absolute';
+    svg.style.top = '0';
+    svg.style.left = '0';
+    svg.style.pointerEvents = 'none';
+    svg.style.zIndex = '5';
+    svg.style.overflow = 'visible';
+    
+    const bracketContainer = document.querySelector('[data-bracket-container]');
+    if (!bracketContainer) return;
+    
+    const scrollContainer = bracketContainer.querySelector('.flex.gap-8');
+    if (!scrollContainer) return;
+    
+    (bracketContainer as HTMLElement).style.position = 'relative';
+    scrollContainer.appendChild(svg);
+    
+    // Get scroll offset
+    const scrollLeft = (scrollContainer as HTMLElement).scrollLeft;
+    
+    // Find all rows that have a next destination (winners AND losers)
+    const allRows = document.querySelectorAll('[data-next-row-id]');
+    
+    allRows.forEach(sourceRow => {
+      const nextRowId = sourceRow.getAttribute('data-next-row-id');
+      if (!nextRowId) return;
+      
+      const targetRow = document.getElementById(nextRowId);
+      if (!targetRow) return;
+      
+      const isWinner = sourceRow.getAttribute('data-is-winner') === 'true';
+      
+      const scrollRect = scrollContainer.getBoundingClientRect();
+      const sourceRect = sourceRow.getBoundingClientRect();
+      const targetRect = targetRow.getBoundingClientRect();
+      
+      // Calculate positions relative to scroll container (accounting for scroll)
+      const x1 = sourceRect.right - scrollRect.left + scrollLeft;
+      const y1 = sourceRect.top + sourceRect.height / 2 - scrollRect.top;
+      const x2 = targetRect.left - scrollRect.left + scrollLeft;
+      const y2 = targetRect.top + targetRect.height / 2 - scrollRect.top;
+      
+      // Create L-shaped path: horizontal -> vertical -> horizontal
+      const midX = x1 + 30;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      
+      const d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+      
+      path.setAttribute('d', d);
+      path.setAttribute('stroke', isWinner ? '#10b981' : '#f59e0b'); // Green for winners, amber for losers
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      path.style.transition = 'all 0.3s';
+      
+      svg.appendChild(path);
+    });
+    
+    // Set SVG dimensions based on scroll content
+    const scrollWidth = (scrollContainer as HTMLElement).scrollWidth;
+    const scrollHeight = (scrollContainer as HTMLElement).scrollHeight;
+    svg.style.width = `${scrollWidth}px`;
+    svg.style.height = `${scrollHeight}px`;
+  }
+  
+  // Redraw connectors when bracket data changes
+  $effect(() => {
+    if (bracketMatches.length > 0) {
+      setTimeout(drawConnectorLines, 50);
+    }
+  });
+  
+  // Handle scroll to redraw connectors with proper positioning
+  let scrollTimeout: number;
+  function handleBracketScroll() {
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => drawConnectorLines(), 50) as unknown as number;
+  }
+  
+  onMount(async () => {
+    await loadState();
+    // Draw connectors after DOM is ready
+    setTimeout(drawConnectorLines, 100);
+  });
+  
+  // Set up scroll listener after mount
+  $effect(() => {
+    const bracketContainer = document.querySelector('[data-bracket-container]');
+    const scrollContainer = bracketContainer?.querySelector('.flex.gap-8') as HTMLElement;
+    if (scrollContainer) {
+      scrollContainer.addEventListener('scroll', handleBracketScroll);
+      
+      return () => {
+        scrollContainer.removeEventListener('scroll', handleBracketScroll);
+      };
+    }
+  });
+  
+  // Measure Finals card height dynamically
+  $effect(() => {
+    if (bracketMatches.length > 0) {
+      setTimeout(() => {
+        const finalsCard = document.querySelector('[data-finals-card="true"]')?.querySelector('.glass');
+        if (finalsCard) {
+          finalsCardHeight = finalsCard.getBoundingClientRect().height;
+        }
+      }, 100);
+    }
+  });
 </script>
 
 <!-- Update the template to include loading/error states -->
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3">
-  <div class="max-w-[1800px] mx-auto">
+<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3 flex flex-col">
+  <div class="max-w-6xl mx-auto w-full">
     
     <!-- Header -->
     <div class="flex justify-between items-center mb-3">
@@ -423,10 +610,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
           Back
         </a>
-        <h1 class="text-xl font-black gradient-text flex items-center gap-1.5">
-          <svg class="w-5 h-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
-          PLAYOFFS BRACKET
-        </h1>
+        <div class="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+          </svg>
+          Brackets
+        </div>
       </div>
     </div>
 
@@ -452,11 +641,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       
       <!-- Immersive Champion Podium -->
       {#if champion}
-        <div class="mb-6">
+        <div class="mb-4">
           <!-- Trophy Header -->
-          <div class="text-center mb-4">
+          <div class="text-center mb-0">
             <div class="relative inline-block">
-              <div class="w-20 h-20 mx-auto mb-2 rounded-full bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-600 flex items-center justify-center shadow-xl ring-4 ring-yellow-400/30">
+              <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-600 flex items-center justify-center shadow-xl ring-4 ring-yellow-400/30">
                 <span class="text-4xl">🏆</span>
               </div>
             </div>
@@ -465,111 +654,130 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
             </h2>
           </div>
 
-          <!-- Podium Layout -->
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-4xl mx-auto">
-            <!-- 2nd Place (Left) -->
-            {#if getRunnerUp()}
-              {@const runnerUp = getRunnerUp()}
-              <div class="order-2 md:order-1 relative">
-                <div class="glass rounded-lg p-4 text-center relative overflow-hidden transform hover:scale-105 transition-all duration-300">
-                  <div class="absolute inset-0 bg-gradient-to-br from-gray-400/20 via-gray-300/20 to-gray-400/20"></div>
-                  <div class="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-r from-gray-400 to-gray-500"></div>
-                  <div class="relative z-10">
-                    <div class="text-4xl mb-1">🥈</div>
-                    <div class="w-12 h-12 mx-auto mb-2 rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center shadow-lg">
-                      {#if runnerUp.profilePhoto}
-                        <img src={runnerUp.profilePhoto} alt="2nd Place" class="w-12 h-12 rounded-full object-cover" />
-                      {:else}
-                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                      {/if}
-                    </div>
-                    <h3 class="text-sm font-black text-gray-300 mb-1">2ND PLACE</h3>
-                    <div class="text-lg font-black text-white mb-1">{runnerUp.name}</div>
-                    <div class="text-gray-400 text-xs font-bold">
-                      {#if isHealthBased}
-                        {getPlayerTotalScore(runnerUp.id)} HP • {getPlayerMapsWon(runnerUp.id)} Rounds
-                      {:else if isKillBased}
-                        {getPlayerTotalScore(runnerUp.id)} Kills • {getPlayerMapsWon(runnerUp.id)} Maps
-                      {:else}
-                        {getPlayerTotalScore(runnerUp.id)} Rounds Won
-                      {/if}
+          <!-- Professional Podium Layout -->
+          <div class="w-full max-w-6xl mx-auto">
+            <div class="relative">
+              <!-- Podium Container with proper centering -->
+              <div class="flex justify-center items-end gap-0 px-4 py-8">
+                <!-- 2nd Place (Left) - Shorter -->
+                {#if getRunnerUp()}
+                  {@const runnerUp = getRunnerUp()}
+                  <div class="flex flex-col items-center relative z-10">
+                    <!-- Pillar -->
+                    <div class="flex flex-col items-center">
+                      <!-- Card -->
+                      <div class="glass rounded-t-2xl p-6 text-center relative overflow-hidden w-56 mb-0">
+                        <div class="absolute inset-0 bg-gradient-to-br from-gray-400/15 via-gray-300/5 to-gray-500/15"></div>
+                        <div class="relative z-10">
+                          <!-- Medal Ring -->
+                          <div class="mb-4">
+                            <div class="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center shadow-xl ring-4 ring-gray-400/40 border-2 border-gray-200">
+                              <img src={getPlayerImageUrl(runnerUp.name)} alt={runnerUp.name} class="w-20 h-20 rounded-full object-cover" />
+                            </div>
+                          </div>
+                          <!-- Name -->
+                          <h4 class="text-lg font-black text-gray-200 mb-1">{runnerUp.name}</h4>
+                          <!-- Rank -->
+                          <p class="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">2nd Place</p>
+                          <!-- Stats -->
+                          <div class="text-sm font-bold text-gray-400">
+                            {#if isHealthBased}
+                              {getPlayerTotalScore(runnerUp.id)} HP
+                            {:else if isKillBased}
+                              {getPlayerTotalScore(runnerUp.id)} Kills
+                            {:else}
+                              {getPlayerTotalScore(runnerUp.id)} Rounds
+                            {/if}
+                          </div>
+                        </div>
+                      </div>
+                      <!-- Podium Base -->
+                      <div class="w-56 h-8 bg-gradient-to-b from-gray-400 via-gray-500 to-gray-600 rounded-b-lg shadow-lg flex items-center justify-center">
+                      </div>
                     </div>
                   </div>
-                </div>
-                <!-- Podium height indicator -->
-                <div class="h-4 bg-gradient-to-r from-gray-400 to-gray-500 rounded-b-lg mx-2"></div>
-              </div>
-            {/if}
+                {/if}
 
-            <!-- 1st Place (Center) -->
-            <div class="order-1 md:order-2 relative">
-              <div class="glass rounded-lg p-6 text-center relative overflow-hidden transform hover:scale-105 transition-all duration-300 shadow-2xl">
-                <div class="absolute inset-0 bg-gradient-to-br from-yellow-500/20 via-yellow-400/20 to-yellow-500/20"></div>
-                <div class="absolute bottom-0 left-0 right-0 h-3 bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600"></div>
-                <div class="relative z-10">
-                  <div class="text-5xl mb-2">👑</div>
-                  <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-xl ring-4 ring-yellow-400/30">
-                    {#if champion.profilePhoto}
-                      <img src={champion.profilePhoto} alt="Champion" class="w-16 h-16 rounded-full object-cover" />
-                    {:else}
-                      <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                    {/if}
+                <!-- 1st Place (Center) - Tallest -->
+                <div class="flex flex-col items-center relative z-20 mx-8">
+                  <!-- Pillar -->
+                  <div class="flex flex-col items-center">
+                    <!-- Card -->
+                    <div class="glass rounded-t-2xl p-8 text-center relative overflow-hidden w-64 mb-0 shadow-2xl border-2 border-yellow-400/40">
+                      <div class="absolute inset-0 bg-gradient-to-br from-yellow-500/20 via-yellow-400/10 to-yellow-600/15"></div>
+                      <div class="relative z-10">
+                        <!-- Medal Ring -->
+                        <div class="mb-4">
+                          <div class="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-2xl ring-4 ring-yellow-400/50 border-3 border-yellow-300">
+                            <img src={getPlayerImageUrl(champion.name)} alt={champion.name} class="w-24 h-24 rounded-full object-cover" />
+                          </div>
+                        </div>
+                        <!-- Name -->
+                        <h4 class="text-2xl font-black text-yellow-300 mb-2">{champion.name}</h4>
+                        <!-- Rank -->
+                        <p class="text-xs font-bold uppercase tracking-wider text-yellow-400 mb-3">Champion</p>
+                        <!-- Stats -->
+                        <div class="text-sm font-bold text-cyber-green">
+                          {#if isHealthBased}
+                            {getPlayerTotalScore(champion.id)} HP
+                          {:else if isKillBased}
+                            {getPlayerTotalScore(champion.id)} Kills
+                          {:else}
+                            {getPlayerTotalScore(champion.id)} Rounds
+                          {/if}
+                        </div>
+                      </div>
+                    </div>
+                    <!-- Podium Base -->
+                    <div class="w-64 h-12 bg-gradient-to-b from-yellow-300 via-yellow-400 to-yellow-500 rounded-b-lg shadow-2xl flex items-center justify-center">
+                    </div>
                   </div>
-                  <h3 class="text-lg font-black bg-gradient-to-r from-yellow-400 to-yellow-500 bg-clip-text text-transparent mb-2">CHAMPION</h3>
-                  <div class="text-2xl font-black text-white mb-2">{champion.name}</div>
-                  <div class="text-cyber-green text-sm font-bold">
-                    {#if isHealthBased}
-                      {getPlayerTotalScore(champion.id)} HP • {getPlayerMapsWon(champion.id)} Rounds Won
-                    {:else if isKillBased}
-                      {getPlayerTotalScore(champion.id)} Kills • {getPlayerMapsWon(champion.id)} Maps Won
-                    {:else}
-                      {getPlayerTotalScore(champion.id)} Rounds Won
-                    {/if}
-                  </div>
-                  <div class="mt-2 px-3 py-1 bg-yellow-500/20 rounded-full text-yellow-400 text-xs font-bold">🏆 VICTORIOUS 🏆</div>
                 </div>
+
+                <!-- 3rd Place (Right) - Short -->
+                {#if getThirdPlace()}
+                  {@const thirdPlace = getThirdPlace()}
+                  <div class="flex flex-col items-center relative z-10">
+                    <!-- Pillar -->
+                    <div class="flex flex-col items-center">
+                      <!-- Card -->
+                      <div class="glass rounded-t-2xl p-6 text-center relative overflow-hidden w-56 mb-0">
+                        <div class="absolute inset-0 bg-gradient-to-br from-orange-500/15 via-orange-400/5 to-orange-600/15"></div>
+                        <div class="relative z-10">
+                          <!-- Medal Ring -->
+                          <div class="mb-4">
+                            <div class="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-xl ring-4 ring-orange-400/40 border-2 border-orange-300">
+                              <img src={getPlayerImageUrl(thirdPlace.name)} alt={thirdPlace.name} class="w-20 h-20 rounded-full object-cover" />
+                            </div>
+                          </div>
+                          <!-- Name -->
+                          <h4 class="text-lg font-black text-orange-300 mb-1">{thirdPlace.name}</h4>
+                          <!-- Rank -->
+                          <p class="text-xs font-bold uppercase tracking-wider text-orange-400 mb-3">3rd Place</p>
+                          <!-- Stats -->
+                          <div class="text-sm font-bold text-orange-400">
+                            {#if isHealthBased}
+                              {getPlayerTotalScore(thirdPlace.id)} HP
+                            {:else if isKillBased}
+                              {getPlayerTotalScore(thirdPlace.id)} Kills
+                            {:else}
+                              {getPlayerTotalScore(thirdPlace.id)} Rounds
+                            {/if}
+                          </div>
+                        </div>
+                      </div>
+                      <!-- Podium Base -->
+                      <div class="w-56 h-4 bg-gradient-to-b from-orange-400 via-orange-500 to-orange-600 rounded-b-lg shadow-lg flex items-center justify-center">
+                      </div>
+                    </div>
+                  </div>
+                {/if}
               </div>
-              <!-- Podium height indicator -->
-              <div class="h-8 bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 rounded-b-lg mx-2"></div>
             </div>
-
-            <!-- 3rd Place (Right) -->
-            {#if getThirdPlace()}
-              {@const thirdPlace = getThirdPlace()}
-              <div class="order-3 relative">
-                <div class="glass rounded-lg p-4 text-center relative overflow-hidden transform hover:scale-105 transition-all duration-300">
-                  <div class="absolute inset-0 bg-gradient-to-br from-orange-500/20 via-orange-400/20 to-orange-500/20"></div>
-                  <div class="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-r from-orange-400 to-orange-500"></div>
-                  <div class="relative z-10">
-                    <div class="text-4xl mb-1">🥉</div>
-                    <div class="w-12 h-12 mx-auto mb-2 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg">
-                      {#if thirdPlace.profilePhoto}
-                        <img src={thirdPlace.profilePhoto} alt="3rd Place" class="w-12 h-12 rounded-full object-cover" />
-                      {:else}
-                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                      {/if}
-                    </div>
-                    <h3 class="text-sm font-black text-orange-400 mb-1">3RD PLACE</h3>
-                    <div class="text-lg font-black text-white mb-1">{thirdPlace.name}</div>
-                    <div class="text-orange-400 text-xs font-bold">
-                      {#if isHealthBased}
-                        {getPlayerTotalScore(thirdPlace.id)} HP • {getPlayerMapsWon(thirdPlace.id)} Rounds
-                      {:else if isKillBased}
-                        {getPlayerTotalScore(thirdPlace.id)} Kills • {getPlayerMapsWon(thirdPlace.id)} Maps
-                      {:else}
-                        {getPlayerTotalScore(thirdPlace.id)} Rounds Won
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-            <!-- Podium height indicator -->
-            <div class="h-2 bg-gradient-to-r from-orange-400 to-orange-500 rounded-b-lg mx-2"></div>
-              </div>
-            {/if}
           </div>
           
           <!-- View Statistics Button -->
-          <div class="text-center mt-6">
+          <div class="text-center">
             <a 
               href={`/tournament/${tournamentId}/statistics`}
               class="bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-orange hover:scale-105 transition-transform inline-flex items-center gap-2"
@@ -581,79 +789,145 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
             </a>
           </div>
         </div>
-      {/if}      <div class="space-y-6">
+      {/if}
+      
+      <div class="space-y-6">
         
         <!-- Playoff Bracket -->
-        <div class="glass rounded-lg p-3">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="w-1 h-4 bg-gradient-to-b from-cyber-green to-cyber-blue rounded-full"></div>
-            <h2 class="text-base font-black text-white">PLAYOFF BRACKET</h2>
-            <div class="text-xs px-2 py-0.5 bg-cyber-green/20 text-cyber-green rounded-full font-bold">Single Elimination</div>
+        <div class="glass rounded-lg p-4 md:p-6">
+          <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center gap-3">
+              <div class="w-1 h-8 bg-gradient-to-b from-yellow-400 via-brand-orange to-brand-purple rounded-full"></div>
+              <div>
+                <h2 class="text-xl font-black text-white">PLAYOFF BRACKET</h2>
+                <p class="text-xs text-gray-400 mt-0.5">Single Elimination • Best of {mapsPerMatch}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              {#if tournamentState === 'playoffs' && !champion}
+                <div class="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-cyber-green/10 border border-cyber-green/30 rounded-lg">
+                  <div class="w-2 h-2 bg-cyber-green rounded-full animate-pulse"></div>
+                  <span class="text-xs font-bold text-cyber-green">LIVE</span>
+                </div>
+              {:else if champion}
+                <div class="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                  <span class="text-xs font-bold text-yellow-500">COMPLETED</span>
+                </div>
+              {/if}
+            </div>
           </div>
           
-          <div class="relative">
-            <div class="flex gap-4 overflow-x-auto pb-2">
+          <div class="relative" data-bracket-container>
+            <!-- Championship Bracket -->
+            <div class="flex gap-8 overflow-x-auto pb-4 px-2">
               {#each getRounds() as round, roundIndex}
-                {@const roundMatches = getMatchesForRound(round)}
-                {@const totalRounds = getRounds().length}
-                <div class="flex-shrink-0 w-64 flex flex-col justify-around gap-3 relative">
-                  <div class="text-center mb-2">
-                    <h3 class="font-black text-sm text-cyber-blue">
-                      {getRoundLabel(round, totalRounds)}
-                    </h3>
+                {@const roundMatchesAll = getMatchesForRound(round)}
+                {@const isThirdPlaceRound = roundMatchesAll.every(m => m.bracketType === '3rd-place')}
+                {#if !isThirdPlaceRound}
+                {@const roundMatches = roundMatchesAll.filter(m => m.bracketType !== '3rd-place')}
+                {@const totalRounds = getRounds().filter(r => !getMatchesForRound(r).every(m => m.bracketType === '3rd-place')).length}
+                {@const roundLabel = getRoundLabel(round, totalRounds)}
+                {@const isFinals = roundLabel === 'Finals'}
+                {@const isSemis = roundLabel === 'Semifinals'}
+                {@const isQuarters = roundLabel === 'Quarterfinals'}
+                
+                <!-- Check if 3rd place match exists -->
+                {@const thirdPlaceRound = getRounds().find(r => getMatchesForRound(r).some(m => m.bracketType === '3rd-place'))}
+                {@const thirdPlaceMatches = thirdPlaceRound && isFinals ? getMatchesForRound(thirdPlaceRound).filter(m => m.bracketType === '3rd-place') : []}
+                {@const semifinalRound = getRounds().find(r => getMatchesForRound(r).some(m => m.bracketType === 'semifinals'))}
+                {@const semifinals = semifinalRound ? getMatchesForRound(semifinalRound).filter(m => m.bracketType === 'semifinals') : []}
+                
+                <!-- Slot-based vertical centering so Semis sit between their Quarter pairs -->
+                {@const slots = Math.max(roundMatches.length, Math.pow(2, totalRounds - roundIndex - 1))}
+                {@const slotHeight = maxColumnHeight / slots}
+                <div class="flex-shrink-0 w-72">
+                  <!-- Round Header -->
+                  <div class="text-center mb-4">
+                    <div class="inline-block px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 border border-cyan-400 shadow-lg">
+                      <h3 class="font-black text-base text-white">{roundLabel}</h3>
+                    </div>
                   </div>
                   
+                  <div class="flex flex-col" style={`height: ${maxColumnHeight}px;`}>
                   {#each roundMatches as match, matchIndex}
                     {@const player1 = getPlayer(match.player1Id)}
                     {@const player2 = getPlayer(match.player2Id)}
                     {@const isEditing = editingMatchId === match.id}
-                    
-                    <div class="relative">
-                      {#if roundIndex < totalRounds - 1 && match.bracketType !== 'third-place'}
-                        <svg class="absolute left-full top-1/2 w-4 h-12 -translate-y-1/2 pointer-events-none z-0" style="margin-left: -1px;">
-                          <path d="M 0 0 L 16 0" stroke="#334155" stroke-width="1" fill="none"/>
-                        </svg>
-                      {/if}
+                    {@const hasWinner = !!match.winnerId}
+                    {@const seriesScore = match.games ? match.games.reduce((acc: any, game: any) => {
+                      if (game.winnerId === match.player1Id) acc.player1++;
+                      if (game.winnerId === match.player2Id) acc.player2++;
+                      return acc;
+                    }, { player1: 0, player2: 0 }) : { player1: 0, player2: 0 }}
+                    <!-- Generate unique IDs for this match and its players -->
+                    {@const matchId = `match-r${roundIndex}-m${matchIndex}`}
+                    {@const player1RowId = `${matchId}-p1`}
+                    {@const player2RowId = `${matchId}-p2`}
+                    <!-- Determine where the winner goes in the next round -->
+                    {@const nextRoundMatchIndex = Math.floor(matchIndex / 2)}
+                    {@const nextRoundPlayerSlot = matchIndex % 2 === 0 ? 'p1' : 'p2'}
+                    {@const nextMatchId = roundIndex < totalRounds - 1 ? `match-r${roundIndex + 1}-m${nextRoundMatchIndex}` : null}
+                    {@const nextPlayerRowId = nextMatchId ? `${nextMatchId}-${nextRoundPlayerSlot}` : null}
+                    {@const winnerRowId = match.winnerId === match.player1Id ? player1RowId : match.winnerId === match.player2Id ? player2RowId : null}
+                    <!-- Determine where the loser goes (for semifinals → 3rd place) -->
+                    {@const loserPlayerRowId = isSemis && match.winnerId ? (matchIndex === 0 ? 'match-3rd-place-p1' : 'match-3rd-place-p2') : null}
+                    {@const loserRowId = match.winnerId === match.player1Id ? player2RowId : match.winnerId === match.player2Id ? player1RowId : null}
+                    <!-- Create boxes for positioning -->
+                    {@const matchCardHeight = isFinals ? (finalsCardHeight || 220) : baseMatchHeight}
+                    <div class="flex items-center justify-center" style={`min-height: ${slotHeight}px;`}>
+                      <div class="w-full" data-match-id={matchId} data-finals-card={isFinals ? 'true' : null}>
+                      <!-- NO CONNECTOR LINES FOR NOW - JUST SHOW THE BRACKETS -->
 
-                      <div class="glass rounded-lg overflow-hidden relative z-10">
-                        <div class="bg-gradient-to-r from-space-700 to-space-800 px-2 py-1 flex items-center justify-between">
-                          <span class="text-xs font-bold text-gray-400">{match.matchLabel || `M${matchIndex + 1}`}</span>
-                          <span class="text-xs font-bold text-brand-cyan">BO{mapsPerMatch}</span>
+                      <!-- Match Card -->
+                      <div class="glass rounded-xl overflow-hidden relative z-10 transform transition-all duration-300 {isEditing ? 'ring-2 ring-brand-cyan scale-105 shadow-2xl' : hasWinner ? 'shadow-lg shadow-cyber-green/20' : 'hover:scale-102 hover:shadow-xl'} border border-space-600">
+                        <!-- Match Header -->
+                        <div class="bg-gradient-to-r from-space-700 to-space-800 px-3 py-2 flex items-center justify-between border-b border-space-600">
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-gray-400">{match.matchLabel || `Match ${matchIndex + 1}`}</span>
+                            {#if hasWinner}
+                              <div class="flex items-center gap-1 px-2 py-0.5 bg-cyber-green/20 rounded-full">
+                                <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                <span class="text-xs font-bold text-cyber-green">Complete</span>
+                              </div>
+                            {/if}
+                          </div>
+                          <div class="flex items-center gap-2">
+                            {#if hasWinner}
+                              <div class="text-xs font-black text-cyber-green">
+                                {seriesScore.player1}-{seriesScore.player2}
+                              </div>
+                            {/if}
+                            <span class="text-xs font-bold {isFinals ? 'text-yellow-500' : isSemis ? 'text-brand-orange' : 'text-brand-cyan'}">BO{mapsPerMatch}</span>
+                          </div>
                         </div>
 
                         {#if isEditing}
                           <!-- BO3 Editing Mode -->
-                          <div class="p-2 space-y-2">
+                          <div class="p-3 space-y-3 bg-gradient-to-br from-space-800 to-space-900">
                             <!-- Player Names Header -->
-                            <div class="flex items-center justify-between text-xs">
-                              <div class="flex items-center gap-1.5 flex-1">
-                                {#if player1?.profilePhoto}
-                                  <img src={player1.profilePhoto} alt="Profile" class="w-5 h-5 rounded-full object-cover" />
-                                {:else}
-                                  <div class="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-                                    <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                                  </div>
-                                {/if}
+                            <div class="flex items-center justify-between text-sm bg-space-700/50 rounded-lg p-2">
+                              <div class="flex items-center gap-2 flex-1">
+                                <img src={getPlayerImageUrl(getPlayerName(match.player1Id))} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-cyber-blue" />
                                 <span class="font-bold text-white truncate">{getPlayerName(match.player1Id)}</span>
                               </div>
-                              <div class="px-2 text-gray-500 font-bold">vs</div>
-                              <div class="flex items-center gap-1.5 flex-1 justify-end">
+                              <div class="px-3 text-gray-500 font-bold">VS</div>
+                              <div class="flex items-center gap-2 flex-1 justify-end">
                                 <span class="font-bold text-white truncate">{getPlayerName(match.player2Id)}</span>
-                                {#if player2?.profilePhoto}
-                                  <img src={player2.profilePhoto} alt="Profile" class="w-5 h-5 rounded-full object-cover" />
-                                {:else}
-                                  <div class="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                                    <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                                  </div>
-                                {/if}
+                                <img src={getPlayerImageUrl(getPlayerName(match.player2Id))} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-brand-purple" />
                               </div>
                             </div>
 
                             <!-- Series Score Display -->
-                            <div class="flex justify-center items-center gap-3 py-1">
-                              <span class="text-xl font-black {getSeriesScore().player1Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green' : 'text-white'}">{getSeriesScore().player1Wins}</span>
-                              <span class="text-gray-500 text-sm">-</span>
-                              <span class="text-xl font-black {getSeriesScore().player2Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green' : 'text-white'}">{getSeriesScore().player2Wins}</span>
+                            <div class="flex justify-center items-center gap-4 py-2 bg-gradient-to-r from-space-700 to-space-800 rounded-lg">
+                              <div class="text-center">
+                                <div class="text-3xl font-black {getSeriesScore().player1Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green animate-pulse' : 'text-white'}">{getSeriesScore().player1Wins}</div>
+                                <div class="text-xs text-gray-400 mt-1">Maps Won</div>
+                              </div>
+                              <div class="w-px h-12 bg-gradient-to-b from-transparent via-gray-600 to-transparent"></div>
+                              <div class="text-center">
+                                <div class="text-3xl font-black {getSeriesScore().player2Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green animate-pulse' : 'text-white'}">{getSeriesScore().player2Wins}</div>
+                                <div class="text-xs text-gray-400 mt-1">Maps Won</div>
+                              </div>
                             </div>
 
                             <!-- Map Score Inputs -->
@@ -661,48 +935,79 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                               {@const mapWinner = getMapWinner(mapIdx)}
                               {@const mapScore = mapScores[mapIdx] || { player1Score: 0, player2Score: 0 }}
                               {@const mapError = getMapValidationError(mapIdx)}
-                              <div class="space-y-1">
-                                <div class="flex items-center gap-2 p-1.5 rounded bg-space-700/50 {mapWinner ? (mapWinner === 'player1' ? 'border-l-2 border-cyan-500' : 'border-r-2 border-purple-500') : mapError ? 'border border-red-500/50' : ''}">
-                                  <span class="text-xs text-gray-500 w-12">Map {mapIdx + 1}</span>
+                              <div class="space-y-1.5">
+                                <!-- Map Selection Dropdown -->
+                                {#if mapPool.length > 0}
+                                  <select 
+                                    bind:value={selectedMaps[mapIdx]}
+                                    class="w-full bg-space-600 border-2 border-space-500 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan"
+                                  >
+                                    <option value="">Select Map {mapIdx + 1}</option>
+                                    {#each mapPool as map}
+                                      <option value={map}>{map}</option>
+                                    {/each}
+                                  </select>
+                                {/if}
+                                
+                                <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : mapError ? 'ring-2 ring-red-500/50' : ''}">
+                                  <div class="flex items-center gap-1.5 min-w-[60px]">
+                                    {#if mapWinner === 'player1'}
+                                      <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                    {/if}
+                                    <span class="text-xs text-gray-400 font-bold">
+                                      {#if selectedMaps[mapIdx]}
+                                        <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                      {:else}
+                                        Map {mapIdx + 1}
+                                      {/if}
+                                    </span>
+                                  </div>
                                   <input
                                     type="number"
                                     min="0"
                                     max={maxScorePerMap || undefined}
                                     value={mapScore.player1Score}
                                     oninput={(e) => updateMapScore(mapIdx, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
-                                    class="w-12 text-center text-sm font-bold bg-space-600 border border-space-500 rounded py-1 text-white focus:outline-none focus:ring-1 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield] {mapWinner === 'player1' ? 'ring-1 ring-cyber-green' : ''}"
+                                    class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                                   />
-                                  <span class="text-gray-500">-</span>
+                                  <span class="text-gray-500 font-bold">:</span>
                                   <input
                                     type="number"
                                     min="0"
                                     max={maxScorePerMap || undefined}
                                     value={mapScore.player2Score}
                                     oninput={(e) => updateMapScore(mapIdx, 'player2', parseInt((e.target as HTMLInputElement).value) || 0)}
-                                    class="w-12 text-center text-sm font-bold bg-space-600 border border-space-500 rounded py-1 text-white focus:outline-none focus:ring-1 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield] {mapWinner === 'player2' ? 'ring-1 ring-cyber-green' : ''}"
+                                    class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                                   />
-                                  />
+                                  {#if mapWinner === 'player2'}
+                                    <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                  {/if}
                                 </div>
                                 {#if mapError}
-                                  <div class="text-xs text-red-400 text-center">{mapError}</div>
+                                  <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{mapError}</div>
                                 {/if}
                               </div>
                             {/each}
 
                             <!-- Action Buttons -->
-                            <div class="flex gap-2 pt-1">
+                            <div class="flex gap-2 pt-2">
                               <button
                                 onclick={cancelEditingMatch}
-                                class="flex-1 py-1.5 text-xs font-bold bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors"
+                                class="flex-1 py-2.5 text-sm font-bold bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-all duration-300 hover:scale-105"
                               >
                                 Cancel
                               </button>
                               <button
                                 onclick={submitBO3Result}
                                 disabled={!canSubmitSeries()}
-                                class="flex-1 py-1.5 text-xs font-bold rounded transition-all {canSubmitSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
+                                class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-300 {canSubmitSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
                               >
-                                {canSubmitSeries() ? `Submit (${getSeriesScore().player1Wins}-${getSeriesScore().player2Wins})` : 'Need Winner'}
+                                {#if canSubmitSeries()}
+                                  <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                  Submit ({getSeriesScore().player1Wins}-{getSeriesScore().player2Wins})
+                                {:else}
+                                  Need Winner
+                                {/if}
                               </button>
                             </div>
                           </div>
@@ -711,63 +1016,337 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           {#if !match.winnerId && match.player1Id && match.player2Id}
                             <button
                               type="button"
-                              class="w-full p-2 text-center text-xs text-brand-cyan hover:bg-brand-cyan/10 transition-colors"
+                              class="w-full p-3 text-center text-sm font-bold text-brand-cyan hover:bg-brand-cyan/10 transition-all duration-300 border-b border-space-600 hover:text-brand-cyan hover:shadow-inner"
                               onclick={() => startEditingMatch(match.id)}
                             >
-                              Click to enter scores
+                              <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                              Enter Match Scores
                             </button>
+                          {/if}
+
+                          <!-- Games Results Display -->
+                          {#if match.games && match.games.length > 0}
+                            <div class="px-3 py-2 bg-space-800/50 border-b border-space-600/50 space-y-1.5">
+                              {#each match.games as game, idx}
+                                <div class="flex items-center justify-between text-xs">
+                                  <div class="flex items-center gap-2 flex-1">
+                                    <span class="text-gray-400 font-bold">G{idx + 1}:</span>
+                                    <span class="text-brand-cyan font-medium">{game.mapName || `Map ${idx + 1}`}</span>
+                                  </div>
+                                  <div class="flex items-center gap-2 font-bold">
+                                    <span class="text-white">{game.player1Score}</span>
+                                    <span class="text-gray-500">:</span>
+                                    <span class="text-white">{game.player2Score}</span>
+                                    {#if game.winnerId === match.player1Id}
+                                      <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                    {:else if game.winnerId === match.player2Id}
+                                      <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                    {/if}
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
                           {/if}
 
                           <!-- Player 1 -->
                           <div 
-                            class="w-full text-left px-2 py-1.5 border-b border-space-600 transition-all {match.winnerId === match.player1Id ? 'bg-cyber-green/20 ring-1 ring-cyber-green' : ''} {match.winnerId && match.winnerId !== match.player1Id ? 'opacity-40' : ''}"
+                            id={player1RowId}
+                            data-player-id={match.player1Id}
+                            data-is-winner={match.winnerId === match.player1Id}
+                            data-next-row-id={match.winnerId === match.player1Id ? nextPlayerRowId : (match.winnerId === match.player2Id && loserPlayerRowId ? loserPlayerRowId : null)}
+                            class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match.winnerId === match.player1Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== match.player1Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
                           >
                             <div class="flex items-center justify-between">
-                              <div class="flex items-center gap-1.5">
-                                {#if player1?.profilePhoto}
-                                  <img src={player1.profilePhoto} alt="Profile" class="w-5 h-5 rounded-full object-cover" />
-                                {:else}
-                                  <div class="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-                                    <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                                  </div>
-                                {/if}
-                                <div>
-                                  <div class="font-bold text-xs text-white">{getPlayerName(match.player1Id)}</div>
+                              <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                                <div class="relative flex-shrink-0">
+                                  <img src={getPlayerImageUrl(getPlayerName(match.player1Id))} alt="Profile" class="w-10 h-10 rounded-full object-cover {match.winnerId === match.player1Id ? 'ring-2 ring-cyber-green' : ''}" />
+                                  {#if match.winnerId === match.player1Id}
+                                    <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-cyber-green rounded-full flex items-center justify-center">
+                                      <svg class="w-3 h-3 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                    </div>
+                                  {/if}
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                  <div class="font-bold text-sm text-white truncate">{getPlayerName(match.player1Id)}</div>
+                                  {#if hasWinner}
+                                    <div class="text-xs text-gray-400 mt-0.5">
+                                      <span class="font-bold {match.winnerId === match.player1Id ? 'text-cyber-green' : ''}">{seriesScore.player1}</span>
+                                      <span class="text-gray-500 mx-1">maps</span>
+                                    </div>
+                                  {/if}
                                 </div>
                               </div>
-                              {#if match.winnerId === match.player1Id}
-                                <svg class="w-4 h-4 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                              {#if hasWinner}
+                                <div class="text-right flex-shrink-0 ml-2">
+                                  <div class="text-2xl font-black {match.winnerId === match.player1Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player1}</div>
+                                </div>
                               {/if}
                             </div>
                           </div>
                           
                           <!-- Player 2 -->
                           <div 
-                            class="w-full text-left px-2 py-1.5 transition-all {match.winnerId === match.player2Id ? 'bg-cyber-green/20 ring-1 ring-cyber-green' : ''} {match.winnerId && match.winnerId !== match.player2Id ? 'opacity-40' : ''}"
+                            id={player2RowId}
+                            data-player-id={match.player2Id}
+                            data-is-winner={match.winnerId === match.player2Id}
+                            data-next-row-id={match.winnerId === match.player2Id ? nextPlayerRowId : (match.winnerId === match.player1Id && loserPlayerRowId ? loserPlayerRowId : null)}
+                            class="w-full text-left px-3 py-3 transition-all duration-300 {match.winnerId === match.player2Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== match.player2Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
                           >
                             <div class="flex items-center justify-between">
-                              <div class="flex items-center gap-1.5">
-                                {#if player2?.profilePhoto}
-                                  <img src={player2.profilePhoto} alt="Profile" class="w-5 h-5 rounded-full object-cover" />
-                                {:else}
-                                  <div class="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                                    <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                                  </div>
-                                {/if}
-                                <div>
-                                  <div class="font-bold text-xs text-white">{getPlayerName(match.player2Id)}</div>
+                              <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                                <div class="relative flex-shrink-0">
+                                  <img src={getPlayerImageUrl(getPlayerName(match.player2Id))} alt="Profile" class="w-10 h-10 rounded-full object-cover {match.winnerId === match.player2Id ? 'ring-2 ring-cyber-green' : ''}" />
+                                  {#if match.winnerId === match.player2Id}
+                                    <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-cyber-green rounded-full flex items-center justify-center">
+                                      <svg class="w-3 h-3 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                    </div>
+                                  {/if}
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                  <div class="font-bold text-sm text-white truncate">{getPlayerName(match.player2Id)}</div>
+                                  {#if hasWinner}
+                                    <div class="text-xs text-gray-400 mt-0.5">
+                                      <span class="font-bold {match.winnerId === match.player2Id ? 'text-cyber-green' : ''}">{seriesScore.player2}</span>
+                                      <span class="text-gray-500 mx-1">maps</span>
+                                    </div>
+                                  {/if}
                                 </div>
                               </div>
-                              {#if match.winnerId === match.player2Id}
-                                <svg class="w-4 h-4 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                              {#if hasWinner}
+                                <div class="text-right flex-shrink-0 ml-2">
+                                  <div class="text-2xl font-black {match.winnerId === match.player2Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player2}</div>
+                                </div>
                               {/if}
                             </div>
                           </div>
                         {/if}
                       </div>
                     </div>
-                  {/each}
+                  </div>
+              {/each}
+                  
+                  <!-- Second box for Finals column: 3rd place (editable + stats) -->
+                  {#if isFinals && thirdPlaceMatches.length > 0}
+                    <div class="flex items-start justify-center pt-6" style={`min-height: ${Math.max(baseMatchHeight, finalsCardHeight || baseMatchHeight)}px;`}>
+                      <div class="w-full px-4">
+                        {#each thirdPlaceMatches as match3rd}
+                          {@const player1 = getPlayer(match3rd.player1Id)}
+                          {@const player2 = getPlayer(match3rd.player2Id)}
+                          {@const isEditing3rd = editingMatchId === match3rd.id}
+                          {@const hasWinner = !!match3rd.winnerId}
+                          {@const seriesScore = match3rd.games ? match3rd.games.reduce((acc: any, game: any) => {
+                            if (game.winnerId === match3rd.player1Id) acc.player1++;
+                            if (game.winnerId === match3rd.player2Id) acc.player2++;
+                            return acc;
+                          }, { player1: 0, player2: 0 }) : { player1: 0, player2: 0 }}
+                          
+                          <div class="text-center mb-3">
+                            <span class="text-xs font-bold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">3RD PLACE</span>
+                          </div>
+                          
+                          <div class="glass rounded-xl overflow-hidden relative z-10 border border-space-600 shadow-lg" data-match-id={`match-3rd-place`}>
+                            <div class="bg-gradient-to-r from-space-700 to-space-800 px-3 py-2 flex items-center justify-between border-b border-space-600">
+                              <div class="flex items-center gap-2">
+                                <span class="text-xs font-bold text-gray-400">3rd Place</span>
+                                {#if hasWinner}
+                                  <div class="flex items-center gap-1 px-2 py-0.5 bg-cyber-green/20 rounded-full">
+                                    <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                    <span class="text-xs font-bold text-cyber-green">Complete</span>
+                                  </div>
+                                {/if}
+                              </div>
+                              <div class="flex items-center gap-2">
+                                {#if hasWinner}
+                                  <div class="text-xs font-black text-cyber-green">
+                                    {seriesScore.player1}-{seriesScore.player2}
+                                  </div>
+                                {/if}
+                                <span class="text-xs font-bold text-brand-cyan">BO{mapsPerMatch}</span>
+                              </div>
+                            </div>
+                            <div class="p-3 space-y-3 bg-gradient-to-br from-space-800 to-space-900">
+                              {#if isEditing3rd}
+                                <!-- Reuse BO3 editor for 3rd place -->
+                                <div class="flex items-center justify-between text-sm bg-space-700/50 rounded-lg p-2">
+                                  <div class="flex items-center gap-2 flex-1">
+                                    <img src={getPlayerImageUrl(getPlayerName(match3rd.player1Id))} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-cyber-blue" />
+                                    <span class="font-bold text-white truncate">{getPlayerName(match3rd.player1Id)}</span>
+                                  </div>
+                                  <div class="px-3 text-gray-500 font-bold">VS</div>
+                                  <div class="flex items-center gap-2 flex-1 justify-end">
+                                    <span class="font-bold text-white truncate">{getPlayerName(match3rd.player2Id)}</span>
+                                    <img src={getPlayerImageUrl(getPlayerName(match3rd.player2Id))} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-brand-purple" />
+                                  </div>
+                                </div>
+
+                                <div class="flex justify-center items-center gap-4 py-2 bg-gradient-to-r from-space-700 to-space-800 rounded-lg">
+                                  <div class="text-center">
+                                    <div class="text-3xl font-black {getSeriesScore().player1Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green animate-pulse' : 'text-white'}">{getSeriesScore().player1Wins}</div>
+                                    <div class="text-xs text-gray-400 mt-1">Maps Won</div>
+                                  </div>
+                                  <div class="w-px h-12 bg-gradient-to-b from-transparent via-gray-600 to-transparent"></div>
+                                  <div class="text-center">
+                                    <div class="text-3xl font-black {getSeriesScore().player2Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green animate-pulse' : 'text-white'}">{getSeriesScore().player2Wins}</div>
+                                    <div class="text-xs text-gray-400 mt-1">Maps Won</div>
+                                  </div>
+                                </div>
+
+                                {#each Array(mapsPerMatch) as _, mapIdx}
+                                  {@const mapWinner = getMapWinner(mapIdx)}
+                                  {@const mapScore = mapScores[mapIdx] || { player1Score: 0, player2Score: 0 }}
+                                  {@const mapError = getMapValidationError(mapIdx)}
+                                  <div class="space-y-1.5">
+                                    {#if mapPool.length > 0}
+                                      <select 
+                                        bind:value={selectedMaps[mapIdx]}
+                                        class="w-full bg-space-600 border-2 border-space-500 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan"
+                                      >
+                                        <option value="">Select Map {mapIdx + 1}</option>
+                                        {#each mapPool as map}
+                                          <option value={map}>{map}</option>
+                                        {/each}
+                                      </select>
+                                    {/if}
+                                    
+                                    <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : mapError ? 'ring-2 ring-red-500/50' : ''}">
+                                      <div class="flex items-center gap-1.5 min-w-[60px]">
+                                        {#if mapWinner === 'player1'}
+                                          <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                        {/if}
+                                        <span class="text-xs text-gray-400 font-bold">
+                                          {#if selectedMaps[mapIdx]}
+                                            <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                          {:else}
+                                            Map {mapIdx + 1}
+                                          {/if}
+                                        </span>
+                                      </div>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max={maxScorePerMap || undefined}
+                                        value={mapScore.player1Score}
+                                        oninput={(e) => updateMapScore(mapIdx, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
+                                        class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                      />
+                                      <span class="text-gray-500 font-bold">:</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max={maxScorePerMap || undefined}
+                                        value={mapScore.player2Score}
+                                        oninput={(e) => updateMapScore(mapIdx, 'player2', parseInt((e.target as HTMLInputElement).value) || 0)}
+                                        class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                      />
+                                      {#if mapWinner === 'player2'}
+                                        <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                      {/if}
+                                    </div>
+                                    {#if mapError}
+                                      <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{mapError}</div>
+                                    {/if}
+                                  </div>
+                                {/each}
+
+                                <div class="flex gap-2 pt-2">
+                                  <button
+                                    onclick={cancelEditingMatch}
+                                    class="flex-1 py-2.5 text-sm font-bold bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-all duration-300 hover:scale-105"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onclick={submitBO3Result}
+                                    disabled={!canSubmitSeries()}
+                                    class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-300 {canSubmitSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
+                                  >
+                                    {#if canSubmitSeries()}
+                                      <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                      Submit ({getSeriesScore().player1Wins}-{getSeriesScore().player2Wins})
+                                    {:else}
+                                      Need Winner
+                                    {/if}
+                                  </button>
+                                </div>
+                              {:else}
+                                {#if !match3rd.winnerId && match3rd.player1Id && match3rd.player2Id}
+                                  <button
+                                    type="button"
+                                    class="w-full p-3 text-center text-sm font-bold text-amber-400 hover:bg-amber-500/10 transition-all duration-300 border border-amber-500/40 hover:text-amber-300 hover:shadow-inner rounded-lg"
+                                    onclick={() => startEditingMatch(match3rd.id)}
+                                  >
+                                    <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                    Enter Match Scores (3rd)
+                                  </button>
+                                {/if}
+
+                                {#if match3rd.games && match3rd.games.length > 0}
+                                  <div class="px-3 py-2 bg-space-800/50 border border-space-600/50 rounded-lg space-y-1.5">
+                                    {#each match3rd.games as game, idx}
+                                      <div class="flex items-center justify-between text-xs">
+                                        <div class="flex items-center gap-2 flex-1">
+                                          <span class="text-gray-400 font-bold">G{idx + 1}:</span>
+                                          <span class="text-amber-300 font-medium">{game.mapName || `Map ${idx + 1}`}</span>
+                                        </div>
+                                        <div class="flex items-center gap-2 font-bold">
+                                          <span class="text-white">{game.player1Score}</span>
+                                          <span class="text-gray-500">:</span>
+                                          <span class="text-white">{game.player2Score}</span>
+                                          {#if game.winnerId === match3rd.player1Id}
+                                            <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                          {:else if game.winnerId === match3rd.player2Id}
+                                            <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                          {/if}
+                                        </div>
+                                      </div>
+                                    {/each}
+                                  </div>
+                                {/if}
+
+                                <!-- Player rows with IDs so connectors can target them -->
+                                {#if match3rd.player1Id}
+                                  <div 
+                                    id="match-3rd-place-p1"
+                                    class="px-3 py-2 mt-2 rounded-lg {match3rd.winnerId === match3rd.player1Id ? 'bg-gradient-to-r from-amber-500/15 to-transparent ring-1 ring-amber-500/40' : 'bg-space-800/40'}"
+                                  >
+                                    <div class="flex items-center justify-between">
+                                      <div class="flex items-center gap-2 flex-1">
+                                        <img src={getPlayerImageUrl(getPlayerName(match3rd.player1Id))} alt="Profile" class="w-8 h-8 rounded-full object-cover" />
+                                        <div class="font-bold text-sm text-white">{getPlayerName(match3rd.player1Id)}</div>
+                                      </div>
+                                      {#if hasWinner}
+                                        <div class="text-lg font-black {match3rd.winnerId === match3rd.player1Id ? 'text-amber-400' : 'text-gray-600'}">{seriesScore.player1}</div>
+                                      {/if}
+                                    </div>
+                                  </div>
+                                {/if}
+                                {#if match3rd.player2Id}
+                                  <div 
+                                    id="match-3rd-place-p2"
+                                    class="px-3 py-2 mt-2 rounded-lg {match3rd.winnerId === match3rd.player2Id ? 'bg-gradient-to-r from-amber-500/15 to-transparent ring-1 ring-amber-500/40' : 'bg-space-800/40'}"
+                                  >
+                                    <div class="flex items-center justify-between">
+                                      <div class="flex items-center gap-2 flex-1">
+                                        <img src={getPlayerImageUrl(getPlayerName(match3rd.player2Id))} alt="Profile" class="w-8 h-8 rounded-full object-cover" />
+                                        <div class="font-bold text-sm text-white">{getPlayerName(match3rd.player2Id)}</div>
+                                      </div>
+                                      {#if hasWinner}
+                                        <div class="text-lg font-black {match3rd.winnerId === match3rd.player2Id ? 'text-amber-400' : 'text-gray-600'}">{seriesScore.player2}</div>
+                                      {/if}
+                                    </div>
+                                  </div>
+                                {/if}
+                              {/if}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                  </div>
+                  
                 </div>
+                {/if}
               {/each}
             </div>
           </div>
@@ -775,7 +1354,8 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       </div>
     {/if}
   </div>
-</div>
 
-<!-- Confetti (shows on champion declaration) -->
-<Confetti bind:show={showConfetti} duration={5000} />
+  <!-- Confetti (shows on champion declaration) -->
+  <Confetti bind:show={showConfetti} duration={5000} />
+  <Footer />
+</div>

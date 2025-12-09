@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getState, submitMatch, generateBrackets, updateGroupName, resetGroupData, resetTournament, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getPlayerImageUrl } from '$lib/playerImages';
+  import Footer from '../components/Footer.svelte';
 
   let { tournamentId } = $props<{ tournamentId: string }>();
 
@@ -10,10 +12,12 @@
   let tournamentState = $state('');
   let currentRound = $state(1);
   let gameType = $state<GameType | null>(null);
+  let mapPool = $state([]) as string[];
+  let groupStageRoundLimit = $state<number | undefined>(undefined);
 
   // Score-based input state (player1Score, player2Score per match)
   let matchScores = $state({}) as Record<string, { player1Score: number; player2Score: number }>;
-
+  let matchMaps = $state({}) as Record<string, string>; // Selected map per match
   // Group editing state
   let editingGroupId = $state(null) as string | null;
   let editingGroupName = $state('');
@@ -30,8 +34,9 @@
   // Derived game config
   const gameConfig = $derived(gameType ? GAME_CONFIGS[gameType] : null);
   const scoreLabel = $derived(gameConfig?.groupStage.scoreLabel || 'Score');
-  const maxScore = $derived(gameConfig?.groupStage.maxScore); // undefined = no limit
+  const maxScore = $derived(groupStageRoundLimit !== undefined ? groupStageRoundLimit : gameConfig?.groupStage.maxScore); // Use custom limit if set
   const tieAllowed = $derived(gameConfig?.groupStage.tieAllowed ?? true);
+  const isKillBased = $derived(gameConfig?.groupStage.scoreType === 'kills');
 
   // Popup helper functions
   function showError(message: string) {
@@ -154,7 +159,8 @@
       podsCount: data.pods.length,
       matchesCount: data.matches.length,
       playersCount: data.players.length,
-      state: data.state
+      state: data.state,
+      mapPoolLength: data.mapPool?.length || 0
     });
 
     // With $state, direct assignment triggers reactivity
@@ -163,6 +169,8 @@
     players = data.players;
     tournamentState = data.state;
     gameType = data.gameType || 'cs16';
+    mapPool = data.mapPool || [];
+    groupStageRoundLimit = data.groupStageRoundLimit;
 
     // Initialize scores from existing results
     matches.forEach(m => {
@@ -175,9 +183,14 @@
                 player2Score: p2Result?.score ?? (p2Result?.points === 3 ? 16 : p2Result?.points === 1 ? 15 : 0)
             };
         }
+        // Initialize map selection from match data
+        if (m.mapName) {
+            matchMaps[m.id] = m.mapName;
+        }
     });
 
     console.log('[Groups] loadState() complete - matchScores:', matchScores);
+    console.log('[Groups] loadState() complete - mapPool:', mapPool);
   }
 
   function getPlayerName(id: string) {
@@ -216,8 +229,11 @@
     if (!matchScores[matchId]) {
       matchScores[matchId] = { player1Score: 0, player2Score: 0 };
     }
-    // Clamp value between 0 and maxScore (if maxScore is defined)
-    const clampedValue = maxScore !== undefined ? Math.max(0, Math.min(value, maxScore)) : Math.max(0, value);
+    // For UT2004, allow negative values (suicides), otherwise clamp to 0 minimum
+    const minValue = gameType === 'ut2004' ? -999 : 0;
+    const clampedValue = maxScore !== undefined 
+      ? Math.max(minValue, Math.min(value, maxScore)) 
+      : Math.max(minValue, value);
     if (player === 'player1') {
       matchScores[matchId].player1Score = clampedValue;
     } else {
@@ -244,22 +260,28 @@
     const isHealthBased = gameConfig?.groupStage.scoreType === 'health';
     // Need at least one score, unless it's a health-based game where 0-0 tie is valid
     if (player1Score === 0 && player2Score === 0 && !isHealthBased) return false;
+    
+    // If map pool exists AND match doesn't already have mapName, require map selection
+    if (mapPool.length > 0 && !matchMaps[matchId]) {
+      return false;
+    }
+    
     // For games that don't allow ties, scores must be different
     if (!tieAllowed && player1Score === player2Score) return false;
     
     if (gameType === 'cs16') {
-      const winScore = 16; 
-      const maxLoserScore = 15;
+      const winScore = maxScore || 16; 
+      const maxLoserScore = winScore - 1;
       
       if (player1Score > player2Score) {
-        // Player 1 wins - must have exactly 16, loser max 15
+        // Player 1 wins - must have exactly winScore, loser max winScore-1
         if (player1Score !== winScore || player2Score > maxLoserScore) return false;
       } else if (player2Score > player1Score) {
-        // Player 2 wins - must have exactly 16, loser max 15
+        // Player 2 wins - must have exactly winScore, loser max winScore-1
         if (player2Score !== winScore || player1Score > maxLoserScore) return false;
       } else {
-        // Tie - only valid at 15-15
-        if (player1Score !== 15 || player2Score !== 15) return false;
+        // Tie - only valid at maxLoserScore-maxLoserScore
+        if (player1Score !== maxLoserScore || player2Score !== maxLoserScore) return false;
       }
     }
     return true;
@@ -272,13 +294,18 @@
     
     if (player1Score === 0 && player2Score === 0) return null;
     
+    // Check if map selection is required
+    if (mapPool.length > 0 && !matchMaps[matchId]) {
+      return 'Please select a map';
+    }
+    
     if (!tieAllowed && player1Score === player2Score) {
       return 'Ties not allowed - scores must be different';
     }
     
     if (gameType === 'cs16') {
-      const winScore = 16;
-      const maxLoserScore = 15;
+      const winScore = maxScore || 16;
+      const maxLoserScore = winScore - 1;
       
       if (player1Score > player2Score) {
         if (player1Score !== winScore) {
@@ -294,8 +321,8 @@
         if (player1Score > maxLoserScore) {
           return `Loser cannot have more than ${maxLoserScore} rounds`;
         }
-      } else if (player1Score !== 15 || player2Score !== 15) {
-        return 'Ties only valid at 15-15';
+      } else if (player1Score !== maxLoserScore || player2Score !== maxLoserScore) {
+        return `Ties only valid at ${maxLoserScore}-${maxLoserScore}`;
       }
     }
     
@@ -322,8 +349,15 @@
         results[match.player2Id] = { points: 1, score: player2Score };
       }
 
-      console.log('[Groups] submitMatchResult - submitting results:', results);
-      await submitMatch(tournamentId, matchId, results);
+      // Include selected map if available
+      const selectedMap = matchMaps[matchId];
+      const payload: any = { results };
+      if (selectedMap) {
+        payload.mapName = selectedMap;
+      }
+
+      console.log('[Groups] submitMatchResult - submitting:', payload);
+      await submitMatch(tournamentId, matchId, results, selectedMap);
       console.log('[Groups] submitMatchResult - match submitted, reloading state');
       await loadState();
       console.log('[Groups] submitMatchResult complete');
@@ -394,8 +428,8 @@
   onMount(loadState);
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3">
-  <div class="max-w-7xl mx-auto">
+<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3 flex flex-col">
+  <div class="max-w-6xl mx-auto w-full">
     
     <!-- Header -->
     <div class="flex justify-between items-center mb-3">
@@ -404,10 +438,12 @@
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
           Back
         </a>
-        <h1 class="text-xl font-black gradient-text flex items-center gap-1.5">
-          <svg class="w-5 h-5 text-cyber-pink" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clip-rule="evenodd"/></svg>
-          GROUP STAGE • R{currentRound}/3
-        </h1>
+        <div class="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+          </svg>
+          Groups
+        </div>
       </div>
       
       {#if tournamentState === 'group' && matches.every(m => m.completed)}
@@ -525,9 +561,7 @@
                       </div>
                     </td>
                     <td class="py-1 px-1 font-bold text-white text-xs flex items-center gap-2">
-                      {#if player.profilePhoto}
-                        <img src={player.profilePhoto} alt="Profile" class="w-6 h-6 rounded-full object-cover inline-block" />
-                      {/if}
+                      <img src={getPlayerImageUrl(player.name)} alt="Profile" class="w-6 h-6 rounded-full object-cover inline-block" />
                       {player.name}
                     </td>                    
                     <td class="text-center py-1 px-1 text-gray-400">{(player.wins || 0) + (player.draws || 0) + (player.losses || 0)}</td>
@@ -571,6 +605,26 @@
 
               <!-- Match Content -->
               <div class="p-3">
+                <!-- Map Selection (if map pool exists or match has mapName) -->
+                {#if (mapPool.length > 0 || match.mapName) && !match.completed}
+                  <div class="mb-3">
+                    <span class="block text-xs text-gray-400 mb-1">Map</span>
+                    <select 
+                      bind:value={matchMaps[match.id]}
+                      class="w-full bg-space-600 border-2 border-space-500 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan"
+                    >
+                      <option value="">Select Map</option>
+                      {#each mapPool as map}
+                        <option value={map}>{map}</option>
+                      {/each}
+                    </select>
+                  </div>
+                {:else if match.mapName}
+                  <div class="mb-3 text-center">
+                    <span class="text-xs px-2 py-1 bg-brand-cyan/20 text-brand-cyan rounded-full">{match.mapName}</span>
+                  </div>
+                {/if}
+                
                 <!-- Score Display Row -->
                 <div class="flex items-center justify-center gap-3 mb-3">
                   <!-- Player 1 Score -->
@@ -623,13 +677,7 @@
                 <div class="flex items-center justify-between gap-3">
                   <!-- Player 1 Info -->
                   <div class="flex-1 flex items-center gap-2 {result === 'player2' ? 'opacity-50' : ''}">
-                    {#if player1?.profilePhoto}
-                      <img src={player1.profilePhoto} alt="Profile" class="w-7 h-7 rounded-full object-cover flex-shrink-0" />
-                    {:else}
-                      <div class="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                      </div>
-                    {/if}
+                    <img src={getPlayerImageUrl(player1?.name || 'Unknown')} alt="Profile" class="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                     <span class="font-bold text-xs text-white truncate">{player1?.name || 'Unknown'}</span>
                     {#if result === 'player1'}
                       <svg class="w-4 h-4 text-cyber-green flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
@@ -645,13 +693,7 @@
                       <svg class="w-4 h-4 text-cyber-green flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
                     {/if}
                     <span class="font-bold text-xs text-white truncate">{player2?.name || 'Unknown'}</span>
-                    {#if player2?.profilePhoto}
-                      <img src={player2.profilePhoto} alt="Profile" class="w-7 h-7 rounded-full object-cover flex-shrink-0" />
-                    {:else}
-                      <div class="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
-                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                      </div>
-                    {/if}
+                    <img src={getPlayerImageUrl(player2?.name || 'Unknown')} alt="Profile" class="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                   </div>
                 </div>
 
@@ -692,12 +734,14 @@
       </button>
     </div>
   </div>
+    
+  <Footer />
 </div>
 
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
+    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
           <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -726,8 +770,8 @@
 
 <!-- Confirmation Popup Modal -->
 {#if showConfirmPopup}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-brand-cyan/30">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showConfirmPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showConfirmPopup = false)}>
+    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-brand-cyan/30" onclick={(e) => e.stopPropagation()}>
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-brand-cyan/20 flex items-center justify-center">
           <svg class="w-6 h-6 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">

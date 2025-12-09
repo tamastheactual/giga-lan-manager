@@ -158,11 +158,17 @@ export async function getTournaments() {
     return res.json();
 }
 
-export async function createTournament(name: string, gameType: GameType) {
+export async function createTournament(
+    name: string, 
+    gameType: GameType, 
+    mapPool: string[] = [], 
+    groupStageRoundLimit?: number, 
+    playoffsRoundLimit?: number
+) {
     const res = await fetch(`${API_URL}/tournaments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gameType })
+        body: JSON.stringify({ name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit })
     });
     return res.json();
 }
@@ -202,11 +208,14 @@ export async function startGroupStage(tournamentId: string) {
     return res.json();
 }
 
-export async function submitMatch(tournamentId: string, id: string, results: any) {
+export async function submitMatch(tournamentId: string, id: string, results: any, mapName?: string) {
+    const body: any = { results };
+    if (mapName) body.mapName = mapName;
+    
     const res = await fetch(`${API_URL}/tournament/${tournamentId}/match/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ results })
+        body: JSON.stringify(body)
     });
     return res.json();
 }
@@ -282,7 +291,7 @@ export async function removePlayer(tournamentId: string, playerId: string) {
 
 // Submit a single game result for BO3 bracket match
 export async function submitBracketGameResult(tournamentId: string, matchId: string, gameResult: any) {
-    const response = await fetch(`/api/tournament/${tournamentId}/bracket/${matchId}/game`, {
+    const response = await fetch(`/api/tournament/${tournamentId}/bracket-match/${matchId}/game`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gameResult)
@@ -292,7 +301,7 @@ export async function submitBracketGameResult(tournamentId: string, matchId: str
 }
 
 export async function updateBracketMatch(tournamentId: string, matchId: string, winnerId: string, games: any) {
-    const response = await fetch(`/api/tournament/${tournamentId}/bracket/${matchId}`, {
+    const response = await fetch(`/api/tournament/${tournamentId}/bracket-match/${matchId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ winnerId, games })

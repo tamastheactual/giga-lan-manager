@@ -5,6 +5,7 @@
   import csLogo from '../assets/games/CounterStrike.png';
   import ut2004Logo from '../assets/games/UT2004.png';
   import wormsLogo from '../assets/games/WormsArmageddon.png';
+  import Footer from '../components/Footer.svelte';
 
   // Map game types to logos
   const GAME_LOGOS: Record<GameType, string> = {
@@ -21,6 +22,11 @@
   let gameType = $state<GameType | null>(null);
   let showConfetti = $state(false);
   let showRulesModal = $state(false);
+  let champion = $state(null) as any;
+  let bracketMatches = $state([]) as any[];
+  let createdAt = $state<string | null>(null);
+  let startedAt = $state<string | null>(null);
+  let mapPool = $state<string[]>([]);
 
   // Player edit state
   let editingPlayerId = $state<string | null>(null);
@@ -49,6 +55,96 @@
 
   // Computed: current game config
   const currentGameConfig = $derived(gameType ? GAME_CONFIGS[gameType] : null);
+  const isKillBased = $derived(currentGameConfig?.groupStage.scoreType === 'kills');
+  const isHealthBased = $derived(currentGameConfig?.groupStage.scoreType === 'health');
+
+  function getPlayer(playerId: string) {
+    return players.find(p => p.id === playerId);
+  }
+
+  function getRunnerUp() {
+    const finals = bracketMatches.find((m: any) => m.bracketType === 'finals');
+    if (!finals?.winnerId) return null;
+    const loserId = finals.player1Id === finals.winnerId ? finals.player2Id : finals.player1Id;
+    return getPlayer(loserId);
+  }
+
+  function getThirdPlace() {
+    const thirdPlaceMatch = bracketMatches.find((m: any) => m.bracketType === '3rd-place');
+    if (!thirdPlaceMatch?.winnerId) return null;
+    return getPlayer(thirdPlaceMatch.winnerId);
+  }
+
+  function getPlayerTotalScore(playerId: string) {
+    const player = getPlayer(playerId);
+    return player?.totalGameScore || 0;
+  }
+
+  function getPlayerMapsWon(playerId: string) {
+    const player = getPlayer(playerId);
+    return player?.wins || 0;
+  }
+
+  function getRankedPlayers() {
+    if (!champion) return [];
+    
+    const ranked = [];
+    
+    // 1st Place - Champion
+    ranked.push({ ...champion, rank: 1 });
+    
+    // 2nd Place - Runner Up
+    const runnerUp = getRunnerUp();
+    if (runnerUp) {
+      ranked.push({ ...runnerUp, rank: 2 });
+    }
+    
+    // 3rd Place - Winner of 3rd place match
+    const thirdPlace = getThirdPlace();
+    if (thirdPlace) {
+      ranked.push({ ...thirdPlace, rank: 3 });
+    }
+    
+    // 4th Place - Loser of 3rd place match
+    const thirdPlaceMatch = bracketMatches.find((m: any) => m.bracketType === '3rd-place');
+    let fourthPlace = null;
+    if (thirdPlaceMatch?.winnerId) {
+      const loserId = thirdPlaceMatch.player1Id === thirdPlaceMatch.winnerId 
+        ? thirdPlaceMatch.player2Id 
+        : thirdPlaceMatch.player1Id;
+      fourthPlace = getPlayer(loserId);
+      if (fourthPlace) {
+        ranked.push({ ...fourthPlace, rank: 4 });
+      }
+    }
+    
+    // 5th+ Place - Rest of players sorted by score
+    const topFourIds = [champion.id, runnerUp?.id, thirdPlace?.id, fourthPlace?.id].filter(Boolean);
+    const remainingPlayers = players
+      .filter(p => !topFourIds.includes(p.id))
+      .sort((a, b) => (b.totalGameScore || 0) - (a.totalGameScore || 0))
+      .map((p, index) => ({ ...p, rank: index + 5 }));
+    
+    return [...ranked, ...remainingPlayers];
+  }
+
+  function formatDate(dateString: string | null) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function formatDateTime(dateString: string | null) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
 
   async function loadState() {
     const data = await getState(tournamentId);
@@ -56,6 +152,11 @@
     tournamentState = data.state;
     tournamentName = data.name;
     gameType = data.gameType || null;
+    champion = data.champion || null;
+    bracketMatches = data.bracketMatches || [];
+    createdAt = data.createdAt || null;
+    startedAt = data.startedAt || null;
+    mapPool = data.mapPool || [];
   }
 
   async function handleAddPlayer() {
@@ -293,11 +394,17 @@
   });
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 py-8 px-4">
+<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 py-8 px-4 flex flex-col">
   <div class="w-full max-w-6xl mx-auto space-y-8">
 
     <!-- Header with Animated Title -->
     <div class="text-center py-3 space-y-2">
+      <div class="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-1 flex items-center gap-2 justify-center">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+        </svg>
+        Dashboard
+      </div>
       {#if isEditingName}
         <div class="flex justify-center items-center gap-2 max-w-lg mx-auto">
           <input
@@ -327,27 +434,82 @@
 
     <!-- Game Info Banner -->
     {#if currentGameConfig && gameType}
-      <div class="glass rounded-lg p-4 shadow-xl border border-brand-purple/30 flex items-center justify-between">
-        <div class="flex items-center gap-4">
-          <img 
-            src={GAME_LOGOS[gameType]} 
-            alt={currentGameConfig.name}
-            class="w-24 h-14 object-contain"
-          />
+      <div class="glass rounded-lg p-4 shadow-xl border border-brand-purple/30">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-4">
+            <img 
+              src={GAME_LOGOS[gameType]} 
+              alt={currentGameConfig.name}
+              class="w-24 h-14 object-contain"
+            />
+            <div>
+              <h3 class="text-lg font-bold text-white">{currentGameConfig.name}</h3>
+              <p class="text-sm text-gray-400">
+                Group: {currentGameConfig.groupStage.format} • Playoffs: {currentGameConfig.playoffs.format}
+              </p>
+            </div>
+          </div>
+          <button
+            onclick={() => showRulesModal = true}
+            class="bg-brand-purple/20 border border-brand-purple text-brand-purple hover:bg-brand-purple hover:text-white font-bold px-4 py-2 rounded-lg transition-all duration-300"
+          >
+            <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+            VIEW RULES
+          </button>
+        </div>
+        <div class="flex items-center gap-6 text-xs text-gray-400 border-t border-space-600 pt-2 mt-2">
+          <div class="flex items-center gap-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+            <span>Created: {formatDate(createdAt)}</span>
+          </div>
+          {#if startedAt}
+            <div class="flex items-center gap-1">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <span>Started: {formatDateTime(startedAt)}</span>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Quick Actions Bar for ongoing tournaments -->
+    {#if tournamentState === 'group' || tournamentState === 'playoffs'}
+      <div class="glass rounded-lg p-4 shadow-xl border border-brand-cyan/30">
+        <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-lg font-bold text-white">{currentGameConfig.name}</h3>
-            <p class="text-sm text-gray-400">
-              Group: {currentGameConfig.groupStage.format} • Playoffs: {currentGameConfig.playoffs.format}
+            <h3 class="text-sm font-bold text-white mb-1">Current Stage</h3>
+            <p class="text-xs text-gray-400">
+              {tournamentState === 'group' ? 'Group Stage in Progress' : 'Playoffs in Progress'}
             </p>
           </div>
+          <div class="flex gap-2">
+            {#if tournamentState === 'group'}
+              <a
+                href={`/tournament/${tournamentId}/groups`}
+                class="bg-gradient-to-r from-cyber-blue to-blue-500 text-white font-bold text-sm px-5 py-2 rounded-lg shadow-glow-blue hover:scale-105 transition-all duration-300 inline-flex items-center gap-2 uppercase"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                </svg>
+                MANAGE GROUPS
+              </a>
+            {:else}
+              <a
+                href={`/tournament/${tournamentId}/brackets`}
+                class="bg-gradient-to-r from-yellow-400 to-yellow-600 text-space-900 font-bold text-sm px-5 py-2 rounded-lg hover:scale-105 transition-all duration-300 inline-flex items-center gap-2 uppercase"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+                </svg>
+                MANAGE BRACKETS
+              </a>
+            {/if}
+          </div>
         </div>
-        <button
-          onclick={() => showRulesModal = true}
-          class="bg-brand-purple/20 border border-brand-purple text-brand-purple hover:bg-brand-purple hover:text-white font-bold px-4 py-2 rounded-lg transition-all duration-300"
-        >
-          <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-          View Rules
-        </button>
       </div>
     {/if}
 
@@ -415,15 +577,7 @@
           </button>
           <p class="text-gray-400 text-xs">Click to begin the group stage</p>
         </div>
-      {:else if tournamentState !== 'registration'}
-        <div class="text-center space-y-2 py-3">
-          <div class="glass rounded-xl p-6 text-center shadow-xl">
-            <svg class="w-8 h-8 mx-auto mb-2 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-            <p class="text-cyber-green font-bold text-sm">Tournament Started</p>
-            <p class="text-gray-400 text-xs">Group stage is now active</p>
-          </div>
-        </div>
-      {:else}
+      {:else if players.length < 4 && tournamentState === 'registration'}
         <div class="glass rounded-xl p-6 text-center shadow-xl">
           <p class="text-gray-400 text-sm">
             <svg class="w-6 h-6 inline-block text-cyber-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -433,56 +587,143 @@
       {/if}
 
     {:else}
-      <!-- Tournament In Progress -->
-      <div class="glass rounded-xl p-8 text-center shadow-xl">
-        <h2 class="text-2xl font-bold mb-3 text-white">Tournament in Progress</h2>
-        <p class="text-sm text-gray-400 mb-4">
-          Current Stage: <span class="text-cyber-pink font-bold uppercase">{tournamentState}</span>
-        </p>
-        <a
-          href={`/tournament/${tournamentId}/groups`}
-          class="inline-block bg-gradient-to-r from-cyber-blue to-blue-500 text-white font-bold text-base px-6 py-3 rounded-xl shadow-glow-blue hover:scale-105 transition-all duration-300"
-        >
-          View Group Stage →
-        </a>
-      </div>
+      <!-- Tournament In Progress or Completed -->
+      {#if tournamentState === 'completed' && champion}
+        <!-- Tournament Completed -->
+        <div class="glass rounded-xl p-6 mb-6 border border-brand-purple/30 relative overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-r from-brand-purple/10 via-brand-blue/10 to-brand-cyan/10"></div>
+          <div class="relative z-10">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h2 class="text-2xl font-black mb-1 bg-gradient-to-r from-brand-purple via-brand-blue to-brand-cyan bg-clip-text text-transparent">
+                  TOURNAMENT COMPLETED
+                </h2>
+                <p class="text-gray-400 text-sm">Final results and rankings</p>
+              </div>
+              <div class="w-16 h-16 rounded-full bg-gradient-to-br from-brand-purple to-brand-cyan flex items-center justify-center shadow-xl shadow-brand-purple/50">
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+                </svg>
+              </div>
+            </div>
+            
+            <!-- View Statistics Button -->
+            <a 
+              href={`/tournament/${tournamentId}/statistics`}
+              class="bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-orange hover:scale-105 transition-transform inline-flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+              View Full Statistics
+            </a>
+          </div>
+        </div>
+      {:else}
+        <!-- Tournament In Progress -->
+        <div class="glass rounded-xl p-8 text-center shadow-xl">
+          <h2 class="text-2xl font-bold mb-3 text-white">Tournament in Progress</h2>
+          <p class="text-sm text-gray-400 mb-4">
+            Current Stage: <span class="text-cyber-pink font-bold uppercase">{tournamentState}</span>
+          </p>
+          {#if tournamentState === 'group'}
+            <a
+              href={`/tournament/${tournamentId}/groups`}
+              class="inline-block bg-gradient-to-r from-cyber-blue to-blue-500 text-white font-bold text-base px-6 py-3 rounded-xl shadow-glow-blue hover:scale-105 transition-all duration-300"
+            >
+              View Group Stage →
+            </a>
+          {:else if tournamentState === 'playoffs'}
+            <a
+              href={`/tournament/${tournamentId}/brackets`}
+              class="inline-block bg-gradient-to-r from-yellow-400 to-yellow-600 text-space-900 font-bold text-base px-6 py-3 rounded-xl hover:scale-105 transition-all duration-300"
+            >
+              View Playoffs →
+            </a>
+          {:else}
+            <a
+              href={`/tournament/${tournamentId}/groups`}
+              class="inline-block bg-gradient-to-r from-cyber-blue to-blue-500 text-white font-bold text-base px-6 py-3 rounded-xl shadow-glow-blue hover:scale-105 transition-all duration-300"
+            >
+              View Tournament →
+            </a>
+          {/if}
+        </div>
+      {/if}
     {/if}
 
     <!-- Player Cards Grid - Always visible -->
     {#if players.length > 0}
-      <div class="space-y-3">
-        <h3 class="text-lg font-bold text-white text-center">
-          {#if tournamentState === 'registration'}
+      <div class="space-y-6">
+        {#if tournamentState === 'registration'}
+          <h3 class="text-lg font-bold text-white text-center">
             Registered Players
-          {:else}
+          </h3>
+        {:else if tournamentState === 'completed'}
+          <h3 class="text-xl font-black text-center bg-gradient-to-r from-brand-orange via-brand-purple to-brand-blue bg-clip-text text-transparent">
+            FINAL RANKINGS
+          </h3>
+        {:else}
+          <h3 class="text-lg font-bold text-white text-center">
             Tournament Players
-          {/if}
-        </h3>
+          </h3>
+        {/if}
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {#each players as player, index}
-            <div class="glass rounded-lg p-3 shadow-xl hover:shadow-cyber-green/20 hover:scale-105 transition-all duration-300 card-entrance relative overflow-hidden group" style="animation-delay: {index * 50}ms">
+          {#each (tournamentState === 'completed' && champion ? getRankedPlayers() : players) as player, index}
+            {@const isCompleted = tournamentState === 'completed'}
+            {@const isFirst = isCompleted && player.rank === 1}
+            {@const isSecond = isCompleted && player.rank === 2}
+            {@const isThird = isCompleted && player.rank === 3}
+            {@const displayIndex = isCompleted ? player.rank : (index + 1)}
+            
+            <div class="glass rounded-lg p-3 shadow-xl hover:scale-105 transition-all duration-300 card-entrance relative overflow-hidden group
+              {isFirst ? 'ring-4 ring-yellow-400 shadow-2xl shadow-yellow-500/50' : ''}
+              {isSecond ? 'ring-4 ring-gray-400 shadow-2xl shadow-gray-400/50' : ''}
+              {isThird ? 'ring-4 ring-orange-400 shadow-2xl shadow-orange-500/50' : ''}
+            " style="animation-delay: {index * 50}ms">
               <!-- Background Gradient -->
-              <div class="absolute inset-0 bg-gradient-to-br {getPlayerGradient(index)} opacity-10 group-hover:opacity-20 transition-opacity"></div>
+              {#if isFirst}
+                <div class="absolute inset-0 bg-gradient-to-br from-yellow-500/30 via-yellow-400/20 to-yellow-600/30 opacity-100 group-hover:opacity-100 transition-opacity"></div>
+              {:else if isSecond}
+                <div class="absolute inset-0 bg-gradient-to-br from-gray-400/30 via-gray-300/20 to-gray-500/30 opacity-100 group-hover:opacity-100 transition-opacity"></div>
+              {:else if isThird}
+                <div class="absolute inset-0 bg-gradient-to-br from-orange-500/30 via-orange-400/20 to-orange-600/30 opacity-100 group-hover:opacity-100 transition-opacity"></div>
+              {:else}
+                <div class="absolute inset-0 bg-gradient-to-br {getPlayerGradient(index)} opacity-10 group-hover:opacity-20 transition-opacity"></div>
+              {/if}
 
-              <!-- Player Number Badge -->
-              <div class="absolute top-1.5 right-1.5 w-6 h-6 bg-space-700 rounded-full flex items-center justify-center text-xs font-bold text-cyber-blue border border-space-600">
-                {index + 1}
+              <!-- Rank/Number Badge -->
+              <div class="absolute top-1.5 right-1.5 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black border-2
+                {isFirst ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900 border-yellow-300' : ''}
+                {isSecond ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900 border-gray-200' : ''}
+                {isThird ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-white border-orange-300' : ''}
+                {!isFirst && !isSecond && !isThird ? 'bg-space-700 text-cyber-blue border-space-600' : ''}
+              ">
+                {displayIndex}
               </div>
 
+              <!-- Champion Badge for 1st place -->
+              {#if isFirst}
+                <div class="absolute top-1.5 left-1.5 px-2 py-0.5 bg-yellow-500/90 backdrop-blur-sm text-yellow-900 text-xs font-black rounded-full border border-yellow-300">
+                  CHAMPION
+                </div>
+              {/if}
+
               <!-- Player Avatar -->
-              <div class="mb-2 relative flex justify-center">
-                {#if player.profilePhoto}
+              <div class="mb-2 relative flex justify-center {isFirst || isSecond || isThird ? 'mt-6' : ''}">
+                {#if player}
+                  {@const isBase64Photo = player.profilePhoto && player.profilePhoto.startsWith('data:')}
+                  {@const imgSrc = isBase64Photo ? player.profilePhoto : getPlayerImageUrl(player.name)}
                   <img
-                    src={player.profilePhoto}
+                    src={imgSrc}
                     alt="Profile"
-                    class="w-20 h-20 rounded-full object-cover"
+                    class="w-20 h-20 rounded-full object-cover
+                      {isFirst ? 'ring-4 ring-yellow-400 shadow-lg shadow-yellow-500/50' : ''}
+                      {isSecond ? 'ring-4 ring-gray-400 shadow-lg shadow-gray-400/50' : ''}
+                      {isThird ? 'ring-4 ring-orange-400 shadow-lg shadow-orange-500/50' : ''}
+                    "
                   />
-                {:else}
-                  <div class="w-12 h-12 rounded-full bg-gradient-to-br {getPlayerGradient(index)} flex items-center justify-center shadow-xl relative">
-                    <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                    <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full shadow-lg shadow-green-500/50 border-2 border-space-900"></div>
-                  </div>
                 {/if}
 
                 {#if tournamentState === 'registration'}
@@ -531,7 +772,12 @@
                 <div class="mb-2">
                   <div class="flex flex-col items-center">
                     <div class="flex items-center gap-1">
-                      <h4 class="text-center text-sm font-bold text-white mb-0.5 truncate relative z-10">{player.name}</h4>
+                      <h4 class="text-center text-sm font-bold relative z-10
+                        {isFirst ? 'text-yellow-400' : ''}
+                        {isSecond ? 'text-gray-300' : ''}
+                        {isThird ? 'text-orange-400' : ''}
+                        {!isFirst && !isSecond && !isThird ? 'text-white' : ''}
+                      ">{player.name}</h4>
                       {#if tournamentState === 'registration'}
                         <button
                           type="button"
@@ -569,6 +815,7 @@
     </div>
   </div>
 </div>
+<Footer />
 
 {#if showConfetti}
   <div class="confetti-container">
@@ -578,8 +825,8 @@
 
 <!-- Photo Editing Modal -->
 {#if showPhotoModal}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && cancelPhotoEditing()} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && cancelPhotoEditing()}>
+    <div class="glass rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center justify-between p-6 border-b border-space-600 flex-shrink-0">
         <h2 class="text-xl font-bold text-white flex items-center gap-2">
@@ -666,8 +913,8 @@
 
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
+    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -699,8 +946,8 @@
 
 <!-- Confirmation Popup Modal -->
 {#if showConfirmPopup}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && cancelConfirmation()} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && cancelConfirmation()}>
+    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -738,8 +985,8 @@
 
 <!-- Game Rules Modal -->
 {#if showRulesModal && currentGameConfig && gameType}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-2xl w-full shadow-2xl border border-brand-purple/30 max-h-[90vh] overflow-y-auto">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showRulesModal = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showRulesModal = false)}>
+    <div class="glass rounded-xl max-w-2xl w-full shadow-2xl border border-brand-purple/30 max-h-[90vh] overflow-y-auto" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-4 p-6 border-b border-space-600 sticky top-0 bg-space-800/95 backdrop-blur-sm">
         <img 
@@ -833,7 +1080,7 @@
         </div>
 
         <!-- Map Pool -->
-        {#if currentGameConfig.maps && currentGameConfig.maps.length > 0}
+        {#if mapPool && mapPool.length > 0}
           <div class="space-y-3">
             <h3 class="text-lg font-bold text-brand-purple flex items-center gap-2">
               <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
@@ -841,7 +1088,7 @@
             </h3>
             <div class="bg-space-700/50 rounded-lg p-4 space-y-3">
               <div class="flex flex-wrap gap-2">
-                {#each currentGameConfig.maps as map}
+                {#each mapPool as map}
                   <span class="px-3 py-1 bg-brand-purple/20 border border-brand-purple/40 rounded text-sm text-white font-medium">
                     {map}
                   </span>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Footer from '../components/Footer.svelte';
   let password = '';
   let error = '';
 
@@ -24,7 +25,7 @@
   });
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 flex items-center justify-center">
+<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 flex flex-col items-center justify-center">
   <div class="glass rounded-lg p-8 w-full max-w-md">
     <h1 class="text-2xl font-bold text-white mb-4">Admin Login</h1>
     <input
@@ -40,4 +41,6 @@
       Login
     </button>
   </div>
+  
+  <Footer />
 </div>

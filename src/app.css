@@ -53,6 +53,11 @@ body {
   border: 1px solid rgba(35, 183, 209, 0.15);
 }
 
+.glass-card {
+  background: rgba(26, 32, 64, 0.6);
+  backdrop-filter: blur(16px);
+}
+
 /* Gradient text */
 .gradient-text {
   background: linear-gradient(135deg, #23B7D1 0%, #4A5394 100%);

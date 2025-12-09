@@ -5,6 +5,7 @@
   import csLogo from '../assets/games/CounterStrike.png';
   import ut2004Logo from '../assets/games/UT2004.png';
   import wormsLogo from '../assets/games/WormsArmageddon.png';
+  import Footer from '../components/Footer.svelte';
 
   // Map game types to logos
   const GAME_LOGOS: Record<GameType, string> = {
@@ -16,6 +17,11 @@
   let tournaments: any[] = $state([]);
   let newTournamentName = $state('');
   let selectedGameType = $state<GameType>('cs16');
+  let map1 = $state('');
+  let map2 = $state('');
+  let map3 = $state('');
+  let groupStageRoundLimit = $state<number>(16);
+  let playoffsRoundLimit = $state<number>(10);
   let showCreateForm = $state(false);
   let importing = $state(false);
   
@@ -38,6 +44,36 @@
   let importedTournamentName = $state('');
   let importedTournamentId = $state('');
 
+  function formatDate(dateString: string | null | undefined): string {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch {
+      return 'N/A';
+    }
+  }
+
+  function getActiveTournaments() {
+    return tournaments
+      .filter(t => t.state !== 'completed')
+      .sort((a, b) => {
+        const dateA = new Date(a.createdAt || 0).getTime();
+        const dateB = new Date(b.createdAt || 0).getTime();
+        return dateB - dateA; // Newest first
+      });
+  }
+
+  function getFinishedTournaments() {
+    return tournaments
+      .filter(t => t.state === 'completed')
+      .sort((a, b) => {
+        const dateA = new Date(a.createdAt || 0).getTime();
+        const dateB = new Date(b.createdAt || 0).getTime();
+        return dateB - dateA; // Newest first
+      });
+  }
+
   async function loadTournaments() {
     tournaments = await getTournaments();
   }
@@ -45,9 +81,31 @@
   async function handleCreateTournament() {
     if (!newTournamentName.trim()) return;
 
-    const result = await createTournament(newTournamentName.trim(), selectedGameType);
+    const mapPool = [map1.trim(), map2.trim(), map3.trim()].filter(m => m !== '');
+    
+    // Check for duplicate maps
+    const uniqueMaps = new Set(mapPool);
+    if (uniqueMaps.size !== mapPool.length) {
+      errorMessage = 'Map pool contains duplicate maps. Each map must be unique.';
+      showErrorPopup = true;
+      return;
+    }
+    
+    // Pass round limits only for CS 1.6
+    const result = await createTournament(
+      newTournamentName.trim(), 
+      selectedGameType, 
+      mapPool,
+      selectedGameType === 'cs16' ? groupStageRoundLimit : undefined,
+      selectedGameType === 'cs16' ? playoffsRoundLimit : undefined
+    );
     newTournamentName = '';
     selectedGameType = 'cs16';
+    map1 = '';
+    map2 = '';
+    map3 = '';
+    groupStageRoundLimit = 16;
+    playoffsRoundLimit = 10;
     showCreateForm = false;
     await loadTournaments();
 
@@ -107,6 +165,16 @@
       try {
         const text = await file.text();
         const data = JSON.parse(text);
+        
+        // Check for duplicate tournament name
+        const existingTournament = tournaments.find(t => t.name === data.name);
+        if (existingTournament) {
+          errorMessage = `A tournament named "${data.name}" already exists. Please rename the tournament before importing or delete the existing one.`;
+          showErrorPopup = true;
+          importing = false;
+          return;
+        }
+        
         const result = await importTournament(data);
         
         if (result.success) {
@@ -131,7 +199,7 @@
   onMount(loadTournaments);
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 py-8 px-4">
+<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 py-8 px-4 flex flex-col">
   <div class="w-full max-w-6xl mx-auto space-y-8">
 
     <!-- Header -->
@@ -221,91 +289,227 @@
               Create
             </button>
             <button
-              onclick={() => { showCreateForm = false; newTournamentName = ''; selectedGameType = 'cs16'; }}
+              onclick={() => { showCreateForm = false; newTournamentName = ''; selectedGameType = 'cs16'; map1 = ''; map2 = ''; map3 = ''; }}
               class="bg-gray-600 hover:bg-gray-500 text-white font-bold px-4 py-2 text-sm rounded-lg transition-all duration-300"
             >
               Cancel
             </button>
           </div>
+
+          <!-- Map Pool (Optional) -->
+          <div class="space-y-2">
+            <span class="text-sm text-gray-400">Map Pool</span>
+            <div class="grid grid-cols-3 gap-2">
+              <input
+                type="text"
+                bind:value={map1}
+                placeholder="Map 1 (e.g., de_dust2)"
+                class="px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
+                maxlength="30"
+              />
+              <input
+                type="text"
+                bind:value={map2}
+                placeholder="Map 2 (e.g., de_inferno)"
+                class="px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
+                maxlength="30"
+              />
+              <input
+                type="text"
+                bind:value={map3}
+                placeholder="Map 3 (e.g., de_nuke)"
+                class="px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
+                maxlength="30"
+              />
+            </div>
+          </div>
+
+          <!-- CS 1.6 Round Limits -->
+          {#if selectedGameType === 'cs16'}
+            <div class="space-y-2">
+              <span class="text-sm text-gray-400">Round Limits (CS 1.6)</span>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">Group Stage (first to)</label>
+                  <input
+                    type="number"
+                    bind:value={groupStageRoundLimit}
+                    min="1"
+                    max="30"
+                    class="w-full px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
+                    placeholder="16"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-500 mb-1">Playoffs (first to)</label>
+                  <input
+                    type="number"
+                    bind:value={playoffsRoundLimit}
+                    min="1"
+                    max="20"
+                    class="w-full px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
+                    placeholder="10"
+                  />
+                </div>
+              </div>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
 
     <!-- Tournament List -->
-    <div class="space-y-4">
-      <h2 class="text-xl font-bold text-white text-center">Active Tournaments</h2>
-
-      {#if tournaments.length === 0}
-        <div class="glass rounded-xl p-8 text-center shadow-xl">
-          <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-          <p class="text-gray-400 text-sm">No tournaments created yet. Create your first tournament above!</p>
+    <div class="space-y-8">
+      <!-- Active Tournaments Section -->
+      <div class="space-y-4">
+        <div class="inline-block">
+          <h2 class="text-xl font-bold bg-gradient-to-r from-brand-cyan to-cyber-blue bg-clip-text text-transparent pb-1">Active Tournaments</h2>
+          <div class="h-1 bg-gradient-to-r from-brand-cyan to-cyber-blue rounded-full"></div>
         </div>
-      {:else}
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {#each tournaments as tournament}
-            <div
-              role="button"
-              tabindex="0"
-              class="glass rounded-lg p-4 shadow-xl hover:shadow-cyber-green/20 hover:scale-105 transition-all duration-300 card-entrance cursor-pointer relative"
-              onclick={() => navigateToTournament(tournament.id)}
-              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigateToTournament(tournament.id); }}
-            >
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-3 min-w-0">
-                  <!-- Game Logo -->
-                  {#if tournament.gameType && GAME_LOGOS[tournament.gameType as GameType]}
-                    <img 
-                      src={GAME_LOGOS[tournament.gameType as GameType]} 
-                      alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
-                      class="w-16 h-10 object-contain flex-shrink-0"
-                    />
-                  {/if}
-                  <h3 class="text-lg font-bold text-white truncate">{tournament.name}</h3>
-                </div>
 
-                <div class="flex items-center gap-2">
-                  <span class="px-2 py-1 bg-brand-cyan/20 border border-brand-cyan rounded text-brand-cyan font-bold text-xs uppercase">
-                    {tournament.state}
-                  </span>
-
-                  <!-- Delete Button (now in header flow, not absolute) -->
-                  <button
-                    onclick={(e) => requestDeleteTournament(e, tournament.id)}
-                    class="p-1.5 rounded-full bg-red-600/20 text-red-400 hover:bg-red-500/40 hover:text-red-300 transition-all"
-                    title="Delete Tournament"
-                  >
-                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
-                  </button>
-                </div>
-              </div>
-
-              <div class="flex items-center gap-4 text-sm text-gray-400">
-                <div class="flex items-center gap-1">
-                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                  {tournament.playerCount} {tournament.playerCount === 1 ? 'player' : 'players'}
-                </div>
-                {#if tournament.gameType && GAME_CONFIGS[tournament.gameType as GameType]}
-                  <div class="text-brand-cyan text-xs font-medium">
-                    {GAME_CONFIGS[tournament.gameType as GameType].shortName}
+        {#if getActiveTournaments().length === 0}
+          <div class="glass rounded-xl p-8 text-center shadow-xl">
+            <p class="text-gray-400 text-sm">No active tournaments. Create your first one above!</p>
+          </div>
+        {:else}
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {#each getActiveTournaments() as tournament}
+              <div
+                role="button"
+                tabindex="0"
+                class="glass rounded-lg p-4 shadow-xl hover:shadow-cyber-green/20 hover:scale-105 transition-all duration-300 card-entrance cursor-pointer relative border border-brand-cyan/30"
+                onclick={() => navigateToTournament(tournament.id)}
+                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigateToTournament(tournament.id); }}
+              >
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center gap-3 min-w-0">
+                    {#if tournament.gameType && GAME_LOGOS[tournament.gameType as GameType]}
+                      <img 
+                        src={GAME_LOGOS[tournament.gameType as GameType]} 
+                        alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
+                        class="w-16 h-10 object-contain flex-shrink-0"
+                      />
+                    {/if}
+                    <h3 class="text-lg font-bold text-white truncate">{tournament.name}</h3>
                   </div>
-                {/if}
-              </div>
 
-              <div class="mt-3 text-center">
-                <span class="text-xs text-gray-500">Click to enter tournament</span>
+                  <div class="flex items-center gap-2">
+                    <span class="px-2 py-1 bg-brand-cyan/20 border border-brand-cyan rounded text-brand-cyan font-bold text-xs uppercase">
+                      {tournament.state}
+                    </span>
+                    <button
+                      onclick={(e) => requestDeleteTournament(e, tournament.id)}
+                      class="p-1.5 rounded-full bg-red-600/20 text-red-400 hover:bg-red-500/40 hover:text-red-300 transition-all"
+                      title="Delete Tournament"
+                    >
+                      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-between text-sm mb-3">
+                  <div class="flex items-center gap-4 text-gray-400">
+                    <div class="flex items-center gap-1">
+                      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                      {tournament.playerCount}
+                    </div>
+                    {#if tournament.gameType && GAME_CONFIGS[tournament.gameType as GameType]}
+                      <div class="text-brand-cyan text-xs font-medium">
+                        {GAME_CONFIGS[tournament.gameType as GameType].shortName}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-1 text-xs text-gray-500 border-t border-space-600 pt-2">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                  </svg>
+                  <span>{formatDate(tournament.createdAt)}</span>
+                </div>
               </div>
-            </div>
-          {/each}
+            {/each}
+          </div>
+        {/if}
+      </div>
+
+      <!-- Finished Tournaments Section -->
+      {#if getFinishedTournaments().length > 0}
+        <div class="space-y-4">
+          <div class="inline-block">
+            <h2 class="text-xl font-bold bg-gradient-to-r from-cyber-green to-brand-cyan bg-clip-text text-transparent pb-1">Finished Tournaments</h2>
+            <div class="h-1 bg-gradient-to-r from-cyber-green to-brand-cyan rounded-full"></div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {#each getFinishedTournaments() as tournament}
+              <div
+                role="button"
+                tabindex="0"
+                class="glass rounded-lg p-4 shadow-xl hover:shadow-cyber-green/20 hover:scale-105 transition-all duration-300 card-entrance cursor-pointer relative border border-cyber-green/30 opacity-80"
+                onclick={() => navigateToTournament(tournament.id)}
+                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigateToTournament(tournament.id); }}
+              >
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center gap-3 min-w-0">
+                    {#if tournament.gameType && GAME_LOGOS[tournament.gameType as GameType]}
+                      <img 
+                        src={GAME_LOGOS[tournament.gameType as GameType]} 
+                        alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
+                        class="w-16 h-10 object-contain flex-shrink-0"
+                      />
+                    {/if}
+                    <h3 class="text-lg font-bold text-white truncate">{tournament.name}</h3>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <span class="px-2 py-1 bg-cyber-green/20 border border-cyber-green rounded text-cyber-green font-bold text-xs uppercase">
+                      Finished
+                    </span>
+                    <button
+                      onclick={(e) => requestDeleteTournament(e, tournament.id)}
+                      class="p-1.5 rounded-full bg-red-600/20 text-red-400 hover:bg-red-500/40 hover:text-red-300 transition-all"
+                      title="Delete Tournament"
+                    >
+                      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-between text-sm mb-3">
+                  <div class="flex items-center gap-4 text-gray-400">
+                    <div class="flex items-center gap-1">
+                      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                      {tournament.playerCount}
+                    </div>
+                    {#if tournament.gameType && GAME_CONFIGS[tournament.gameType as GameType]}
+                      <div class="text-cyber-green text-xs font-medium">
+                        {GAME_CONFIGS[tournament.gameType as GameType].shortName}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-1 text-xs text-gray-500 border-t border-space-600 pt-2">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                  </svg>
+                  <span>{formatDate(tournament.createdAt)}</span>
+                </div>
+              </div>
+            {/each}
+          </div>
         </div>
       {/if}
     </div>
   </div>
 </div>
+  <Footer />
 
 <!-- Confirmation Popup Modal -->
 {#if showConfirmPopup}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && cancelConfirmation()} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && cancelConfirmation()}>
+    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -343,8 +547,8 @@
 
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
+    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -376,8 +580,8 @@
 
 <!-- Import Success Popup Modal -->
 {#if showImportSuccess}
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-green-500/30">
+  <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showImportSuccess = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showImportSuccess = false)}>
+    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-cyber-green/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">

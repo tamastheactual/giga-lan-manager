@@ -14,8 +14,8 @@
     }
   });
 
-  // Increase confetti count to 150 pieces
-  const confettiCount = 150;
+  // Optimized confetti count for performance
+  const confettiCount = 60;
   
   // More vibrant colors
   const colors = [
@@ -71,8 +71,7 @@
     top: -20px;
     left: var(--x-start);
     opacity: 1;
-    animation: confetti-fall var(--duration) linear var(--delay) forwards,
-               confetti-glow 1s ease-in-out infinite;
+    animation: confetti-fall var(--duration) linear var(--delay) forwards;
     transform: rotate(var(--rotation));
   }
 
@@ -90,21 +89,9 @@
       transform: translateY(0) translateX(0) rotate(var(--rotation)) scale(1);
       opacity: 1;
     }
-    50% {
-      opacity: 1;
-    }
     100% {
       transform: translateY(110vh) translateX(var(--x-end)) rotate(calc(var(--rotation) + 1080deg)) scale(0.5);
       opacity: 0;
-    }
-  }
-
-  @keyframes confetti-glow {
-    0%, 100% {
-      filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 6px currentColor) brightness(1.2);
-    }
-    50% {
-      filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 12px currentColor) brightness(1.5);
     }
   }
 </style>

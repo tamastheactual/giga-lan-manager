@@ -17,12 +17,12 @@
       </a>
       
       <div class="flex items-center gap-6">
-        <a href="/" class="text-sm font-bold px-4 py-2 rounded-xl bg-gradient-to-r from-brand-purple via-brand-blue to-brand-cyan text-white shadow-lg shadow-brand-purple/30 hover:shadow-brand-cyan/40 hover:scale-105 transition-all duration-300">Lobby</a>
+        <a href="/" class="text-sm font-bold px-4 py-2 rounded-xl bg-gradient-to-r from-brand-purple via-brand-blue to-brand-cyan text-white shadow-lg shadow-brand-purple/30 hover:shadow-brand-cyan/40 hover:scale-105 transition-all duration-300">LOBBY</a>
         {#if tournamentId}
-          <a href={`/tournament/${tournamentId}`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">Dashboard</a>
-          <a href={`/tournament/${tournamentId}/groups`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">Groups</a>
-          <a href={`/tournament/${tournamentId}/brackets`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">Brackets</a>
-          <a href={`/tournament/${tournamentId}/statistics`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">Statistics</a>
+          <a href={`/tournament/${tournamentId}`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">DASHBOARD</a>
+          <a href={`/tournament/${tournamentId}/groups`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">GROUPS</a>
+          <a href={`/tournament/${tournamentId}/brackets`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">BRACKETS</a>
+          <a href={`/tournament/${tournamentId}/statistics`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">STATISTICS</a>
         {/if}
       </div>
     </div>
