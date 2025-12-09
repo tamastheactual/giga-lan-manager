@@ -1448,36 +1448,36 @@
                   <div class="text-xs text-gray-400">Best</div>
                 </div>
                 
-                <div class="text-center px-2">
+                <div class="text-center w-20 flex-shrink-0">
                   <div class="text-lg font-bold text-green-400">{player.winRate}%</div>
                   <div class="text-xs text-gray-400">Win Rate</div>
                 </div>
                 
               {:else}
                 <!-- CS1.6: Round stats -->
-                <div class="text-center px-2">
+                <div class="text-center w-20 flex-shrink-0">
                   <div class="text-xl font-black text-cyan-400">{player.totalRounds}</div>
                   <div class="text-xs text-gray-400">Rounds Won</div>
                 </div>
                 
-                <div class="text-center px-2">
+                <div class="text-center w-20 flex-shrink-0">
                   <div class="text-lg font-bold {player.roundDiff > 0 ? 'text-green-400' : player.roundDiff < 0 ? 'text-red-400' : 'text-gray-400'}">
                     {player.roundDiff > 0 ? '+' : ''}{player.roundDiff}
                   </div>
                   <div class="text-xs text-gray-400">+/- Rounds</div>
                 </div>
                 
-                <div class="text-center px-2">
+                <div class="text-center w-16 flex-shrink-0">
                   <div class="text-lg font-bold text-purple-400">{player.roundWinRate}%</div>
                   <div class="text-xs text-gray-400">Round %</div>
                 </div>
                 
-                <div class="text-center px-2">
+                <div class="text-center w-20 flex-shrink-0">
                   <div class="text-lg font-bold text-orange-400">{player.avgRoundsPerMap}</div>
                   <div class="text-xs text-gray-400">Avg/Map</div>
                 </div>
                 
-                <div class="text-center px-2">
+                <div class="text-center w-20 flex-shrink-0">
                   <div class="text-lg font-bold text-yellow-400">{player.matchWinRate}%</div>
                   <div class="text-xs text-gray-400">Map Win %</div>
                 </div>
