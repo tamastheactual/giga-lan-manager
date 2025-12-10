@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getState, type GameType, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
   import { Chart, registerables } from 'chart.js';
+  import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
   import Footer from '../components/Footer.svelte';
 
   Chart.register(...registerables);
@@ -16,6 +17,8 @@
 
   let progressTimelineChart = $state<HTMLCanvasElement | undefined>(undefined);
   let winsTimelineChart = $state<HTMLCanvasElement | undefined>(undefined);
+  let winsChartInstance = $state<Chart | null>(null);
+  let progressionMetric = $state<'wins' | 'cumulative'>('wins');
   let expandedPlayers: Set<string> = $state(new Set());
   
   function togglePlayerExpanded(playerId: string) {
@@ -30,9 +33,45 @@
 
   // Game-specific labels - derived from tournamentData
   const gameConfig = $derived(tournamentData?.gameType ? GAME_CONFIGS[tournamentData.gameType as GameType] : GAME_CONFIGS['cs16']);
-  const scoreLabel = $derived(gameConfig?.groupStage.scoreLabel || 'Rounds');
-  const isKillBased = $derived(gameConfig?.groupStage.scoreType === 'kills');
-  const isHealthBased = $derived(gameConfig?.groupStage.scoreType === 'health');
+  const useCustomPoints = $derived(tournamentData?.useCustomPoints || false);
+  const effectiveArchetype = $derived<ScoreArchetype>(getEffectiveArchetype(tournamentData?.gameType || 'cs16', useCustomPoints));
+  const archetypeConfig = $derived(getArchetypeConfig(effectiveArchetype));
+  
+  // Derived archetype flags
+  const isKillBased = $derived(effectiveArchetype === 'kills');
+  const isHealthBased = $derived(effectiveArchetype === 'health');
+  const isWinOnly = $derived(effectiveArchetype === 'winonly');
+  const isPointsBased = $derived(effectiveArchetype === 'points');
+  const isRoundsBased = $derived(effectiveArchetype === 'rounds');
+  const scoreLabel = $derived(archetypeConfig.scoreLabel);
+  const statLabel = $derived(archetypeConfig.statLabel);
+  const statLabelShort = $derived(archetypeConfig.statLabelShort);
+  
+  // Progression metric options based on game type
+  const progressionMetricOptions = $derived(() => {
+    const options: { value: 'wins' | 'cumulative'; label: string }[] = [
+      { value: 'wins', label: 'Wins (Maps/Matches Won)' }
+    ];
+    
+    // For win-only games, cumulative stats don't make sense
+    if (!isWinOnly) {
+      options.push({ value: 'cumulative', label: statLabel });
+    }
+    
+    return options;
+  });
+  
+  // Get the Y-axis label based on selected metric
+  const progressionYAxisLabel = $derived(() => {
+    if (progressionMetric === 'wins') return 'Total Wins';
+    return statLabel;
+  });
+  
+  // Get tooltip suffix based on metric
+  const progressionTooltipSuffix = $derived(() => {
+    if (progressionMetric === 'wins') return ' wins';
+    return ` ${statLabelShort.toLowerCase()}`;
+  });
 
   // Calculate total score (rounds/kills) per player across entire tournament
   function calculatePlayerScoreStats(players: any[], matches: any[], bracketMatches: any[]) {
@@ -527,11 +566,19 @@
         
         const placement = getTournamentPlacement(player.id, bracketMatchesArr);
         
-        // Game-specific calculations
+        // Game-specific calculations based on archetype
         let gameSpecificStats: any = {};
         
-        if (isKillBased) {
-          // UT2004: Kills-based stats
+        if (isWinOnly) {
+          // Win-only games (Stronghold, RTS): Only track wins/losses
+          gameSpecificStats = {
+            matchesWon: stats.matchesWon,
+            matchesLost: stats.matchesLost,
+            totalMatches: stats.matchesPlayed,
+            winRate: stats.matchesPlayed > 0 ? Math.round((stats.matchesWon / stats.matchesPlayed) * 100) : 0
+          };
+        } else if (isKillBased) {
+          // Kills-based stats (UT, Quake, etc.)
           const killDiff = stats.scoreWon - stats.scoreLost;
           const killDeathRatio = stats.scoreLost > 0 ? (stats.scoreWon / stats.scoreLost) : stats.scoreWon;
           const avgKillsPerMap = stats.matchesPlayed > 0 ? stats.scoreWon / stats.matchesPlayed : 0;
@@ -547,7 +594,7 @@
             winRate: stats.matchesPlayed > 0 ? Math.round((stats.mapsWon / stats.matchesPlayed) * 100) : 0
           };
         } else if (isHealthBased) {
-          // Worms: HP-based stats
+          // HP-based stats (Worms)
           const avgHPPerWin = stats.mapsWon > 0 ? stats.scoreWon / stats.mapsWon : 0;
           const totalHP = stats.scoreWon;
           
@@ -559,8 +606,25 @@
             bestRound: stats.bestPerformance,
             winRate: stats.matchesPlayed > 0 ? Math.round((stats.mapsWon / stats.matchesPlayed) * 100) : 0
           };
+        } else if (isPointsBased) {
+          // Custom points stats
+          const pointsDiff = stats.scoreWon - stats.scoreLost;
+          const pointsWinRate = (stats.scoreWon + stats.scoreLost) > 0 ? 
+            (stats.scoreWon / (stats.scoreWon + stats.scoreLost)) * 100 : 0;
+          const avgPointsPerMatch = stats.matchesPlayed > 0 ? stats.scoreWon / stats.matchesPlayed : 0;
+          
+          gameSpecificStats = {
+            totalPoints: stats.scoreWon,
+            pointsAgainst: stats.scoreLost,
+            pointsDiff,
+            pointsWinRate: Math.round(pointsWinRate),
+            avgPointsPerMatch: Math.round(avgPointsPerMatch * 10) / 10,
+            bestMatch: stats.bestPerformance,
+            mapsWon: stats.mapsWon,
+            matchWinRate: stats.matchesPlayed > 0 ? Math.round((stats.mapsWon / stats.matchesPlayed) * 100) : 0
+          };
         } else {
-          // CS1.6: Rounds-based stats
+          // Rounds-based stats (CS, RtCW, Wolf:ET)
           const roundDiff = stats.scoreWon - stats.scoreLost;
           const roundWinRate = (stats.scoreWon + stats.scoreLost) > 0 ? 
             (stats.scoreWon / (stats.scoreWon + stats.scoreLost)) * 100 : 0;
@@ -641,9 +705,9 @@
         if (a.placement !== b.placement) return a.placement - b.placement;
         // Secondary: Points (group stage ranking)
         if (b.points !== a.points) return b.points - a.points;
-        // Tertiary: Score/kills/HP won
-        const aScore = isKillBased ? a.totalKills : isHealthBased ? a.totalHP : a.totalRounds;
-        const bScore = isKillBased ? b.totalKills : isHealthBased ? b.totalHP : b.totalRounds;
+        // Tertiary: Score/kills/HP/points won (based on archetype)
+        const aScore = isWinOnly ? a.matchesWon : isKillBased ? a.totalKills : isHealthBased ? a.totalHP : isPointsBased ? a.totalPoints : a.totalRounds;
+        const bScore = isWinOnly ? b.matchesWon : isKillBased ? b.totalKills : isHealthBased ? b.totalHP : isPointsBased ? b.totalPoints : b.totalRounds;
         return bScore - aScore;
       });
   });
@@ -821,9 +885,9 @@
               ];
               const color = colors[index % colors.length];
               
-              // Get win rate and primary stat based on game type
+              // Get win rate and primary stat based on archetype
               const winRate = player.winRate || player.matchWinRate || 0;
-              const primaryStat = isKillBased ? player.totalKills : isHealthBased ? player.totalHP : player.totalRounds;
+              const primaryStat = isWinOnly ? player.matchesWon : isKillBased ? player.totalKills : isHealthBased ? player.totalHP : isPointsBased ? player.totalPoints : player.totalRounds;
               
               return {
                 label: player.name,
@@ -899,7 +963,18 @@
     }
     
     // Initialize Points Progression Chart
+    initializeProgressionChart();
+  }
+  
+  // Separate function to initialize/update progression chart
+  function initializeProgressionChart() {
     if (winsTimelineChart && tournamentData && playerStats.length > 0) {
+      // Destroy existing chart if any
+      if (winsChartInstance) {
+        winsChartInstance.destroy();
+        winsChartInstance = null;
+      }
+      
       const ctx = winsTimelineChart.getContext('2d');
       if (ctx) {
         // Collect ALL group matches and sort them properly by round and index
@@ -918,12 +993,12 @@
           return a.originalIndex - b.originalIndex;
         });
         
-        // Calculate wins progression through each match
-        const playerWins: Record<string, number[]> = {};
+        // Calculate progression through each match based on selected metric
+        const playerData: Record<string, number[]> = {};
         const stages: string[] = ['Start'];
         
         playerStats.forEach(player => {
-          playerWins[player.id] = [0];
+          playerData[player.id] = [0];
         });
         
         // Track match count per round for labeling
@@ -942,22 +1017,31 @@
             const p2Id = match.player2Id;
             
             playerStats.forEach(player => {
-              const prevWins = playerWins[player.id][playerWins[player.id].length - 1];
-              let newWins = prevWins;
+              const prevValue = playerData[player.id][playerData[player.id].length - 1];
+              let newValue = prevValue;
               
-              // Check if this player won this match
               if (result[p1Id] && result[p2Id]) {
                 const p1Score = result[p1Id].score;
                 const p2Score = result[p2Id].score;
                 
-                if (player.id === p1Id && p1Score > p2Score) {
-                  newWins += 1;  // Win
-                } else if (player.id === p2Id && p2Score > p1Score) {
-                  newWins += 1;  // Win
+                if (progressionMetric === 'wins') {
+                  // Count wins
+                  if (player.id === p1Id && p1Score > p2Score) {
+                    newValue += 1;
+                  } else if (player.id === p2Id && p2Score > p1Score) {
+                    newValue += 1;
+                  }
+                } else if (progressionMetric === 'cumulative') {
+                  // Cumulative score (rounds/kills/HP)
+                  if (player.id === p1Id) {
+                    newValue += p1Score;
+                  } else if (player.id === p2Id) {
+                    newValue += p2Score;
+                  }
                 }
               }
               
-              playerWins[player.id].push(newWins);
+              playerData[player.id].push(newValue);
             });
           }
         });
@@ -969,20 +1053,29 @@
         bracketMatches.forEach((match: any) => {
           if (match.games && Array.isArray(match.games)) {
             match.games.forEach((game: any) => {
-              // Include ALL games
               playoffMatchNumber++;
               stages.push(`P${playoffMatchNumber}`);
               
               playerStats.forEach(player => {
-                const prevWins = playerWins[player.id][playerWins[player.id].length - 1];
-                let newWins = prevWins;
+                const prevValue = playerData[player.id][playerData[player.id].length - 1];
+                let newValue = prevValue;
                 
-                // If game is complete and has a winner
-                if (game.winnerId && player.id === game.winnerId) {
-                  newWins += 1;
+                const isPlayer1 = match.player1Id === player.id;
+                const isPlayer2 = match.player2Id === player.id;
+                
+                if (progressionMetric === 'wins') {
+                  if (game.winnerId && player.id === game.winnerId) {
+                    newValue += 1;
+                  }
+                } else if (progressionMetric === 'cumulative') {
+                  if (isPlayer1 && game.player1Score !== undefined) {
+                    newValue += game.player1Score;
+                  } else if (isPlayer2 && game.player2Score !== undefined) {
+                    newValue += game.player2Score;
+                  }
                 }
                 
-                playerWins[player.id].push(newWins);
+                playerData[player.id].push(newValue);
               });
             });
           }
@@ -1006,7 +1099,7 @@
         
         const datasets = playerStats.map((player, idx) => ({
           label: player.name,
-          data: playerWins[player.id],
+          data: playerData[player.id],
           borderColor: colors[idx % colors.length],
           backgroundColor: colors[idx % colors.length].replace('1)', '0.1)'),
           tension: 0.3,
@@ -1016,7 +1109,10 @@
           fill: false
         }));
         
-        new Chart(ctx, {
+        const tooltipSuffix = progressionTooltipSuffix();
+        const yAxisLabel = progressionYAxisLabel();
+        
+        winsChartInstance = new Chart(ctx, {
           type: 'line',
           data: {
             labels: stages,
@@ -1071,7 +1167,9 @@
                 bodyFont: { size: 13 },
                 callbacks: {
                   label: function(context: any) {
-                    return context.dataset.label + ': ' + context.parsed.y + ' wins';
+                    const value = context.parsed.y;
+                    if (isNaN(value)) return context.dataset.label + ': not playing';
+                    return context.dataset.label + ': ' + value + tooltipSuffix;
                   }
                 }
               }
@@ -1099,14 +1197,14 @@
                 beginAtZero: true,
                 title: {
                   display: true,
-                  text: 'Total Wins',
+                  text: yAxisLabel,
                   color: '#9ca3af',
                   font: { size: 14, weight: 'bold' }
                 },
                 ticks: { 
                   color: '#9ca3af',
                   font: { size: 11 },
-                  stepSize: 1
+                  stepSize: progressionMetric === 'wins' ? 1 : undefined
                 },
                 grid: { 
                   color: 'rgba(156, 163, 175, 0.1)'
@@ -1117,6 +1215,12 @@
         });
       }
     }
+  }
+  
+  // Watch for metric changes and reinitialize chart
+  function handleMetricChange(newMetric: 'wins' | 'cumulative') {
+    progressionMetric = newMetric;
+    initializeProgressionChart();
   }
 
   onMount(async () => {
@@ -1211,8 +1315,8 @@
           </h2>
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <!-- Biggest Comeback -->
-            {#if advancedStats.biggestComeback.deficit > 0}
+            <!-- Biggest Comeback - not relevant for win-only games -->
+            {#if !isWinOnly && advancedStats.biggestComeback.deficit > 0}
               <div class="bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg p-4 border border-green-500/20">
                 <div class="flex items-center gap-2 mb-2">
                   <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1228,8 +1332,8 @@
               </div>
             {/if}
 
-            <!-- Most Dominant Performances -->
-            {#if advancedStats.mostDominantList && advancedStats.mostDominantList.length > 0}
+            <!-- Most Dominant Performances - not relevant for win-only games -->
+            {#if !isWinOnly && advancedStats.mostDominantList && advancedStats.mostDominantList.length > 0}
               <div class="bg-gradient-to-br from-red-900/30 to-red-800/20 rounded-lg p-3 border border-red-500/20">
                 <div class="flex items-center gap-2 mb-2">
                   <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1253,8 +1357,8 @@
               </div>
             {/if}
 
-            <!-- Closest Matches -->
-            {#if advancedStats.closestMatches.length > 0}
+            <!-- Closest Matches - not relevant for win-only games -->
+            {#if !isWinOnly && advancedStats.closestMatches.length > 0}
               <div class="bg-gradient-to-br from-yellow-900/30 to-yellow-800/20 rounded-lg p-3 border border-yellow-500/20">
                 <div class="flex items-center gap-2 mb-2">
                   <svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1278,19 +1382,22 @@
               </div>
             {/if}
 
-            <!-- Total Score Stats -->
+            <!-- Total Score Stats - not relevant for win-only games -->
+            {#if !isWinOnly}
             <div class="bg-gradient-to-br from-brand-cyan/20 to-brand-cyan/10 rounded-lg p-4 border border-brand-cyan/20">
               <div class="flex items-center gap-2 mb-2">
                 <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                 </svg>
-                <div class="text-xs font-bold text-brand-cyan uppercase">{isHealthBased ? 'Total HP' : isKillBased ? 'Total Kills' : 'Total Rounds'}</div>
+                <div class="text-xs font-bold text-brand-cyan uppercase">{isHealthBased ? 'Total HP' : isKillBased ? 'Total Kills' : isPointsBased ? 'Total Points' : 'Total Rounds'}</div>
               </div>
               <div class="text-white font-bold text-2xl mb-1">{matchStats.totalScorePlayed}</div>
               <div class="text-xs text-gray-400">Avg {matchStats.avgScorePerMatch} per match</div>
             </div>
+            {/if}
 
-            <!-- Highest Score -->
+            <!-- Highest Score - not relevant for win-only games -->
+            {#if !isWinOnly}
             <div class="bg-gradient-to-br from-brand-orange/20 to-brand-orange/10 rounded-lg p-4 border border-brand-orange/20">
               <div class="flex items-center gap-2 mb-2">
                 <svg class="w-4 h-4 text-brand-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1299,8 +1406,9 @@
                 <div class="text-xs font-bold text-brand-orange uppercase">Best Performance</div>
               </div>
               <div class="text-white font-bold text-2xl mb-1">{matchStats.highestScore}</div>
-              <div class="text-xs text-gray-400">{isHealthBased ? 'HP' : isKillBased ? 'Kills' : 'Rounds'} in one match</div>
+              <div class="text-xs text-gray-400">{isHealthBased ? 'HP' : isKillBased ? 'Kills' : isPointsBased ? 'Points' : 'Rounds'} in one match</div>
             </div>
+            {/if}
 
             <!-- Bracket Stats -->
             <div class="bg-gradient-to-br from-brand-purple/20 to-brand-purple/10 rounded-lg p-4 border border-brand-purple/20">
@@ -1397,8 +1505,30 @@
                 </div>
               </div>
 
-              {#if isKillBased}
-                <!-- UT2004: Kill stats -->
+              {#if isWinOnly}
+                <!-- Win-only games: Simple win/loss stats -->
+                <div class="text-center w-20 flex-shrink-0">
+                  <div class="text-xl font-black text-green-400">{player.matchesWon}</div>
+                  <div class="text-xs text-gray-400">Wins</div>
+                </div>
+                
+                <div class="text-center w-20 flex-shrink-0">
+                  <div class="text-xl font-black text-red-400">{player.matchesLost}</div>
+                  <div class="text-xs text-gray-400">Losses</div>
+                </div>
+                
+                <div class="text-center w-24 flex-shrink-0">
+                  <div class="text-lg font-bold text-cyan-400">{player.totalMatches}</div>
+                  <div class="text-xs text-gray-400">Total Matches</div>
+                </div>
+                
+                <div class="text-center w-20 flex-shrink-0">
+                  <div class="text-lg font-bold text-yellow-400">{player.winRate}%</div>
+                  <div class="text-xs text-gray-400">Win Rate</div>
+                </div>
+                
+              {:else if isKillBased}
+                <!-- Kill-based: Kill stats -->
                 <div class="text-center w-20 flex-shrink-0">
                   <div class="text-xl font-black text-cyan-400">{player.totalKills}</div>
                   <div class="text-xs text-gray-400">Kills</div>
@@ -1453,8 +1583,37 @@
                   <div class="text-xs text-gray-400">Win Rate</div>
                 </div>
                 
+              {:else if isPointsBased}
+                <!-- Custom points stats -->
+                <div class="text-center w-20 flex-shrink-0">
+                  <div class="text-xl font-black text-cyan-400">{player.totalPoints}</div>
+                  <div class="text-xs text-gray-400">Total Points</div>
+                </div>
+                
+                <div class="text-center w-20 flex-shrink-0">
+                  <div class="text-lg font-bold {player.pointsDiff > 0 ? 'text-green-400' : player.pointsDiff < 0 ? 'text-red-400' : 'text-gray-400'}">
+                    {player.pointsDiff > 0 ? '+' : ''}{player.pointsDiff}
+                  </div>
+                  <div class="text-xs text-gray-400">+/- Points</div>
+                </div>
+                
+                <div class="text-center w-16 flex-shrink-0">
+                  <div class="text-lg font-bold text-purple-400">{player.pointsWinRate}%</div>
+                  <div class="text-xs text-gray-400">Pts %</div>
+                </div>
+                
+                <div class="text-center w-20 flex-shrink-0">
+                  <div class="text-lg font-bold text-orange-400">{player.avgPointsPerMatch}</div>
+                  <div class="text-xs text-gray-400">Avg/Match</div>
+                </div>
+                
+                <div class="text-center w-20 flex-shrink-0">
+                  <div class="text-lg font-bold text-yellow-400">{player.matchWinRate}%</div>
+                  <div class="text-xs text-gray-400">Match Win %</div>
+                </div>
+                
               {:else}
-                <!-- CS1.6: Round stats -->
+                <!-- Rounds-based stats -->
                 <div class="text-center w-20 flex-shrink-0">
                   <div class="text-xl font-black text-cyan-400">{player.totalRounds}</div>
                   <div class="text-xs text-gray-400">Rounds Won</div>
@@ -1575,12 +1734,29 @@
       <!-- Points Progression Chart -->
       {#if playerStats.length > 0}
         <div class="glass-card rounded-lg p-6 mb-6">
-          <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-            <svg class="w-5 h-5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-            </svg>
-            Wins Progression
-          </h2>
+          <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <h2 class="text-xl font-bold text-white flex items-center gap-2">
+              <svg class="w-5 h-5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+              Progression Chart
+            </h2>
+            
+            <!-- Metric Selector -->
+            <div class="flex items-center gap-2">
+              <label for="progression-metric" class="text-sm text-gray-400">Show:</label>
+              <select
+                id="progression-metric"
+                class="bg-space-700 border border-space-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan"
+                value={progressionMetric}
+                onchange={(e) => handleMetricChange((e.target as HTMLSelectElement).value as 'wins' | 'cumulative')}
+              >
+                {#each progressionMetricOptions() as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
 
           <div class="bg-space-700/50 rounded-lg p-6">
             <div class="h-[400px]">

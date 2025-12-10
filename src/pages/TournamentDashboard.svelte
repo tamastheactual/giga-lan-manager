@@ -2,17 +2,14 @@
   import { onMount } from 'svelte';
   import { getState, addPlayer, startGroupStage, resetTournament, updateTournamentName, updatePlayerName, updatePlayerPhoto, removePlayer, type GameType, GAME_CONFIGS } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
-  import csLogo from '../assets/games/CounterStrike.png';
-  import ut2004Logo from '../assets/games/UT2004.png';
-  import wormsLogo from '../assets/games/WormsArmageddon.png';
+  import { getGameLogoUrl } from '$lib/gameLogos';
   import Footer from '../components/Footer.svelte';
 
-  // Map game types to logos
-  const GAME_LOGOS: Record<GameType, string> = {
-    cs16: csLogo,
-    ut2004: ut2004Logo,
-    worms: wormsLogo
-  };
+  // Get logo for any game type dynamically
+  function getGameLogo(gameType: GameType): string {
+    const logoPath = GAME_CONFIGS[gameType]?.logo || '';
+    return getGameLogoUrl(logoPath) || '';
+  }
 
   let { tournamentId } = $props<{ tournamentId: string }>();
   let players = $state([] as any[]);
@@ -438,7 +435,7 @@
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-4">
             <img 
-              src={GAME_LOGOS[gameType]} 
+              src={getGameLogo(gameType)} 
               alt={currentGameConfig.name}
               class="w-24 h-14 object-contain"
             />
@@ -826,7 +823,7 @@
 <!-- Photo Editing Modal -->
 {#if showPhotoModal}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && cancelPhotoEditing()} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && cancelPhotoEditing()}>
-    <div class="glass rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center justify-between p-6 border-b border-space-600 flex-shrink-0">
         <h2 class="text-xl font-bold text-white flex items-center gap-2">
@@ -914,7 +911,7 @@
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -947,7 +944,7 @@
 <!-- Confirmation Popup Modal -->
 {#if showConfirmPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && cancelConfirmation()} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && cancelConfirmation()}>
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -986,11 +983,11 @@
 <!-- Game Rules Modal -->
 {#if showRulesModal && currentGameConfig && gameType}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showRulesModal = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showRulesModal = false)}>
-    <div class="glass rounded-xl max-w-2xl w-full shadow-2xl border border-brand-purple/30 max-h-[90vh] overflow-y-auto" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-2xl w-full shadow-2xl border border-brand-purple/30 max-h-[90vh] overflow-y-auto" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-4 p-6 border-b border-space-600 sticky top-0 bg-space-800/95 backdrop-blur-sm">
         <img 
-          src={GAME_LOGOS[gameType]} 
+          src={getGameLogo(gameType)} 
           alt={currentGameConfig.name}
           class="w-20 h-12 object-contain"
         />

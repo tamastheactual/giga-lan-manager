@@ -91,8 +91,9 @@ export class TournamentManager {
     startedAt?: string;
     groupStageRoundLimit?: number; // Custom round limit for group stage (CS 1.6)
     playoffsRoundLimit?: number; // Custom round limit for playoffs (CS 1.6)
+    useCustomPoints?: boolean; // Override default archetype with custom points
 
-    constructor(id: string, name: string, gameType: GameType = 'cs16', mapPool: string[] = [], groupStageRoundLimit?: number, playoffsRoundLimit?: number) {
+    constructor(id: string, name: string, gameType: GameType = 'cs16', mapPool: string[] = [], groupStageRoundLimit?: number, playoffsRoundLimit?: number, useCustomPoints?: boolean) {
         this.id = id;
         this.name = name;
         this.gameType = gameType;
@@ -100,6 +101,7 @@ export class TournamentManager {
         this.createdAt = new Date().toISOString();
         this.groupStageRoundLimit = groupStageRoundLimit;
         this.playoffsRoundLimit = playoffsRoundLimit;
+        this.useCustomPoints = useCustomPoints;
     }
     
     // Get game configuration

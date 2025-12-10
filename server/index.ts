@@ -76,17 +76,22 @@ app.get('/api/games', (req, res) => {
 });
 
 app.post('/api/tournaments', async (req, res) => {
-  const { name, gameType, mapPool = [], groupStageRoundLimit, playoffsRoundLimit } = req.body;
+  const { name, gameType, mapPool = [], groupStageRoundLimit, playoffsRoundLimit, useCustomPoints } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   if (!gameType || !GAME_CONFIGS[gameType as GameType]) {
     return res.status(400).json({ error: 'Valid game type is required' });
   }
+  // Check for unique tournament name
+  const existingNames = Array.from(tournaments.values()).map(t => t.name.toLowerCase());
+  if (existingNames.includes(name.trim().toLowerCase())) {
+    return res.status(400).json({ error: 'A tournament with this name already exists' });
+  }
   const id = uuidv4();
-  const tournament = new TournamentManager(id, name, gameType as GameType, mapPool, groupStageRoundLimit, playoffsRoundLimit);
+  const tournament = new TournamentManager(id, name, gameType as GameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints);
   tournaments.set(id, tournament);
   await redisClient.sAdd('tournaments:list', id);
   await saveState(id);
-  res.json({ id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit });
+  res.json({ id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints });
 });
 
 // Delete a tournament
@@ -169,7 +174,8 @@ app.get('/api/tournament/:tournamentId/state', (req, res) => {
     startedAt: tournament.startedAt,
     mapPool: tournament.mapPool,
     groupStageRoundLimit: tournament.groupStageRoundLimit,
-    playoffsRoundLimit: tournament.playoffsRoundLimit
+    playoffsRoundLimit: tournament.playoffsRoundLimit,
+    useCustomPoints: tournament.useCustomPoints
   });
 });
 

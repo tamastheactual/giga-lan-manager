@@ -1,32 +1,52 @@
 // Game type definitions for the tournament system
 
-export type GameType = 'cs16' | 'ut2004' | 'worms';
+import { type ScoreArchetype, SCORE_ARCHETYPES } from './gameArchetypes.js';
+
+// All supported game types
+export type GameType = 
+  | 'cs16' 
+  | 'ut2004' 
+  | 'ut99'
+  | 'worms' 
+  | 'quake3'
+  | 'halo'
+  | 'mohaa'
+  | 'rtcw'
+  | 'wolfet'
+  | 'bf1942'
+  | 'bfvietnam'
+  | 'swbf1'
+  | 'swbf2'
+  | 'deltaforce'
+  | 'aoe2'
+  | 'warcraft3'
+  | 'stronghold'
+  | 'cncra1'
+  | 'cncra2';
 
 export interface GameConfig {
     id: GameType;
     name: string;
     shortName: string;
-    logo: string; // Path to logo in assets
+    logo: string;
+    
+    // Default scoring archetype
+    defaultArchetype: ScoreArchetype;
     
     // Group stage rules
     groupStage: {
-        format: string; // "BO1"
+        format: string;
         description: string;
         maxDuration: string;
-        tiesPossible: boolean;
-        scoreType: 'rounds' | 'kills' | 'health'; // What the primary score represents
-        scoreLabel: string; // "Rounds", "Kills", "HP Remaining"
-        maxScore?: number; // e.g., 15 for CS, null for others
+        maxScore?: number; // Max score per match (for rounds-based games)
     };
     
     // Playoff rules
     playoffs: {
-        format: string; // "BO3"
+        format: string;
         mapsPerMatch: number;
         description: string;
         maxDuration: string;
-        scoreType: 'rounds' | 'kills' | 'health';
-        scoreLabel: string;
         maxScorePerMap?: number;
     };
     
@@ -38,121 +58,572 @@ export interface GameConfig {
 }
 
 export const GAME_CONFIGS: Record<GameType, GameConfig> = {
+    // ==================== ROUNDS-BASED GAMES ====================
     cs16: {
         id: 'cs16',
         name: 'Counter-Strike 1.6',
         shortName: 'CS 1.6',
-        logo: '/src/assets/games/CounterStrike.png',
+        logo: '/games/CounterStrike.png',
+        defaultArchetype: 'rounds',
         
         groupStage: {
-            format: 'BO1',
-            description: '30-round max (first to 16, tie at 15-15)',
+            format: 'MR15 (30 rounds)',
+            description: 'First to 16 wins, 15-15 tie possible',
             maxDuration: '~30 min',
-            tiesPossible: true,
-            scoreType: 'rounds',
-            scoreLabel: 'Rounds',
             maxScore: 16
         },
         
         playoffs: {
             format: 'BO3',
             mapsPerMatch: 3,
-            description: '19-round max per map (first to 10)',
-            maxDuration: '~45 min',
-            scoreType: 'rounds',
-            scoreLabel: 'Rounds',
+            description: 'MR9 per map (first to 10)',
+            maxDuration: '~90 min',
             maxScorePerMap: 10
         },
         
         rules: [
-            'Group Stage: 1 random map per match',
-            'Playoffs: All 3 maps played in player-decided order',
             'Group Stage: MR15 (first to 16 wins, tie at 15-15)',
             'Playoffs: MR9 per map (first to 10 wins)',
-            'Tiebreaker: Total rounds won across all matches',
-            'Top 4 advance to playoffs (varies by tournament size)',
+            'Tiebreaker: Total rounds won',
             'Default configs + movement binds allowed',
-            'No scripts or cheats',
-            'Maximum 60 Hz monitor (external or laptop)'
+            'No scripts or cheats'
         ],
         
         maps: ['aim_sOt', 'aim_dust2', 'aim_deathmatch_2012']
     },
     
-    ut2004: {
-        id: 'ut2004',
-        name: 'Unreal Tournament 2004',
-        shortName: 'UT2004',
-        logo: '/src/assets/games/UT2004.png',
+    rtcw: {
+        id: 'rtcw',
+        name: 'Return to Castle Wolfenstein',
+        shortName: 'RtCW',
+        logo: '/games/wolfenstein.png',
+        defaultArchetype: 'rounds',
         
         groupStage: {
-            format: 'BO1',
-            description: '8-minute deathmatch (most kills, ties possible)',
-            maxDuration: '8 min',
-            tiesPossible: true,
-            scoreType: 'kills',
-            scoreLabel: 'Kills',
-        },
-        
-        playoffs: {
-            format: 'BO3 (6-min maps)',
-            mapsPerMatch: 3,
-            description: 'First to win 2 maps advances',
+            format: 'Objective-based',
+            description: 'Complete objectives or eliminate enemy',
             maxDuration: '~20 min',
-            scoreType: 'kills',
-            scoreLabel: 'Kills',
-        },
-        
-        rules: [
-            '1v1 Deathmatch mode',
-            'Group Stage: 8-minute time limit, random map',
-            'Playoffs: Best of 3 maps (6 min each), first to win 2 advances',
-            'Player with most kills wins the map',
-            'Ties possible in group stage',
-            'Map order decided by players in playoffs',
-            'Default configs + movement binds allowed',
-            'No scripts or cheats',
-            'Maximum 60 Hz monitor (external or laptop)'
-        ],
-        
-        maps: ['DM-1on1-Mixer', 'DM-1on1-Albatross', 'DM-1on1-Crash']
-    },
-    
-    worms: {
-        id: 'worms',
-        name: 'Worms Armageddon',
-        shortName: 'Worms',
-        logo: '/src/assets/games/WormsArmageddon.png',
-        
-        groupStage: {
-            format: 'BO1',
-            description: 'Last worm standing, track remaining HP for tiebreaker',
-            maxDuration: '~15 min',
-            tiesPossible: true,
-            scoreType: 'health',
-            scoreLabel: 'HP Remaining',
+            maxScore: 5
         },
         
         playoffs: {
             format: 'BO3',
             mapsPerMatch: 3,
-            description: 'First to win 2 rounds advances',
-            maxDuration: '~45 min',
-            scoreType: 'health',
-            scoreLabel: 'HP Remaining',
+            description: 'First to win 2 maps',
+            maxDuration: '~60 min',
+            maxScorePerMap: 5
+        },
+        
+        rules: [
+            'Objective-based gameplay',
+            'Attack/Defend rounds',
+            'Default settings'
+        ],
+        
+        maps: ['mp_beach', 'mp_assault', 'mp_village']
+    },
+    
+    wolfet: {
+        id: 'wolfet',
+        name: 'Wolfenstein: Enemy Territory',
+        shortName: 'W:ET',
+        logo: '/games/wolfenstein-enemy.png',
+        defaultArchetype: 'rounds',
+        
+        groupStage: {
+            format: 'Objective-based',
+            description: 'Complete objectives within time limit',
+            maxDuration: '~20 min',
+            maxScore: 5
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~60 min',
+            maxScorePerMap: 5
+        },
+        
+        rules: [
+            'Objective-based gameplay',
+            '6v6 or smaller teams',
+            'Stopwatch mode for competitive'
+        ],
+        
+        maps: ['goldrush', 'radar', 'oasis']
+    },
+    
+    // ==================== KILLS-BASED GAMES ====================
+    ut2004: {
+        id: 'ut2004',
+        name: 'Unreal Tournament 2004',
+        shortName: 'UT2004',
+        logo: '/games/UT2004.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Deathmatch (8 min)',
+            description: 'Most kills wins, ties possible',
+            maxDuration: '8 min'
+        },
+        
+        playoffs: {
+            format: 'BO3 (6-min maps)',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~20 min'
+        },
+        
+        rules: [
+            '1v1 Deathmatch mode',
+            'Group Stage: 8-minute time limit',
+            'Playoffs: 6 minutes per map',
+            'Most kills wins the map'
+        ],
+        
+        maps: ['DM-1on1-Mixer', 'DM-1on1-Albatross', 'DM-1on1-Crash']
+    },
+    
+    ut99: {
+        id: 'ut99',
+        name: 'Unreal Tournament 99',
+        shortName: 'UT99',
+        logo: '/games/ut1999.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Deathmatch (10 min)',
+            description: 'Most kills wins, ties possible',
+            maxDuration: '10 min'
+        },
+        
+        playoffs: {
+            format: 'BO3 (8-min maps)',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~25 min'
+        },
+        
+        rules: [
+            '1v1 Deathmatch mode',
+            'Group Stage: 10-minute time limit',
+            'Playoffs: 8 minutes per map',
+            'Most kills wins the map'
+        ],
+        
+        maps: ['DM-Morpheus', 'DM-Deck16][', 'DM-Turbine']
+    },
+    
+    quake3: {
+        id: 'quake3',
+        name: 'Quake III Arena',
+        shortName: 'Q3A',
+        logo: '/games/quake3.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Deathmatch (10 min)',
+            description: 'Most frags wins',
+            maxDuration: '10 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~30 min'
+        },
+        
+        rules: [
+            '1v1 Deathmatch mode',
+            '10-minute time limit',
+            'Frag limit can be set',
+            'Most frags wins'
+        ],
+        
+        maps: ['q3dm6', 'q3dm17', 'q3tourney2']
+    },
+    
+    halo: {
+        id: 'halo',
+        name: 'Halo: Combat Evolved',
+        shortName: 'Halo CE',
+        logo: '/games/halo.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Slayer (10 min)',
+            description: 'Most kills wins',
+            maxDuration: '10 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~30 min'
+        },
+        
+        rules: [
+            '1v1 or 2v2 Slayer mode',
+            'Kill limit or time limit',
+            'No vehicles in small maps'
+        ],
+        
+        maps: ['Hang Em High', 'Battle Creek', 'Wizard']
+    },
+    
+    mohaa: {
+        id: 'mohaa',
+        name: 'Medal of Honor: Allied Assault',
+        shortName: 'MoH:AA',
+        logo: '/games/mohaa.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Deathmatch/TDM',
+            description: 'Most kills wins',
+            maxDuration: '~15 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~45 min'
+        },
+        
+        rules: [
+            'Deathmatch or Team Deathmatch',
+            'Kill limit or time limit',
+            'Standard weapons allowed'
+        ],
+        
+        maps: ['dm/mohdm1', 'dm/mohdm2', 'dm/mohdm6']
+    },
+    
+    bf1942: {
+        id: 'bf1942',
+        name: 'Battlefield 1942',
+        shortName: 'BF1942',
+        logo: '/games/battlefield1942.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Conquest/TDM',
+            description: 'Score-based or kills',
+            maxDuration: '~20 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~60 min'
+        },
+        
+        rules: [
+            'Conquest or TDM mode',
+            'Ticket-based or kill-based',
+            'Vehicle rules vary by tournament'
+        ],
+        
+        maps: ['Wake Island', 'El Alamein', 'Stalingrad']
+    },
+    
+    bfvietnam: {
+        id: 'bfvietnam',
+        name: 'Battlefield Vietnam',
+        shortName: 'BF:V',
+        logo: '/games/battlefieldvietnam.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Conquest/TDM',
+            description: 'Score-based or kills',
+            maxDuration: '~20 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~60 min'
+        },
+        
+        rules: [
+            'Conquest or TDM mode',
+            'Ticket-based or kill-based',
+            'Vietnam-era equipment'
+        ],
+        
+        maps: ['Hue', 'Ho Chi Minh Trail', 'Operation Flaming Dart']
+    },
+    
+    swbf1: {
+        id: 'swbf1',
+        name: 'Star Wars Battlefront',
+        shortName: 'SWBF1',
+        logo: '/games/battlefront.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Conquest',
+            description: 'Reinforcement-based',
+            maxDuration: '~15 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~45 min'
+        },
+        
+        rules: [
+            'Conquest mode',
+            'Reinforcement tickets',
+            'Heroes may be disabled'
+        ],
+        
+        maps: ['Kashyyyk', 'Geonosis', 'Hoth']
+    },
+    
+    swbf2: {
+        id: 'swbf2',
+        name: 'Star Wars Battlefront 2',
+        shortName: 'SWBF2',
+        logo: '/games/battlefront2.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'Conquest',
+            description: 'Reinforcement-based',
+            maxDuration: '~15 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~45 min'
+        },
+        
+        rules: [
+            'Conquest mode',
+            'Reinforcement tickets',
+            'Heroes may be enabled/disabled'
+        ],
+        
+        maps: ['Mos Eisley', 'Kashyyyk', 'Utapau']
+    },
+    
+    deltaforce: {
+        id: 'deltaforce',
+        name: 'Delta Force: Black Hawk Down',
+        shortName: 'DF:BHD',
+        logo: '/games/blackhawkdawn.png',
+        defaultArchetype: 'kills',
+        
+        groupStage: {
+            format: 'TDM/Deathmatch',
+            description: 'Kill-based scoring',
+            maxDuration: '~15 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 maps',
+            maxDuration: '~45 min'
+        },
+        
+        rules: [
+            'Team Deathmatch or Deathmatch',
+            'Kill limit or time limit',
+            'Standard loadouts'
+        ],
+        
+        maps: ['Mogadishu Mile', 'Lost Village', 'Radio Tower']
+    },
+    
+    // ==================== HEALTH-BASED GAMES ====================
+    worms: {
+        id: 'worms',
+        name: 'Worms Armageddon',
+        shortName: 'Worms',
+        logo: '/games/WormsArmageddon.png',
+        defaultArchetype: 'health',
+        
+        groupStage: {
+            format: 'Single Round',
+            description: 'Last worm standing, track HP remaining',
+            maxDuration: '~15 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 rounds',
+            maxDuration: '~45 min'
         },
         
         rules: [
             '5 worms per player (100 HP each, 500 total)',
             '45-second turn time',
-            'Winner: Record total HP remaining',
+            'Winner: Record HP remaining',
             'Loser: Record 0 HP (0-0 if mutual kill)',
-            'Tiebreaker: Total HP across matches',
-            'Sudden Death after 8 min: 1 HP + water rises',
-            'Standard Intermediate scheme'
+            'Sudden Death after 8 min'
         ],
         
         maps: ['Rocky', 'Witch', 'Kermit']
+    },
+    
+    // ==================== WIN-ONLY GAMES ====================
+    aoe2: {
+        id: 'aoe2',
+        name: 'Age of Empires 2 HD',
+        shortName: 'AoE2 HD',
+        logo: '/games/aoe2.png',
+        defaultArchetype: 'winonly',
+        
+        groupStage: {
+            format: '1v1 Random Map',
+            description: 'Win or lose (no score)',
+            maxDuration: '~30-60 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 games',
+            maxDuration: '~2-3 hours'
+        },
+        
+        rules: [
+            '1v1 Random Map',
+            'Standard victory conditions',
+            'Civilization pick/ban optional'
+        ],
+        
+        maps: ['Arabia', 'Arena', 'Black Forest']
+    },
+    
+    warcraft3: {
+        id: 'warcraft3',
+        name: 'Warcraft III',
+        shortName: 'WC3',
+        logo: '/games/warcraft3.png',
+        defaultArchetype: 'winonly',
+        
+        groupStage: {
+            format: '1v1',
+            description: 'Win or lose (no score)',
+            maxDuration: '~20-40 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 games',
+            maxDuration: '~1-2 hours'
+        },
+        
+        rules: [
+            '1v1 Melee mode',
+            'Standard victory conditions',
+            'Race pick order decided by coin flip'
+        ],
+        
+        maps: ['Echo Isles', 'Twisted Meadows', 'Terenas Stand']
+    },
+    
+    stronghold: {
+        id: 'stronghold',
+        name: 'Stronghold Crusader HD',
+        shortName: 'Stronghold',
+        logo: '/games/stronghold.png',
+        defaultArchetype: 'winonly',
+        
+        groupStage: {
+            format: '1v1 Skirmish',
+            description: 'Win or lose (no score)',
+            maxDuration: '~20-40 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 games',
+            maxDuration: '~1-2 hours'
+        },
+        
+        rules: [
+            '1v1 Skirmish mode',
+            'Destroy enemy Lord to win',
+            'Starting resources agreed upon'
+        ],
+        
+        maps: ['Forgotten Valley', 'Desert Heat', 'The Crossing']
+    },
+    
+    cncra1: {
+        id: 'cncra1',
+        name: 'C&C: Red Alert',
+        shortName: 'RA1',
+        logo: '/games/cc1.png',
+        defaultArchetype: 'winonly',
+        
+        groupStage: {
+            format: '1v1',
+            description: 'Win or lose (no score)',
+            maxDuration: '~20-30 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 games',
+            maxDuration: '~1-2 hours'
+        },
+        
+        rules: [
+            '1v1 Skirmish',
+            'Destroy enemy base to win',
+            'Faction pick allowed'
+        ],
+        
+        maps: ['Tournament Arena', 'Jungle', 'Coastal Influence']
+    },
+    
+    cncra2: {
+        id: 'cncra2',
+        name: "C&C: Red Alert 2",
+        shortName: 'RA2',
+        logo: '/games/cc2.png',
+        defaultArchetype: 'winonly',
+        
+        groupStage: {
+            format: '1v1',
+            description: 'Win or lose (no score)',
+            maxDuration: '~20-30 min'
+        },
+        
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to win 2 games',
+            maxDuration: '~1-2 hours'
+        },
+        
+        rules: [
+            '1v1 Skirmish',
+            'Destroy enemy base to win',
+            'Faction pick allowed (Soviet/Allied)'
+        ],
+        
+        maps: ['Urban Rush', 'Dry Heat', 'Little Big Lake']
     }
 };
 
@@ -162,4 +633,14 @@ export function getGameConfig(gameType: GameType): GameConfig {
 
 export function getAllGames(): GameConfig[] {
     return Object.values(GAME_CONFIGS);
+}
+
+// Helper to get the effective archetype for a tournament
+// (allows custom points override)
+export function getEffectiveArchetype(
+    gameType: GameType, 
+    useCustomPoints?: boolean
+): ScoreArchetype {
+    if (useCustomPoints) return 'points';
+    return GAME_CONFIGS[gameType].defaultArchetype;
 }

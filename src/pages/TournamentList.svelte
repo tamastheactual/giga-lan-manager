@@ -1,18 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getTournaments, createTournament, deleteTournament, importTournament, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getTournaments, createTournament, deleteTournament, importTournament, type GameType, GAME_CONFIGS, getScoreLabel } from '$lib/api';
+  import { getArchetypeConfig } from '$lib/gameArchetypes';
+  import { getGameLogoUrl } from '$lib/gameLogos';
   import logoImg from '../assets/logo.png';
-  import csLogo from '../assets/games/CounterStrike.png';
-  import ut2004Logo from '../assets/games/UT2004.png';
-  import wormsLogo from '../assets/games/WormsArmageddon.png';
   import Footer from '../components/Footer.svelte';
 
-  // Map game types to logos
-  const GAME_LOGOS: Record<GameType, string> = {
-    cs16: csLogo,
-    ut2004: ut2004Logo,
-    worms: wormsLogo
-  };
+  // Get logo path from config and resolve via Vite
+  function getGameLogo(gameType: GameType): string {
+    const logoPath = GAME_CONFIGS[gameType]?.logo || '';
+    return getGameLogoUrl(logoPath) || '';
+  }
 
   let tournaments: any[] = $state([]);
   let newTournamentName = $state('');
@@ -22,6 +20,7 @@
   let map3 = $state('');
   let groupStageRoundLimit = $state<number>(16);
   let playoffsRoundLimit = $state<number>(10);
+  let useCustomPoints = $state(false);
   let showCreateForm = $state(false);
   let importing = $state(false);
   
@@ -91,26 +90,35 @@
       return;
     }
     
-    // Pass round limits only for CS 1.6
-    const result = await createTournament(
-      newTournamentName.trim(), 
-      selectedGameType, 
-      mapPool,
-      selectedGameType === 'cs16' ? groupStageRoundLimit : undefined,
-      selectedGameType === 'cs16' ? playoffsRoundLimit : undefined
-    );
-    newTournamentName = '';
-    selectedGameType = 'cs16';
-    map1 = '';
-    map2 = '';
-    map3 = '';
-    groupStageRoundLimit = 16;
-    playoffsRoundLimit = 10;
-    showCreateForm = false;
-    await loadTournaments();
+    // Pass round limits for rounds-based games (cs16, rtcw, wolfet)
+    const isRoundsBased = GAME_CONFIGS[selectedGameType].defaultArchetype === 'rounds';
+    
+    try {
+      const result = await createTournament(
+        newTournamentName.trim(), 
+        selectedGameType, 
+        mapPool,
+        isRoundsBased ? groupStageRoundLimit : undefined,
+        isRoundsBased ? playoffsRoundLimit : undefined,
+        useCustomPoints
+      );
+      newTournamentName = '';
+      selectedGameType = 'cs16';
+      map1 = '';
+      map2 = '';
+      map3 = '';
+      groupStageRoundLimit = 16;
+      playoffsRoundLimit = 10;
+      useCustomPoints = false;
+      showCreateForm = false;
+      await loadTournaments();
 
-    // Navigate to the new tournament
-    window.location.href = `/tournament/${result.id}`;
+      // Navigate to the new tournament
+      window.location.href = `/tournament/${result.id}`;
+    } catch (error: any) {
+      errorMessage = error.message || 'Failed to create tournament';
+      showErrorPopup = true;
+    }
   }
 
   function requestDeleteTournament(event: MouseEvent, tournamentId: string) {
@@ -245,29 +253,47 @@
         <div class="space-y-4">
           <h3 class="text-lg font-bold text-cyber-green">Create New Tournament</h3>
           
-          <!-- Game Selection -->
+          <!-- Game Selection - Card Grid -->
           <div class="space-y-2">
-            <span class="text-sm text-gray-400">Select Game</span>
-            <div class="grid grid-cols-3 gap-3">
-              {#each Object.entries(GAME_CONFIGS) as [gameTypeKey, config]}
-                {@const gameConfig = config as typeof GAME_CONFIGS['cs16']}
-                <button
-                  type="button"
-                  onclick={() => selectedGameType = gameTypeKey as GameType}
-                  class="relative p-4 rounded-lg border-2 transition-all duration-300 {selectedGameType === gameTypeKey 
-                    ? 'border-brand-cyan bg-brand-cyan/20 shadow-glow-cyan' 
-                    : 'border-space-600 bg-space-700 hover:border-brand-purple/50'}"
-                >
-                  <img 
-                    src={GAME_LOGOS[gameTypeKey as GameType]} 
-                    alt={gameConfig.name}
-                    class="w-full h-16 mx-auto mb-2 object-contain"
-                  />
-                  {#if selectedGameType === gameTypeKey}
-                    <div class="absolute top-1 right-1 w-3 h-3 bg-brand-cyan rounded-full"></div>
-                  {/if}
-                </button>
-              {/each}
+            <span class="text-sm text-gray-400">Select Game ({Object.keys(GAME_CONFIGS).length} available)</span>
+            <div class="max-h-64 overflow-y-auto rounded-lg border-2 border-space-600 bg-space-800/50 p-3 custom-scrollbar">
+              <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                {#each Object.entries(GAME_CONFIGS) as [gameTypeKey, config]}
+                  {@const gameConfig = config as typeof GAME_CONFIGS['cs16']}
+                  <button
+                    type="button"
+                    onclick={() => selectedGameType = gameTypeKey as GameType}
+                    class="relative flex flex-col items-center p-2 rounded-lg transition-all duration-200 {selectedGameType === gameTypeKey 
+                      ? 'bg-brand-cyan/20 ring-2 ring-brand-cyan shadow-lg shadow-brand-cyan/20' 
+                      : 'bg-space-700/50 hover:bg-space-600/50 hover:ring-1 hover:ring-space-500'}"
+                  >
+                    <div class="w-22 h-16 flex items-center justify-center mb-1 relative">
+                      <img 
+                        src={getGameLogo(gameTypeKey as GameType)} 
+                        alt={gameConfig.name}
+                        class="max-w-full max-h-full object-contain"
+                        onerror={(e) => {
+                          const img = e.target as HTMLImageElement;
+                          img.style.display = 'none';
+                          const fallback = img.nextElementSibling as HTMLElement;
+                          if (fallback) fallback.style.display = 'flex';
+                        }}
+                      />
+                      <div class="w-14 h-14 rounded bg-space-600 items-center justify-center absolute" style="display: none;">
+                        <span class="text-xl font-bold text-gray-500">{gameConfig.shortName.substring(0, 2).toUpperCase()}</span>
+                      </div>
+                    </div>
+                    <div class="text-xs text-gray-300 text-center leading-tight line-clamp-2 min-h-[2rem] font-medium">{gameConfig.name}</div>
+                    {#if selectedGameType === gameTypeKey}
+                      <div class="absolute -top-1 -right-1">
+                        <svg class="w-4 h-4 text-brand-cyan bg-space-900 rounded-full" fill="currentColor" viewBox="0 0 20 20">
+                          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                        </svg>
+                      </div>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
             </div>
           </div>
           
@@ -289,7 +315,7 @@
               Create
             </button>
             <button
-              onclick={() => { showCreateForm = false; newTournamentName = ''; selectedGameType = 'cs16'; map1 = ''; map2 = ''; map3 = ''; }}
+              onclick={() => { showCreateForm = false; newTournamentName = ''; selectedGameType = 'cs16'; map1 = ''; map2 = ''; map3 = ''; useCustomPoints = false; }}
               class="bg-gray-600 hover:bg-gray-500 text-white font-bold px-4 py-2 text-sm rounded-lg transition-all duration-300"
             >
               Cancel
@@ -324,36 +350,59 @@
             </div>
           </div>
 
-          <!-- CS 1.6 Round Limits -->
-          {#if selectedGameType === 'cs16'}
-            <div class="space-y-2">
-              <span class="text-sm text-gray-400">Round Limits (CS 1.6)</span>
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs text-gray-500 mb-1">Group Stage (first to)</label>
-                  <input
-                    type="number"
-                    bind:value={groupStageRoundLimit}
-                    min="1"
-                    max="30"
-                    class="w-full px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
-                    placeholder="16"
-                  />
-                </div>
-                <div>
-                  <label class="block text-xs text-gray-500 mb-1">Playoffs (first to)</label>
-                  <input
-                    type="number"
-                    bind:value={playoffsRoundLimit}
-                    min="1"
-                    max="20"
-                    class="w-full px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
-                    placeholder="10"
-                  />
-                </div>
+          <!-- Scoring Options -->
+          <div class="space-y-3">
+            <!-- Custom Points Toggle -->
+            <div class="flex items-center gap-3">
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" bind:checked={useCustomPoints} class="sr-only peer" />
+                <div class="w-9 h-5 bg-space-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-cyan/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-cyan"></div>
+              </label>
+              <div>
+                <span class="text-sm text-gray-300">Use Custom Points</span>
+                <p class="text-xs text-gray-500">
+                  {#if useCustomPoints}
+                    Override default scoring
+                  {:else}
+                    Default: {getArchetypeConfig(GAME_CONFIGS[selectedGameType].defaultArchetype).scoreLabel}
+                  {/if}
+                </p>
               </div>
             </div>
-          {/if}
+
+            <!-- Round Limits for rounds-based games -->
+            {#if GAME_CONFIGS[selectedGameType].defaultArchetype === 'rounds' && !useCustomPoints}
+              <div class="space-y-2">
+                <span class="text-sm text-gray-400">Round Limits ({GAME_CONFIGS[selectedGameType].shortName})</span>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label for="group-stage-limit" class="block text-xs text-gray-500 mb-1">Group Stage (first to)</label>
+                    <input
+                      id="group-stage-limit"
+                      type="number"
+                      bind:value={groupStageRoundLimit}
+                      min="1"
+                      max="30"
+                      class="w-full px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
+                      placeholder={String(GAME_CONFIGS[selectedGameType].groupStage.maxScore || 16)}
+                    />
+                  </div>
+                  <div>
+                    <label for="playoffs-limit" class="block text-xs text-gray-500 mb-1">Playoffs (first to)</label>
+                    <input
+                      id="playoffs-limit"
+                      type="number"
+                      bind:value={playoffsRoundLimit}
+                      min="1"
+                      max="20"
+                      class="w-full px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
+                      placeholder={String(GAME_CONFIGS[selectedGameType].playoffs.maxScorePerMap || 10)}
+                    />
+                  </div>
+                </div>
+              </div>
+            {/if}
+          </div>
         </div>
       {/if}
     </div>
@@ -383,11 +432,12 @@
               >
                 <div class="flex items-center justify-between mb-3">
                   <div class="flex items-center gap-3 min-w-0">
-                    {#if tournament.gameType && GAME_LOGOS[tournament.gameType as GameType]}
+                    {#if tournament.gameType && GAME_CONFIGS[tournament.gameType as GameType]}
                       <img 
-                        src={GAME_LOGOS[tournament.gameType as GameType]} 
+                        src={getGameLogo(tournament.gameType as GameType)} 
                         alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
                         class="w-16 h-10 object-contain flex-shrink-0"
+                        onerror={(e) => (e.target as HTMLImageElement).style.display = 'none'}
                       />
                     {/if}
                     <h3 class="text-lg font-bold text-white truncate">{tournament.name}</h3>
@@ -452,11 +502,12 @@
               >
                 <div class="flex items-center justify-between mb-3">
                   <div class="flex items-center gap-3 min-w-0">
-                    {#if tournament.gameType && GAME_LOGOS[tournament.gameType as GameType]}
+                    {#if tournament.gameType && GAME_CONFIGS[tournament.gameType as GameType]}
                       <img 
-                        src={GAME_LOGOS[tournament.gameType as GameType]} 
+                        src={getGameLogo(tournament.gameType as GameType)} 
                         alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
                         class="w-16 h-10 object-contain flex-shrink-0"
+                        onerror={(e) => (e.target as HTMLImageElement).style.display = 'none'}
                       />
                     {/if}
                     <h3 class="text-lg font-bold text-white truncate">{tournament.name}</h3>
@@ -509,7 +560,7 @@
 <!-- Confirmation Popup Modal -->
 {#if showConfirmPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && cancelConfirmation()} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && cancelConfirmation()}>
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -548,7 +599,7 @@
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
@@ -581,7 +632,7 @@
 <!-- Import Success Popup Modal -->
 {#if showImportSuccess}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showImportSuccess = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showImportSuccess = false)}>
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-cyber-green/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-cyber-green/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">

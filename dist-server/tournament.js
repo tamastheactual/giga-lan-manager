@@ -4,19 +4,52 @@ export class TournamentManager {
     id;
     name;
     gameType; // Which game this tournament is for
+    mapPool = []; // Optional map pool for tournaments
     players = [];
     pods = [];
     matches = [];
     bracketMatches = [];
     state = 'registration';
-    constructor(id, name, gameType = 'cs16') {
+    createdAt;
+    startedAt;
+    groupStageRoundLimit; // Custom round limit for group stage (CS 1.6)
+    playoffsRoundLimit; // Custom round limit for playoffs (CS 1.6)
+    useCustomPoints; // Override default archetype with custom points
+    constructor(id, name, gameType = 'cs16', mapPool = [], groupStageRoundLimit, playoffsRoundLimit, useCustomPoints) {
         this.id = id;
         this.name = name;
         this.gameType = gameType;
+        this.mapPool = mapPool;
+        this.createdAt = new Date().toISOString();
+        this.groupStageRoundLimit = groupStageRoundLimit;
+        this.playoffsRoundLimit = playoffsRoundLimit;
+        this.useCustomPoints = useCustomPoints;
     }
     // Get game configuration
     getGameConfig() {
         return getGameConfig(this.gameType);
+    }
+    // Fill in missing maps for existing matches with random selection
+    fillMissingMaps() {
+        const config = this.getGameConfig();
+        const availableMaps = this.mapPool.length > 0 ? this.mapPool : config.maps;
+        // Fill in missing maps for group stage matches
+        this.matches.forEach(match => {
+            if (!match.mapName && match.completed) {
+                match.mapName = availableMaps[Math.floor(Math.random() * availableMaps.length)];
+            }
+        });
+        // Fill in missing maps for bracket matches
+        this.bracketMatches.forEach(match => {
+            // Fill in missing maps in games array
+            if (match.games && match.games.length > 0) {
+                match.games.forEach((game) => {
+                    if (!game.mapName) {
+                        game.mapName = availableMaps[Math.floor(Math.random() * availableMaps.length)];
+                    }
+                });
+            }
+        });
     }
     addPlayer(name) {
         const player = {
@@ -47,7 +80,17 @@ export class TournamentManager {
         if (this.players.length < 4) {
             throw new Error("Need at least 4 players");
         }
+        // Auto-add dummy player for awkward tournament sizes
+        if (this.players.length === 11) {
+            // 11 → 12 (3 groups of 4)
+            this.addPlayer("BYE (Dummy Player)");
+        }
+        else if (this.players.length === 13) {
+            // 13 → 14 (2 groups of 7)
+            this.addPlayer("BYE (Dummy Player)");
+        }
         this.state = 'group';
+        this.startedAt = new Date().toISOString();
         this.generatePods();
     }
     generatePods() {
@@ -79,12 +122,43 @@ export class TournamentManager {
             groupSize = 3;
             numGroups = 3;
         }
-        else if (numPlayers >= 10 && numPlayers <= 12) {
+        else if (numPlayers === 10) {
+            // 10 players: 2 groups of 5
+            groupSize = 5;
+            numGroups = 2;
+        }
+        else if (numPlayers === 11) {
+            // 11 players: awkward, use 3 groups (4, 4, 3)
             groupSize = 4;
-            numGroups = Math.ceil(numPlayers / 4);
+            numGroups = 3;
+        }
+        else if (numPlayers === 12) {
+            // 12 players: 3 groups of 4
+            groupSize = 4;
+            numGroups = 3;
+        }
+        else if (numPlayers === 13) {
+            // 13 players: awkward number, make uneven groups
+            groupSize = 7;
+            numGroups = 2; // Will be 7 and 6
+        }
+        else if (numPlayers === 14) {
+            // 14 players: 2 groups of 7
+            groupSize = 7;
+            numGroups = 2;
+        }
+        else if (numPlayers === 15) {
+            // 15 players: 3 groups of 5
+            groupSize = 5;
+            numGroups = 3;
+        }
+        else if (numPlayers === 16) {
+            // 16 players: 4 groups of 4
+            groupSize = 4;
+            numGroups = 4;
         }
         else {
-            // For larger numbers, try to make groups of 4
+            // For larger numbers, try to make groups of 4-5
             groupSize = 4;
             numGroups = Math.ceil(numPlayers / 4);
         }
@@ -164,12 +238,16 @@ export class TournamentManager {
             });
         });
     }
-    submitMatchResult(matchId, results, gameResults) {
+    submitMatchResult(matchId, results, mapName, gameResults) {
         const match = this.matches.find(m => m.id === matchId);
         if (!match)
             throw new Error("Match not found");
         match.result = results;
         match.completed = true;
+        // Store map name if provided
+        if (mapName) {
+            match.mapName = mapName;
+        }
         // Store detailed game results if provided
         if (gameResults) {
             match.gameResults = gameResults;
@@ -270,23 +348,129 @@ export class TournamentManager {
         // Return positive if B won (B should rank higher), negative if A won
         return bPoints - aPoints;
     }
+    // Get which group/pod a player belongs to
+    getPlayerGroup(playerId) {
+        const pod = this.pods.find(p => p.players.includes(playerId));
+        return pod ? pod.id : null;
+    }
+    // Reorder qualified players to avoid same-group matchups in brackets
+    reorderForCrossGroupMatchups(players) {
+        const numGroups = this.pods.length;
+        // Only reorder for multi-group tournaments
+        if (numGroups <= 1)
+            return players;
+        // Group players by their pod and maintain ranking within groups
+        const playersByGroup = new Map();
+        players.forEach(player => {
+            const groupId = this.getPlayerGroup(player.id);
+            if (groupId) {
+                if (!playersByGroup.has(groupId)) {
+                    playersByGroup.set(groupId, []);
+                }
+                playersByGroup.get(groupId).push(player);
+            }
+        });
+        const groups = Array.from(playersByGroup.values());
+        // Handle different scenarios
+        if (numGroups === 2) {
+            // 2 groups: Interleave to ensure cross-group matchups
+            // Result: G1-1st, G2-1st, G1-2nd, G2-2nd, G1-3rd, G2-3rd, G1-4th, G2-4th
+            const reordered = [];
+            const maxGroupSize = Math.max(...groups.map(g => g.length));
+            for (let i = 0; i < maxGroupSize; i++) {
+                for (const group of groups) {
+                    if (i < group.length) {
+                        reordered.push(group[i]);
+                    }
+                }
+            }
+            return reordered;
+        }
+        else if (numGroups === 3 && players.length === 6) {
+            // 3 groups, 6 players (top 2 from each)
+            // Bracket structure: Seeds 1-2 get byes, Seeds 3-6 play QFs
+            // QF1: Seed 3 vs Seed 6 → Winner plays Seed 2 in SF2
+            // QF2: Seed 4 vs Seed 5 → Winner plays Seed 1 in SF1
+            // 
+            // To avoid same-group matchups in semifinals:
+            // - Seed 1 and Seed 2 should be from different groups (guaranteed by ranking)
+            // - QF1 winner should not be from same group as Seed 2
+            // - QF2 winner should not be from same group as Seed 1
+            //
+            // Strategy: Place 1st from each group in seeds 1-3, then distribute 2nds carefully
+            // Seed 1: G1-1st (bye) → will face QF2 winner
+            // Seed 2: G2-1st (bye) → will face QF1 winner
+            // Seed 3: G3-1st → QF1 vs Seed 6
+            // Seed 4: G2-2nd → QF2 vs Seed 5
+            // Seed 5: G3-2nd → QF2 vs Seed 4
+            // Seed 6: G1-2nd → QF1 vs Seed 3
+            //
+            // Verification:
+            // QF1: G3-1st vs G1-2nd ✓ different
+            // QF2: G2-2nd vs G3-2nd ✓ different
+            // SF1: G1-1st vs (G2-2nd or G3-2nd) ✓ different from G1
+            // SF2: G2-1st vs (G3-1st or G1-2nd) ✓ different from G2
+            const reordered = [
+                groups[0][0], // G1-1st (Seed 1)
+                groups[1][0], // G2-1st (Seed 2)
+                groups[2][0], // G3-1st (Seed 3)
+                groups[1][1], // G2-2nd (Seed 4)
+                groups[2][1], // G3-2nd (Seed 5)
+                groups[0][1], // G1-2nd (Seed 6)
+            ];
+            return reordered;
+        }
+        else if (numGroups >= 3) {
+            // 3+ groups: Distribute to avoid same-group matchups
+            // Strategy: Round-robin distribution across groups
+            const reordered = [];
+            const maxGroupSize = Math.max(...groups.map(g => g.length));
+            for (let i = 0; i < maxGroupSize; i++) {
+                for (const group of groups) {
+                    if (i < group.length) {
+                        reordered.push(group[i]);
+                    }
+                }
+            }
+            return reordered;
+        }
+        return players;
+    }
     generateBrackets() {
         const rankings = this.getRankings();
         const numGroups = this.pods.length;
-        // Determine playoff size based on groups and players
-        // Top 2 from each group qualify, capped at 8
-        let numQualified = Math.min(numGroups * 2, 8);
-        // Adjust to valid bracket sizes (4, 6, or 8)
-        if (numQualified <= 4) {
-            numQualified = Math.min(4, rankings.length);
+        const totalPlayers = this.players.length;
+        // Determine playoff size based on group size and count
+        let numQualified;
+        if (numGroups === 1) {
+            // Single group: top 4 advance (unless fewer than 6 total players)
+            numQualified = Math.min(4, totalPlayers);
         }
-        else if (numQualified <= 6) {
+        else if (numGroups === 2) {
+            // Two groups: determine based on group size
+            const avgGroupSize = totalPlayers / 2;
+            if (avgGroupSize >= 5) {
+                // Large groups (5-7+ players): top 4 from each group = 8 total
+                numQualified = 8;
+            }
+            else {
+                // Small groups (3-4 players): top 2 from each = 4 total
+                numQualified = 4;
+            }
+        }
+        else if (numGroups === 3) {
+            // Three groups: top 2 from each = 6 total
             numQualified = 6;
         }
         else {
-            numQualified = 8;
+            // Four+ groups: top 2 from each, capped at 8
+            numQualified = Math.min(numGroups * 2, 8);
         }
-        const qualifiedPlayers = rankings.slice(0, numQualified);
+        // Ensure we don't exceed available players
+        numQualified = Math.min(numQualified, rankings.length);
+        let qualifiedPlayers = rankings.slice(0, numQualified);
+        // Reorder to ensure cross-group matchups in first round
+        qualifiedPlayers = this.reorderForCrossGroupMatchups(qualifiedPlayers);
         this.bracketMatches = [];
         this.createPlayoffBracket(qualifiedPlayers);
         this.state = 'playoffs';
@@ -634,6 +818,15 @@ export class TournamentManager {
         if (!p)
             throw new Error('Player not found');
         p.profilePhoto = photo;
+    }
+    // Get the tournament champion (winner of finals)
+    getChampion() {
+        if (this.state !== 'completed')
+            return null;
+        const finals = this.bracketMatches.find(m => m.bracketType === 'finals');
+        if (!finals?.winnerId)
+            return null;
+        return this.players.find(p => p.id === finals.winnerId) || null;
     }
 }
 //# sourceMappingURL=tournament.js.map

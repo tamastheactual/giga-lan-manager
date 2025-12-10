@@ -23,10 +23,13 @@ const tournaments = new Map();
         const state = await redisClient.get(`tournament:${id}`);
         if (state) {
             const data = JSON.parse(state);
-            const tournament = new TournamentManager(data.id, data.name);
+            const tournament = new TournamentManager(data.id, data.name, data.gameType, data.mapPool);
+            // Copy all properties from persisted data, including createdAt
             Object.assign(tournament, data);
+            // Fill in any missing maps for completed matches
+            tournament.fillMissingMaps();
             tournaments.set(id, tournament);
-            console.log(`Loaded tournament: ${data.name} (${id})`);
+            console.log(`Loaded tournament: ${data.name} (${id}) - createdAt: ${tournament.createdAt}`);
         }
     }
 })();
@@ -49,7 +52,9 @@ app.get('/api/tournaments', (req, res) => {
         name: t.name,
         state: t.state,
         playerCount: t.players.length,
-        gameType: t.gameType
+        gameType: t.gameType,
+        createdAt: t.createdAt,
+        startedAt: t.startedAt
     }));
     res.json(tournamentList);
 });
@@ -58,18 +63,18 @@ app.get('/api/games', (req, res) => {
     res.json(getAllGames());
 });
 app.post('/api/tournaments', async (req, res) => {
-    const { name, gameType } = req.body;
+    const { name, gameType, mapPool = [], groupStageRoundLimit, playoffsRoundLimit, useCustomPoints } = req.body;
     if (!name)
         return res.status(400).json({ error: 'Name is required' });
     if (!gameType || !GAME_CONFIGS[gameType]) {
         return res.status(400).json({ error: 'Valid game type is required' });
     }
     const id = uuidv4();
-    const tournament = new TournamentManager(id, name, gameType);
+    const tournament = new TournamentManager(id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints);
     tournaments.set(id, tournament);
     await redisClient.sAdd('tournaments:list', id);
     await saveState(id);
-    res.json({ id, name, gameType });
+    res.json({ id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints });
 });
 // Delete a tournament
 app.delete('/api/tournament/:tournamentId', async (req, res) => {
@@ -138,7 +143,13 @@ app.get('/api/tournament/:tournamentId/state', (req, res) => {
         pods: tournament.pods,
         matches: tournament.matches,
         bracketMatches: tournament.bracketMatches,
-        state: tournament.state
+        state: tournament.state,
+        champion: tournament.getChampion(),
+        createdAt: tournament.createdAt,
+        startedAt: tournament.startedAt,
+        mapPool: tournament.mapPool,
+        groupStageRoundLimit: tournament.groupStageRoundLimit,
+        playoffsRoundLimit: tournament.playoffsRoundLimit
     });
 });
 app.post('/api/tournament/:tournamentId/players', async (req, res) => {
@@ -172,10 +183,10 @@ app.post('/api/tournament/:tournamentId/match/:id', async (req, res) => {
     const tournament = tournaments.get(tournamentId);
     if (!tournament)
         return res.status(404).json({ error: 'Tournament not found' });
-    const { results } = req.body;
-    console.log(`[API] POST /api/tournament/${tournamentId}/match/${id} - Received:`, { id, results });
+    const { results, mapName } = req.body;
+    console.log(`[API] POST /api/tournament/${tournamentId}/match/${id} - Received:`, { id, results, mapName });
     try {
-        tournament.submitMatchResult(id, results);
+        tournament.submitMatchResult(id, results, mapName);
         await saveState(tournamentId);
         console.log(`[API] POST /api/tournament/${tournamentId}/match/${id} - Success, state saved`);
         res.json({ success: true });

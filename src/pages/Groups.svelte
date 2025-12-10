@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, submitMatch, generateBrackets, updateGroupName, resetGroupData, resetTournament, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getState, submitMatch, generateBrackets, updateGroupName, resetGroupData, resetTournament, type GameType, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
+  import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
   import Footer from '../components/Footer.svelte';
 
   let { tournamentId } = $props<{ tournamentId: string }>();
@@ -14,6 +15,7 @@
   let gameType = $state<GameType | null>(null);
   let mapPool = $state([]) as string[];
   let groupStageRoundLimit = $state<number | undefined>(undefined);
+  let useCustomPoints = $state(false);
 
   // Score-based input state (player1Score, player2Score per match)
   let matchScores = $state({}) as Record<string, { player1Score: number; player2Score: number }>;
@@ -33,10 +35,17 @@
 
   // Derived game config
   const gameConfig = $derived(gameType ? GAME_CONFIGS[gameType] : null);
-  const scoreLabel = $derived(gameConfig?.groupStage.scoreLabel || 'Score');
+  const effectiveArchetype = $derived<ScoreArchetype>(getEffectiveArchetype(gameType || 'cs16', useCustomPoints));
+  const archetypeConfig = $derived(getArchetypeConfig(effectiveArchetype));
+  const scoreLabel = $derived(archetypeConfig.scoreLabel);
+  const scoreLabelShort = $derived(archetypeConfig.statLabelShort);
   const maxScore = $derived(groupStageRoundLimit !== undefined ? groupStageRoundLimit : gameConfig?.groupStage.maxScore); // Use custom limit if set
-  const tieAllowed = $derived(gameConfig?.groupStage.tieAllowed ?? true);
-  const isKillBased = $derived(gameConfig?.groupStage.scoreType === 'kills');
+  const tieAllowed = $derived(archetypeConfig.tiesPossible);
+  const isKillBased = $derived(effectiveArchetype === 'kills');
+  const isHealthBased = $derived(effectiveArchetype === 'health');
+  const isRoundsBased = $derived(effectiveArchetype === 'rounds');
+  const isWinOnly = $derived(effectiveArchetype === 'winonly');
+  const isPointsBased = $derived(effectiveArchetype === 'points');
 
   // Popup helper functions
   function showError(message: string) {
@@ -160,7 +169,10 @@
       matchesCount: data.matches.length,
       playersCount: data.players.length,
       state: data.state,
-      mapPoolLength: data.mapPool?.length || 0
+      mapPoolLength: data.mapPool?.length || 0,
+      useCustomPoints: data.useCustomPoints,
+      groupStageRoundLimit: data.groupStageRoundLimit,
+      gameType: data.gameType
     });
 
     // With $state, direct assignment triggers reactivity
@@ -171,6 +183,7 @@
     gameType = data.gameType || 'cs16';
     mapPool = data.mapPool || [];
     groupStageRoundLimit = data.groupStageRoundLimit;
+    useCustomPoints = data.useCustomPoints || false;
 
     // Initialize scores from existing results
     matches.forEach(m => {
@@ -231,13 +244,29 @@
     }
     // For UT2004, allow negative values (suicides), otherwise clamp to 0 minimum
     const minValue = gameType === 'ut2004' ? -999 : 0;
-    const clampedValue = maxScore !== undefined 
+    // Only clamp to maxScore for rounds-based games without custom points
+    const clampedValue = (isRoundsBased && maxScore !== undefined)
       ? Math.max(minValue, Math.min(value, maxScore)) 
       : Math.max(minValue, value);
     if (player === 'player1') {
       matchScores[matchId].player1Score = clampedValue;
     } else {
       matchScores[matchId].player2Score = clampedValue;
+    }
+  }
+
+  // For win-only games: Set winner directly with W button
+  function setWinner(matchId: string, winner: 'player1' | 'player2' | 'tie') {
+    if (!matchScores[matchId]) {
+      matchScores[matchId] = { player1Score: 0, player2Score: 0 };
+    }
+    if (winner === 'player1') {
+      matchScores[matchId] = { player1Score: 1, player2Score: 0 };
+    } else if (winner === 'player2') {
+      matchScores[matchId] = { player1Score: 0, player2Score: 1 };
+    } else {
+      // Tie - both get 1 so it's recognized as valid
+      matchScores[matchId] = { player1Score: 1, player2Score: 1 };
     }
   }
 
@@ -248,7 +277,8 @@
     if (player1Score > player2Score) return 'player1';
     if (player2Score > player1Score) return 'player2';
     // For health-based games (Worms), 0-0 is a valid tie (mutual kill)
-    if (player1Score === player2Score && (player1Score > 0 || (tieAllowed && gameConfig?.groupStage.scoreType === 'health'))) return 'tie';
+    // For win-only games with tie selected (1-1), it's a valid tie
+    if (player1Score === player2Score && (player1Score > 0 || (tieAllowed && isHealthBased))) return 'tie';
     return null;
   }
 
@@ -257,7 +287,6 @@
     if (!scores) return false;
     const { player1Score, player2Score } = scores;
     // For health-based games (Worms), 0-0 is valid (mutual kill/tie)
-    const isHealthBased = gameConfig?.groupStage.scoreType === 'health';
     // Need at least one score, unless it's a health-based game where 0-0 tie is valid
     if (player1Score === 0 && player2Score === 0 && !isHealthBased) return false;
     
@@ -269,7 +298,9 @@
     // For games that don't allow ties, scores must be different
     if (!tieAllowed && player1Score === player2Score) return false;
     
-    if (gameType === 'cs16') {
+    // Only enforce strict round rules for rounds-based games (CS, RtCW, Wolf:ET)
+    // When useCustomPoints is true, isRoundsBased is false, so this won't run
+    if (isRoundsBased) {
       const winScore = maxScore || 16; 
       const maxLoserScore = winScore - 1;
       
@@ -303,7 +334,8 @@
       return 'Ties not allowed - scores must be different';
     }
     
-    if (gameType === 'cs16') {
+    // Only enforce strict round rules for rounds-based games
+    if (isRoundsBased) {
       const winScore = maxScore || 16;
       const maxLoserScore = winScore - 1;
       
@@ -548,7 +580,9 @@
                   <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">W</th>
                   <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">D</th>
                   <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">L</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs" title="{scoreLabel} - Tiebreaker">{gameType === 'cs16' ? 'Rds' : gameType === 'ut2004' ? 'K' : 'HP'}</th>
+                  {#if !isWinOnly}
+                    <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs" title="{scoreLabel} - Tiebreaker">{scoreLabelShort}</th>
+                  {/if}
                   <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">Pts</th>
                 </tr>
               </thead>
@@ -568,7 +602,9 @@
                     <td class="text-center py-1 px-1 text-cyber-green font-bold">{player.wins || 0}</td>
                     <td class="text-center py-1 px-1 text-yellow-500 font-bold">{player.draws || 0}</td>
                     <td class="text-center py-1 px-1 text-red-400 font-bold">{player.losses || 0}</td>
-                    <td class="text-center py-1 px-1 text-brand-cyan font-bold" title="{scoreLabel}">{player.totalGameScore || 0}</td>
+                    {#if !isWinOnly}
+                      <td class="text-center py-1 px-1 text-brand-cyan font-bold" title="{scoreLabel}">{player.totalGameScore || 0}</td>
+                    {/if}
                     <td class="text-center py-1 px-1 text-cyber-green font-black">{player.points || 0}</td>
                   </tr>
                 {/each}
@@ -627,50 +663,94 @@
                 
                 <!-- Score Display Row -->
                 <div class="flex items-center justify-center gap-3 mb-3">
-                  <!-- Player 1 Score -->
-                  <div class="flex-1 text-center">
+                  {#if isWinOnly}
+                    <!-- Win-Only Mode: W/T/W or W/W Buttons (T only if ties allowed) -->
                     {#if !match.completed}
-                      <input
-                        type="number"
-                        min="0"
-                        max={maxScore || undefined}
-                        value={scores.player1Score || ''}
-                        placeholder="0"
-                        oninput={(e) => updateScore(match.id, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
-                        class="w-full text-center text-3xl font-black bg-space-600 border-2 {result === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-2 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                      />
+                      <button
+                        onclick={() => setWinner(match.id, 'player1')}
+                        class="w-14 h-14 rounded-lg font-black text-xl transition-all {scores.player1Score > scores.player2Score ? 'bg-cyber-green text-black' : 'bg-space-600 hover:bg-space-500 text-white border-2 border-space-500 hover:border-cyber-green'}"
+                      >
+                        W
+                      </button>
+                      {#if tieAllowed}
+                        <button
+                          onclick={() => setWinner(match.id, 'tie')}
+                          class="w-14 h-14 rounded-lg font-black text-xl transition-all {scores.player1Score === scores.player2Score && scores.player1Score > 0 ? 'bg-yellow-500 text-black' : 'bg-space-600 hover:bg-space-500 text-gray-400 border-2 border-space-500 hover:border-yellow-500'}"
+                        >
+                          T
+                        </button>
+                      {:else}
+                        <span class="text-gray-500 font-bold">:</span>
+                      {/if}
+                      <button
+                        onclick={() => setWinner(match.id, 'player2')}
+                        class="w-14 h-14 rounded-lg font-black text-xl transition-all {scores.player2Score > scores.player1Score ? 'bg-cyber-green text-black' : 'bg-space-600 hover:bg-space-500 text-white border-2 border-space-500 hover:border-cyber-green'}"
+                      >
+                        W
+                      </button>
                     {:else}
-                      <div class="text-3xl font-black {result === 'player1' ? 'text-cyber-green' : result === 'player2' ? 'text-gray-500' : 'text-yellow-500'}">{scores.player1Score}</div>
+                      <!-- Completed Win-Only Match -->
+                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player1' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-yellow-500/50 text-yellow-300' : 'bg-space-700 text-gray-500'}">
+                        {result === 'player1' ? 'W' : result === 'tie' ? 'T' : 'L'}
+                      </div>
+                      {#if tieAllowed}
+                        <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'tie' ? 'bg-yellow-500 text-black' : 'bg-space-700 text-gray-600'}">
+                          {result === 'tie' ? 'T' : 'vs'}
+                        </div>
+                      {:else}
+                        <span class="text-gray-500 font-bold">:</span>
+                      {/if}
+                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player2' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-yellow-500/50 text-yellow-300' : 'bg-space-700 text-gray-500'}">
+                        {result === 'player2' ? 'W' : result === 'tie' ? 'T' : 'L'}
+                      </div>
                     {/if}
-                  </div>
-                  
-                  <!-- VS / Result -->
-                  <div class="flex-shrink-0 w-12 text-center">
-                    {#if result === 'tie'}
-                      <span class="text-yellow-500 font-black text-sm">TIE</span>
-                    {:else if match.completed}
-                      <span class="text-gray-600 font-bold text-lg">:</span>
-                    {:else}
-                      <span class="text-gray-500 font-bold text-sm">VS</span>
-                    {/if}
-                  </div>
-                  
-                  <!-- Player 2 Score -->
-                  <div class="flex-1 text-center">
-                    {#if !match.completed}
-                      <input
-                        type="number"
-                        min="0"
-                        max={maxScore || undefined}
-                        value={scores.player2Score || ''}
-                        placeholder="0"
-                        oninput={(e) => updateScore(match.id, 'player2', parseInt((e.target as HTMLInputElement).value) || 0)}
-                        class="w-full text-center text-3xl font-black bg-space-600 border-2 {result === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-2 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                      />
-                    {:else}
-                      <div class="text-3xl font-black {result === 'player2' ? 'text-cyber-green' : result === 'player1' ? 'text-gray-500' : 'text-yellow-500'}">{scores.player2Score}</div>
-                    {/if}
-                  </div>
+                  {:else}
+                    <!-- Standard Score Input Mode -->
+                    <!-- Player 1 Score -->
+                    <div class="flex-1 text-center">
+                      {#if !match.completed}
+                        <input
+                          type="number"
+                          min="0"
+                          max={isRoundsBased ? maxScore : undefined}
+                          value={scores.player1Score || ''}
+                          placeholder="0"
+                          oninput={(e) => updateScore(match.id, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
+                          class="w-full text-center text-3xl font-black bg-space-600 border-2 {result === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-2 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                        />
+                      {:else}
+                        <div class="text-3xl font-black {result === 'player1' ? 'text-cyber-green' : result === 'player2' ? 'text-gray-500' : 'text-yellow-500'}">{scores.player1Score}</div>
+                      {/if}
+                    </div>
+                    
+                    <!-- VS / Result -->
+                    <div class="flex-shrink-0 w-12 text-center">
+                      {#if result === 'tie'}
+                        <span class="text-yellow-500 font-black text-sm">TIE</span>
+                      {:else if match.completed}
+                        <span class="text-gray-600 font-bold text-lg">:</span>
+                      {:else}
+                        <span class="text-gray-500 font-bold text-sm">VS</span>
+                      {/if}
+                    </div>
+                    
+                    <!-- Player 2 Score -->
+                    <div class="flex-1 text-center">
+                      {#if !match.completed}
+                        <input
+                          type="number"
+                          min="0"
+                          max={isRoundsBased ? maxScore : undefined}
+                          value={scores.player2Score || ''}
+                          placeholder="0"
+                          oninput={(e) => updateScore(match.id, 'player2', parseInt((e.target as HTMLInputElement).value) || 0)}
+                          class="w-full text-center text-3xl font-black bg-space-600 border-2 {result === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-2 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                        />
+                      {:else}
+                        <div class="text-3xl font-black {result === 'player2' ? 'text-cyber-green' : result === 'player1' ? 'text-gray-500' : 'text-yellow-500'}">{scores.player2Score}</div>
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
 
                 <!-- Player Names Row -->
@@ -741,7 +821,7 @@
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
           <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -771,7 +851,7 @@
 <!-- Confirmation Popup Modal -->
 {#if showConfirmPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showConfirmPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showConfirmPopup = false)}>
-    <div class="glass rounded-xl max-w-md w-full shadow-2xl border border-brand-cyan/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-brand-cyan/30" onclick={(e) => e.stopPropagation()}>
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
         <div class="w-12 h-12 rounded-full bg-brand-cyan/20 flex items-center justify-center">
           <svg class="w-6 h-6 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">

@@ -7,6 +7,7 @@ services:
       - REDIS_URL=redis://redis:6379
     depends_on:
       - redis
+    restart: unless-stopped
 
   redis:
     image: redis:alpine
@@ -14,6 +15,9 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    # Enable both RDB snapshots and AOF logging for maximum durability
+    command: redis-server --appendonly yes --appendfsync everysec --save 60 1 --save 300 10
+    restart: unless-stopped
 
 volumes:
   redis_data:

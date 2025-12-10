@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, updateBracketMatch, submitBracketGameResult, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getState, updateBracketMatch, submitBracketGameResult, type GameType, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
+  import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
   import Confetti from '../components/Confetti.svelte';
   import Footer from '../components/Footer.svelte';
 
@@ -20,6 +21,7 @@
   let gameType = $state<GameType | null>(null);
   let mapPool = $state([]) as string[];
   let playoffsRoundLimit = $state<number | undefined>(undefined);
+  let useCustomPoints = $state(false);
 
   // BO3 match editing state
   let editingMatchId = $state<string | null>(null);
@@ -38,9 +40,14 @@
   const gameConfig = $derived(gameType ? GAME_CONFIGS[gameType] : null);
   const mapsPerMatch = $derived(gameConfig?.playoffs.mapsPerMatch || 3);
   const maxScorePerMap = $derived(playoffsRoundLimit !== undefined ? playoffsRoundLimit : (gameConfig?.playoffs.maxScorePerMap || gameConfig?.groupStage.maxScore));
-  const scoreLabel = $derived(gameConfig?.playoffs.scoreLabel || 'Rounds');
-  const isKillBased = $derived(gameConfig?.groupStage.scoreType === 'kills');
-  const isHealthBased = $derived(gameConfig?.groupStage.scoreType === 'health');
+  const effectiveArchetype = $derived<ScoreArchetype>(getEffectiveArchetype(gameType || 'cs16', useCustomPoints));
+  const archetypeConfig = $derived(getArchetypeConfig(effectiveArchetype));
+  const scoreLabel = $derived(archetypeConfig.scoreLabel);
+  const isKillBased = $derived(effectiveArchetype === 'kills');
+  const isHealthBased = $derived(effectiveArchetype === 'health');
+  const isRoundsBased = $derived(effectiveArchetype === 'rounds');
+  const isWinOnly = $derived(effectiveArchetype === 'winonly');
+  const isPointsBased = $derived(effectiveArchetype === 'points');
 
   // Add helper functions
   function getPlayer(playerId: string) {
@@ -150,6 +157,7 @@
       gameType = tournamentData.gameType || 'cs16';
       mapPool = tournamentData.mapPool || [];
       playoffsRoundLimit = tournamentData.playoffsRoundLimit;
+      useCustomPoints = tournamentData.useCustomPoints || false;
       
       // Check if tournament is complete and champion is declared
       checkForChampion();
@@ -245,7 +253,8 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     }
     // For UT2004, allow negative values (suicides), otherwise clamp to 0 minimum
     const minValue = gameType === 'ut2004' ? -999 : 0;
-    const newValue = maxScorePerMap !== undefined 
+    // Only clamp to maxScorePerMap for rounds-based games without custom points
+    const newValue = (isRoundsBased && maxScorePerMap !== undefined)
       ? Math.max(minValue, Math.min(value, maxScorePerMap)) 
       : Math.max(minValue, value);
     if (player === 'player1') {
@@ -255,6 +264,44 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     }
     // Force reactivity
     mapScores = [...mapScores];
+  }
+
+  // Set winner for a specific map in win-only mode (BO3)
+  function setMapWinner(mapIndex: number, winner: 'player1' | 'player2') {
+    if (!mapScores[mapIndex]) {
+      mapScores[mapIndex] = { player1Score: 0, player2Score: 0 };
+    }
+    if (winner === 'player1') {
+      mapScores[mapIndex] = { player1Score: 1, player2Score: 0 };
+    } else {
+      mapScores[mapIndex] = { player1Score: 0, player2Score: 1 };
+    }
+    // Force reactivity
+    mapScores = [...mapScores];
+  }
+
+  // Check for duplicate map selection (works for both score and win-only modes)
+  function getDuplicateMapError(mapIndex: number): string | null {
+    const selectedMap = selectedMaps[mapIndex];
+    if (!selectedMap) return null;
+    
+    // Check if this game has a result (scores entered or winner selected)
+    const scores = mapScores[mapIndex];
+    if (!scores) return null;
+    if (scores.player1Score === 0 && scores.player2Score === 0) return null;
+    
+    // Check if this map is selected for another game that also has scores
+    for (let i = 0; i < mapScores.length; i++) {
+      if (i === mapIndex) continue; // Skip self
+      const otherScores = mapScores[i];
+      if (!otherScores) continue;
+      if (otherScores.player1Score === 0 && otherScores.player2Score === 0) continue;
+      
+      if (selectedMaps[i] === selectedMap) {
+        return `${selectedMap} already used`;
+      }
+    }
+    return null;
   }
 
   function getMapWinner(mapIndex: number): 'player1' | 'player2' | null {
@@ -939,42 +986,75 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   </select>
                                 {/if}
                                 
-                                <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : mapError ? 'ring-2 ring-red-500/50' : ''}">
-                                  <div class="flex items-center gap-1.5 min-w-[60px]">
-                                    {#if mapWinner === 'player1'}
+                                {#if isWinOnly}
+                                  <!-- Win-Only Mode: W Buttons -->
+                                  <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : ''}">
+                                    <div class="flex items-center gap-1.5 min-w-[60px]">
+                                      <span class="text-xs text-gray-400 font-bold">
+                                        {#if selectedMaps[mapIdx]}
+                                          <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                        {:else}
+                                          Game {mapIdx + 1}
+                                        {/if}
+                                      </span>
+                                    </div>
+                                    <button
+                                      onclick={() => setMapWinner(mapIdx, 'player1')}
+                                      class="w-10 h-10 rounded-lg font-black text-base transition-all {mapWinner === 'player1' ? 'bg-cyber-green text-black' : 'bg-space-600 hover:bg-space-500 text-white border-2 border-space-500 hover:border-cyber-green'}"
+                                    >
+                                      W
+                                    </button>
+                                    <span class="text-gray-600 font-bold">:</span>
+                                    <button
+                                      onclick={() => setMapWinner(mapIdx, 'player2')}
+                                      class="w-10 h-10 rounded-lg font-black text-base transition-all {mapWinner === 'player2' ? 'bg-cyber-green text-black' : 'bg-space-600 hover:bg-space-500 text-white border-2 border-space-500 hover:border-cyber-green'}"
+                                    >
+                                      W
+                                    </button>
+                                  </div>
+                                  {@const duplicateMapError = getDuplicateMapError(mapIdx)}
+                                  {#if duplicateMapError}
+                                    <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{duplicateMapError}</div>
+                                  {/if}
+                                {:else}
+                                  <!-- Standard Score Inputs -->
+                                  <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : mapError ? 'ring-2 ring-red-500/50' : ''}">
+                                    <div class="flex items-center gap-1.5 min-w-[60px]">
+                                      {#if mapWinner === 'player1'}
+                                        <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                      {/if}
+                                      <span class="text-xs text-gray-400 font-bold">
+                                        {#if selectedMaps[mapIdx]}
+                                          <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                        {:else}
+                                          Map {mapIdx + 1}
+                                        {/if}
+                                      </span>
+                                    </div>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max={isRoundsBased ? maxScorePerMap : undefined}
+                                      value={mapScore.player1Score}
+                                      oninput={(e) => updateMapScore(mapIdx, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
+                                      class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                    />
+                                    <span class="text-gray-500 font-bold">:</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max={isRoundsBased ? maxScorePerMap : undefined}
+                                      value={mapScore.player2Score}
+                                      oninput={(e) => updateMapScore(mapIdx, 'player2', parseInt((e.target as HTMLInputElement).value) || 0)}
+                                      class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                    />
+                                    {#if mapWinner === 'player2'}
                                       <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                     {/if}
-                                    <span class="text-xs text-gray-400 font-bold">
-                                      {#if selectedMaps[mapIdx]}
-                                        <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
-                                      {:else}
-                                        Map {mapIdx + 1}
-                                      {/if}
-                                    </span>
                                   </div>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max={maxScorePerMap || undefined}
-                                    value={mapScore.player1Score}
-                                    oninput={(e) => updateMapScore(mapIdx, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
-                                    class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                  />
-                                  <span class="text-gray-500 font-bold">:</span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max={maxScorePerMap || undefined}
-                                    value={mapScore.player2Score}
-                                    oninput={(e) => updateMapScore(mapIdx, 'player2', parseInt((e.target as HTMLInputElement).value) || 0)}
-                                    class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                  />
-                                  {#if mapWinner === 'player2'}
-                                    <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                  {#if mapError}
+                                    <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{mapError}</div>
                                   {/if}
-                                </div>
-                                {#if mapError}
-                                  <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{mapError}</div>
                                 {/if}
                               </div>
                             {/each}
@@ -1199,42 +1279,75 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                       </select>
                                     {/if}
                                     
-                                    <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : mapError ? 'ring-2 ring-red-500/50' : ''}">
-                                      <div class="flex items-center gap-1.5 min-w-[60px]">
-                                        {#if mapWinner === 'player1'}
+                                    {#if isWinOnly}
+                                      <!-- Win-Only Mode: W Buttons -->
+                                      <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : ''}">
+                                        <div class="flex items-center gap-1.5 min-w-[60px]">
+                                          <span class="text-xs text-gray-400 font-bold">
+                                            {#if selectedMaps[mapIdx]}
+                                              <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                            {:else}
+                                              Game {mapIdx + 1}
+                                            {/if}
+                                          </span>
+                                        </div>
+                                        <button
+                                          onclick={() => setMapWinner(mapIdx, 'player1')}
+                                          class="w-10 h-10 rounded-lg font-black text-base transition-all {mapWinner === 'player1' ? 'bg-cyber-green text-black' : 'bg-space-600 hover:bg-space-500 text-white border-2 border-space-500 hover:border-cyber-green'}"
+                                        >
+                                          W
+                                        </button>
+                                        <span class="text-gray-600 font-bold">:</span>
+                                        <button
+                                          onclick={() => setMapWinner(mapIdx, 'player2')}
+                                          class="w-10 h-10 rounded-lg font-black text-base transition-all {mapWinner === 'player2' ? 'bg-cyber-green text-black' : 'bg-space-600 hover:bg-space-500 text-white border-2 border-space-500 hover:border-cyber-green'}"
+                                        >
+                                          W
+                                        </button>
+                                      </div>
+                                      {@const duplicateMapError = getDuplicateMapError(mapIdx)}
+                                      {#if duplicateMapError}
+                                        <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{duplicateMapError}</div>
+                                      {/if}
+                                    {:else}
+                                      <!-- Standard Score Inputs -->
+                                      <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : mapError ? 'ring-2 ring-red-500/50' : ''}">
+                                        <div class="flex items-center gap-1.5 min-w-[60px]">
+                                          {#if mapWinner === 'player1'}
+                                            <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                          {/if}
+                                          <span class="text-xs text-gray-400 font-bold">
+                                            {#if selectedMaps[mapIdx]}
+                                              <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                            {:else}
+                                              Map {mapIdx + 1}
+                                            {/if}
+                                          </span>
+                                        </div>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max={isRoundsBased ? maxScorePerMap : undefined}
+                                          value={mapScore.player1Score}
+                                          oninput={(e) => updateMapScore(mapIdx, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
+                                          class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                        />
+                                        <span class="text-gray-500 font-bold">:</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max={isRoundsBased ? maxScorePerMap : undefined}
+                                          value={mapScore.player2Score}
+                                          oninput={(e) => updateMapScore(mapIdx, 'player2', parseInt((e.target as HTMLInputElement).value) || 0)}
+                                          class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                        />
+                                        {#if mapWinner === 'player2'}
                                           <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                         {/if}
-                                        <span class="text-xs text-gray-400 font-bold">
-                                          {#if selectedMaps[mapIdx]}
-                                            <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
-                                          {:else}
-                                            Map {mapIdx + 1}
-                                          {/if}
-                                        </span>
                                       </div>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max={maxScorePerMap || undefined}
-                                        value={mapScore.player1Score}
-                                        oninput={(e) => updateMapScore(mapIdx, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
-                                        class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                      />
-                                      <span class="text-gray-500 font-bold">:</span>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max={maxScorePerMap || undefined}
-                                        value={mapScore.player2Score}
-                                        oninput={(e) => updateMapScore(mapIdx, 'player2', parseInt((e.target as HTMLInputElement).value) || 0)}
-                                        class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                      />
-                                      {#if mapWinner === 'player2'}
-                                        <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                      {#if mapError}
+                                        <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{mapError}</div>
                                       {/if}
-                                    </div>
-                                    {#if mapError}
-                                      <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{mapError}</div>
                                     {/if}
                                   </div>
                                 {/each}
