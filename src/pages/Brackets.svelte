@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, updateBracketMatch, submitBracketGameResult, type GameType, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
+  import { getState, updateBracketMatch, submitBracketGameResult, submitTeamBracketWinner, submitTeamBracketGameResult, type GameType, type Team, type TeamBracketMatch, type PlayerGameStats, type TeamGameResult, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
+  import { getTeamImageUrl } from '$lib/teamImages';
   import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
   import Confetti from '../components/Confetti.svelte';
   import Footer from '../components/Footer.svelte';
@@ -23,10 +24,31 @@
   let playoffsRoundLimit = $state<number | undefined>(undefined);
   let useCustomPoints = $state(false);
 
+  // Team tournament state
+  let isTeamBased = $state(false);
+  let teams = $state<Team[]>([]);
+  let teamBracketMatches = $state<TeamBracketMatch[]>([]);
+  let teamChampion = $state<Team | null>(null);
+
+  // Player stats input for team games (per game) - OLD single game
+  let editingPlayerStats = $state<Record<string, { kills: number; deaths: number }>>({});
+
   // BO3 match editing state
   let editingMatchId = $state<string | null>(null);
   let mapScores = $state<{ player1Score: number; player2Score: number }[]>([]);
   let selectedMaps = $state<string[]>([]); // Selected map per game in BO3
+
+  // NEW: Modal state for team bracket matches
+  let showTeamMatchModal = $state(false);
+  let modalMatchId = $state<string | null>(null);
+  // Per-game player stats: gameIndex -> playerId -> {kills, deaths}
+  let modalGamePlayerStats = $state<Record<number, Record<string, { kills: number; deaths: number }>>>({});
+  // Per-game scores: gameIndex -> {team1Score, team2Score} - undefined means not entered yet
+  let modalGameScores = $state<Record<number, { team1Score?: number; team2Score?: number }>>({});
+  // Per-game map selection
+  let modalGameMaps = $state<Record<number, string>>({});
+  // Per-game winner (for win-only mode)
+  let modalGameWinners = $state<Record<number, 'team1' | 'team2' | null>>({});
 
   // Confetti state
   let showConfetti = $state(false);
@@ -58,7 +80,357 @@
     return getPlayer(playerId)?.name || 'TBD';
   }
 
+  // Team helper functions
+  function getTeam(teamId: string): Team | undefined {
+    return teams.find(t => t.id === teamId);
+  }
+
+  function getTeamName(teamId: string): string {
+    return getTeam(teamId)?.name || 'TBD';
+  }
+
+  // Helper to get game score for entity1 (handles both team and player games)
+  function getGameScore1(game: any): number {
+    return isTeamBased ? (game.team1Score ?? 0) : (game.player1Score ?? 0);
+  }
+  
+  // Helper to get game score for entity2 (handles both team and player games)
+  function getGameScore2(game: any): number {
+    return isTeamBased ? (game.team2Score ?? 0) : (game.player2Score ?? 0);
+  }
+  
+  // Helper to get game winner ID (handles both team and player games)
+  function getGameWinnerId(game: any): string | undefined {
+    return isTeamBased ? game.winnerTeamId : game.winnerId;
+  }
+
+  // Universal entity helpers (work for both teams and players)
+  function getEntityId1(match: any): string {
+    return isTeamBased ? match.team1Id : match.player1Id;
+  }
+  
+  function getEntityId2(match: any): string {
+    return isTeamBased ? match.team2Id : match.player2Id;
+  }
+  
+  function getEntityName(entityId: string): string {
+    if (!entityId) return 'TBD';
+    return isTeamBased ? getTeamName(entityId) : getPlayerName(entityId);
+  }
+  
+  function getEntityImage(entityId: string): string {
+    if (!entityId) return isTeamBased ? getTeamImageUrl(undefined) : getPlayerImageUrl('TBD');
+    if (isTeamBased) {
+      const team = getTeam(entityId);
+      return getTeamImageUrl(team);
+    }
+    return getPlayerImageUrl(getPlayerName(entityId));
+  }
+
+  function getTeamPlayers(teamId: string): any[] {
+    const team = getTeam(teamId);
+    if (!team) return [];
+    return team.playerIds.map(id => getPlayer(id)).filter(Boolean);
+  }
+
+  // Initialize player stats for editing (for team games)
+  function initPlayerStatsForMatch(match: TeamBracketMatch) {
+    const newStats: Record<string, { kills: number; deaths: number }> = {};
+    const team1 = getTeam(match.team1Id || '');
+    const team2 = getTeam(match.team2Id || '');
+    
+    if (team1) {
+      team1.playerIds.forEach(playerId => {
+        newStats[playerId] = { kills: 0, deaths: 0 };
+      });
+    }
+    if (team2) {
+      team2.playerIds.forEach(playerId => {
+        newStats[playerId] = { kills: 0, deaths: 0 };
+      });
+    }
+    editingPlayerStats = newStats;
+  }
+
+  // Get collected player stats as array
+  function getPlayerStatsArray(): PlayerGameStats[] {
+    return Object.entries(editingPlayerStats).map(([playerId, stats]) => ({
+      playerId,
+      kills: stats.kills,
+      deaths: stats.deaths
+    }));
+  }
+
+  // === TEAM MATCH MODAL FUNCTIONS ===
+  
+  // Get the current modal match
+  function getModalMatch(): TeamBracketMatch | null {
+    if (!modalMatchId) return null;
+    return teamBracketMatches.find(m => m.id === modalMatchId) || null;
+  }
+  
+  // Open the modal for a team match
+  function openTeamMatchModal(matchId: string) {
+    const match = teamBracketMatches.find(m => m.id === matchId);
+    if (!match || match.winnerId) return;
+    
+    modalMatchId = matchId;
+    showTeamMatchModal = true;
+    
+    // Initialize modal state if not already set for this match
+    if (!modalGameScores[0]) {
+      // Load existing game data if match has games already
+      if (match.games && match.games.length > 0) {
+        match.games.forEach((game: any, idx: number) => {
+          modalGameScores[idx] = { team1Score: game.team1Score || 0, team2Score: game.team2Score || 0 };
+          modalGameMaps[idx] = game.mapName || '';
+          // Determine winner from scores
+          if (game.winnerId) {
+            modalGameWinners[idx] = game.winnerId === match.team1Id ? 'team1' : 'team2';
+          }
+          // Load player stats for this game
+          if (game.playerStats && game.playerStats.length > 0) {
+            if (!modalGamePlayerStats[idx]) modalGamePlayerStats[idx] = {};
+            game.playerStats.forEach((ps: any) => {
+              modalGamePlayerStats[idx][ps.playerId] = { kills: ps.kills || 0, deaths: ps.deaths || 0 };
+            });
+          }
+        });
+      } else {
+        // Initialize empty data for all games (leave scores undefined for placeholder)
+        for (let i = 0; i < mapsPerMatch; i++) {
+          modalGameScores[i] = { team1Score: undefined, team2Score: undefined };
+          modalGameMaps[i] = '';
+          modalGameWinners[i] = null;
+          modalGamePlayerStats[i] = {};
+          
+          // Initialize player stats
+          const team1 = getTeam(match.team1Id || '');
+          const team2 = getTeam(match.team2Id || '');
+          if (team1) {
+            team1.playerIds.forEach(pid => {
+              modalGamePlayerStats[i][pid] = { kills: 0, deaths: 0 };
+            });
+          }
+          if (team2) {
+            team2.playerIds.forEach(pid => {
+              modalGamePlayerStats[i][pid] = { kills: 0, deaths: 0 };
+            });
+          }
+        }
+      }
+      // Trigger reactivity
+      modalGameScores = { ...modalGameScores };
+      modalGamePlayerStats = { ...modalGamePlayerStats };
+      modalGameMaps = { ...modalGameMaps };
+      modalGameWinners = { ...modalGameWinners };
+    }
+  }
+  
+  // Close the modal (data persists)
+  function closeTeamMatchModal() {
+    showTeamMatchModal = false;
+    // Don't clear modalMatchId or data - keep it for persistence
+  }
+  
+  // Update game score in modal
+  function updateModalGameScore(gameIdx: number, team: 'team1' | 'team2', value: number) {
+    if (!modalGameScores[gameIdx]) modalGameScores[gameIdx] = { team1Score: undefined, team2Score: undefined };
+    const clampedValue = Math.max(0, Math.min(value, maxScorePerMap || 999));
+    if (team === 'team1') {
+      modalGameScores[gameIdx].team1Score = clampedValue;
+    } else {
+      modalGameScores[gameIdx].team2Score = clampedValue;
+    }
+    modalGameScores = { ...modalGameScores };
+    
+    // Auto-determine winner from scores
+    const scores = modalGameScores[gameIdx];
+    const t1 = scores.team1Score ?? 0;
+    const t2 = scores.team2Score ?? 0;
+    if (t1 > t2) {
+      modalGameWinners[gameIdx] = 'team1';
+    } else if (t2 > t1) {
+      modalGameWinners[gameIdx] = 'team2';
+    } else {
+      modalGameWinners[gameIdx] = null; // Tie - no winner yet
+    }
+    modalGameWinners = { ...modalGameWinners };
+  }
+  
+  // Get game winner from scores (derived) - validates proper win score for CS16
+  function getModalGameWinner(gameIdx: number): 'team1' | 'team2' | null {
+    const scores = modalGameScores[gameIdx];
+    if (!scores) return null;
+    const t1 = scores.team1Score ?? 0;
+    const t2 = scores.team2Score ?? 0;
+    
+    // For CS16 playoffs: winner must have exactly maxScorePerMap rounds, loser max maxScorePerMap-1
+    if (gameType === 'cs16') {
+      const winScore = maxScorePerMap || 10;
+      const maxLoserScore = winScore - 1;
+      
+      if (t1 === winScore && t2 <= maxLoserScore) return 'team1';
+      if (t2 === winScore && t1 <= maxLoserScore) return 'team2';
+      // Invalid score or incomplete
+      return null;
+    }
+    
+    // For other games, just compare scores
+    if (t1 > t2) return 'team1';
+    if (t2 > t1) return 'team2';
+    return null;
+  }
+  
+  // Update player stat in modal
+  function updateModalPlayerStat(gameIdx: number, playerId: string, field: 'kills' | 'deaths', value: number) {
+    if (!modalGamePlayerStats[gameIdx]) modalGamePlayerStats[gameIdx] = {};
+    if (!modalGamePlayerStats[gameIdx][playerId]) modalGamePlayerStats[gameIdx][playerId] = { kills: 0, deaths: 0 };
+    modalGamePlayerStats[gameIdx][playerId][field] = Math.max(0, value);
+    modalGamePlayerStats = { ...modalGamePlayerStats };
+  }
+  
+  // Get series score from modal data (based on round scores)
+  function getModalSeriesScore() {
+    let team1Wins = 0;
+    let team2Wins = 0;
+    for (let i = 0; i < mapsPerMatch; i++) {
+      const winner = getModalGameWinner(i);
+      if (winner === 'team1') team1Wins++;
+      if (winner === 'team2') team2Wins++;
+    }
+    return { team1Wins, team2Wins };
+  }
+  
+  // Check if a game has a tie (scores are equal but > 0)
+  function isGameTie(gameIdx: number): boolean {
+    const scores = modalGameScores[gameIdx];
+    if (!scores) return false;
+    const t1 = scores.team1Score ?? 0;
+    const t2 = scores.team2Score ?? 0;
+    return t1 === t2 && t1 > 0;
+  }
+  
+  // Check if any game has a tie
+  function hasAnyTie(): boolean {
+    for (let i = 0; i < mapsPerMatch; i++) {
+      if (isGameTie(i)) return true;
+    }
+    return false;
+  }
+  
+  // Check if a game is ready for player stats input (map selected if pool exists, no tie)
+  function isGameReadyForInput(gameIdx: number): boolean {
+    // If there's a map pool, require map selection
+    if (mapPool.length > 0 && !modalGameMaps[gameIdx]) return false;
+    return true;
+  }
+  
+  // Check for duplicate map selection in team modal
+  function getModalDuplicateMapError(gameIdx: number): string | null {
+    const selectedMap = modalGameMaps[gameIdx];
+    if (!selectedMap) return null;
+    
+    // Check if this game has scores entered (meaning it's a played game)
+    const scores = modalGameScores[gameIdx];
+    if (!scores) return null;
+    const t1 = scores.team1Score ?? 0;
+    const t2 = scores.team2Score ?? 0;
+    if (t1 === 0 && t2 === 0) return null;
+    
+    // Check if this map is selected for another game that also has scores
+    for (let i = 0; i < mapsPerMatch; i++) {
+      if (i === gameIdx) continue; // Skip self
+      const otherScores = modalGameScores[i];
+      if (!otherScores) continue;
+      const ot1 = otherScores.team1Score ?? 0;
+      const ot2 = otherScores.team2Score ?? 0;
+      if (ot1 === 0 && ot2 === 0) continue;
+      
+      if (modalGameMaps[i] === selectedMap) {
+        return `Map ${selectedMap} already used`;
+      }
+    }
+    return null;
+  }
+  
+  // Check if any game in modal has duplicate map
+  function hasModalDuplicateMaps(): boolean {
+    for (let i = 0; i < mapsPerMatch; i++) {
+      if (getModalDuplicateMapError(i)) return true;
+    }
+    return false;
+  }
+  
+  // Check if modal series can be submitted
+  function canSubmitModalSeries(): boolean {
+    // Check for ties first
+    if (hasAnyTie()) return false;
+    
+    // Check for duplicate maps
+    if (hasModalDuplicateMaps()) return false;
+    
+    const { team1Wins, team2Wins } = getModalSeriesScore();
+    const needed = Math.ceil(mapsPerMatch / 2);
+    return team1Wins >= needed || team2Wins >= needed;
+  }
+  
+  // Submit the modal match result
+  async function submitModalMatchResult() {
+    if (!modalMatchId) return;
+    const match = teamBracketMatches.find(m => m.id === modalMatchId);
+    if (!match) return;
+    
+    const { team1Wins, team2Wins } = getModalSeriesScore();
+    const needed = Math.ceil(mapsPerMatch / 2);
+    if (team1Wins < needed && team2Wins < needed) return;
+    
+    const winnerId = team1Wins >= needed ? match.team1Id : match.team2Id;
+    
+    // Submit each game with player stats
+    for (let i = 0; i < mapsPerMatch; i++) {
+      const gameWinner = getModalGameWinner(i);
+      if (!gameWinner) continue;
+      
+      const gameWinnerId = (gameWinner === 'team1' ? match.team1Id : match.team2Id) as string;
+      const mapName = modalGameMaps[i] || `Game ${i + 1}`;
+      const playerStats = Object.entries(modalGamePlayerStats[i] || {}).map(([playerId, stats]) => ({
+        playerId,
+        kills: stats.kills,
+        deaths: stats.deaths
+      }));
+      
+      await submitTeamBracketGameResult(tournamentId, modalMatchId, {
+        gameNumber: i + 1,
+        mapName,
+        team1Score: modalGameScores[i]?.team1Score || 0,
+        team2Score: modalGameScores[i]?.team2Score || 0,
+        winnerTeamId: gameWinnerId,
+        playerStats
+      });
+    }
+    
+    // Submit final winner
+    await submitTeamBracketWinner(tournamentId, modalMatchId, winnerId!);
+    
+    // Reset modal state for this match
+    modalGameScores = {};
+    modalGamePlayerStats = {};
+    modalGameMaps = {};
+    modalGameWinners = {};
+    closeTeamMatchModal();
+    modalMatchId = null;
+    
+    await loadState();
+  }
+
   function getRunnerUp() {
+    if (isTeamBased) {
+      const finals = teamBracketMatches.find((m: any) => m.bracketType === 'finals');
+      if (!finals || !finals.winnerId) return null;
+      const loserId = finals.team1Id === finals.winnerId ? finals.team2Id : finals.team1Id;
+      return getTeam(loserId || '');
+    }
     const finals = bracketMatches.find((m: any) => m.bracketType === 'finals');
     if (!finals || !finals.winnerId) return null;
     const loserId = finals.player1Id === finals.winnerId ? finals.player2Id : finals.player1Id;
@@ -66,6 +438,38 @@
   }
 
   function getThirdPlace() {
+    // For 3-participant tournaments, there's no 3rd place match
+    // The 3rd place is the last person in the group standings
+    const totalParticipants = isTeamBased ? teams.length : players.length;
+    
+    if (totalParticipants === 3) {
+      if (isTeamBased) {
+        // Sort teams by points, then round diff, then rounds won
+        const sortedTeams = [...teams].sort((a, b) => {
+          if (b.points !== a.points) return b.points - a.points;
+          const aDiff = (a.roundsWon || 0) - (a.roundsLost || 0);
+          const bDiff = (b.roundsWon || 0) - (b.roundsLost || 0);
+          if (bDiff !== aDiff) return bDiff - aDiff;
+          return (b.roundsWon || 0) - (a.roundsWon || 0);
+        });
+        return sortedTeams[2]; // 3rd place
+      } else {
+        // Sort players by points, then score diff, then total score
+        const sortedPlayers = [...players].sort((a, b) => {
+          if (b.points !== a.points) return b.points - a.points;
+          if ((b.scoreDifferential || 0) !== (a.scoreDifferential || 0)) return (b.scoreDifferential || 0) - (a.scoreDifferential || 0);
+          return (b.totalGameScore || 0) - (a.totalGameScore || 0);
+        });
+        return sortedPlayers[2]; // 3rd place
+      }
+    }
+    
+    // For 4+ participants, use the 3rd place match result
+    if (isTeamBased) {
+      const thirdPlaceMatch = teamBracketMatches.find((m: any) => m.bracketType === '3rd-place');
+      if (!thirdPlaceMatch || !thirdPlaceMatch.winnerId) return null;
+      return getTeam(thirdPlaceMatch.winnerId);
+    }
     const thirdPlaceMatch = bracketMatches.find((m: any) => m.bracketType === '3rd-place');
     if (!thirdPlaceMatch || !thirdPlaceMatch.winnerId) return null;
     return getPlayer(thirdPlaceMatch.winnerId);
@@ -159,6 +563,11 @@
       playoffsRoundLimit = tournamentData.playoffsRoundLimit;
       useCustomPoints = tournamentData.useCustomPoints || false;
       
+      // Team tournament data
+      isTeamBased = tournamentData.isTeamBased || false;
+      teams = tournamentData.teams || [];
+      teamBracketMatches = tournamentData.teamBracketMatches || [];
+      
       // Check if tournament is complete and champion is declared
       checkForChampion();
     } catch (err) {
@@ -170,6 +579,25 @@
   }
 
   function checkForChampion() {
+    // Handle team tournaments
+    if (isTeamBased && tournamentData?.teamBracketMatches) {
+      const finals = tournamentData.teamBracketMatches.find((m: any) => m.bracketType === 'finals');
+      if (finals?.winnerId) {
+        tournamentComplete = true;
+        const winningTeam = getTeam(finals.winnerId);
+        if (winningTeam) {
+          winnerName = winningTeam.name;
+          teamChampion = winningTeam;
+          setTimeout(() => { showConfetti = true; }, 500);
+        }
+      } else {
+        tournamentComplete = false;
+        showConfetti = false;
+      }
+      return;
+    }
+    
+    // Handle solo tournaments
     if (!tournamentData?.bracketMatches) return;
 
     // Find the finals match
@@ -221,6 +649,23 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     alert('Failed to declare winner');
   }
 }
+
+  // Universal wrapper functions that handle both team and solo
+  function startEditing(matchId: string) {
+    if (isTeamBased) {
+      openTeamMatchModal(matchId);
+    } else {
+      startEditingMatch(matchId);
+    }
+  }
+
+  async function submitResult() {
+    if (isTeamBased) {
+      await submitModalMatchResult();
+    } else {
+      await submitBO3Result();
+    }
+  }
 
   // BO3 Functions
   function startEditingMatch(matchId: string) {
@@ -298,7 +743,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       if (otherScores.player1Score === 0 && otherScores.player2Score === 0) continue;
       
       if (selectedMaps[i] === selectedMap) {
-        return `${selectedMap} already used`;
+        return `Map ${selectedMap} already used`;
       }
     }
     return null;
@@ -489,6 +934,93 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     cancelEditingMatch();
   }
 
+  // Team version of BO3 submission with player K/D stats
+  async function submitTeamBO3Result() {
+    if (!editingMatchId) return;
+    const match = teamBracketMatches.find(m => m.id === editingMatchId);
+    if (!match) return;
+
+    const seriesWinner = getTeamSeriesWinner();
+    if (!seriesWinner) return;
+
+    // Submit each game result with scores and player stats
+    for (let i = 0; i < mapScores.length; i++) {
+      const scores = mapScores[i];
+      if (!scores || (scores.player1Score === 0 && scores.player2Score === 0)) continue;
+      
+      const gameWinner = getTeamMapWinner(i);
+      if (!gameWinner) continue;
+      
+      const winnerTeamId = gameWinner === 'team1' ? match.team1Id : match.team2Id;
+      const mapName = selectedMaps[i] || gameConfig?.maps?.[i] || `Map ${i + 1}`;
+      
+      const gameResult: TeamGameResult = {
+        gameNumber: i + 1,
+        mapName,
+        team1Score: scores.player1Score,
+        team2Score: scores.player2Score,
+        winnerTeamId: winnerTeamId || '',
+        playerStats: getPlayerStatsArray()
+      };
+      
+      await submitTeamBracketGameResult(tournamentId, editingMatchId, gameResult);
+    }
+    
+    await loadState();
+    cancelEditingMatch();
+  }
+
+  // Team-specific series scoring functions
+  function getTeamMapWinner(mapIndex: number): 'team1' | 'team2' | null {
+    const scores = mapScores[mapIndex];
+    if (!scores) return null;
+    if (scores.player1Score > scores.player2Score) return 'team1';
+    if (scores.player2Score > scores.player1Score) return 'team2';
+    return null;
+  }
+
+  function getTeamSeriesScore(): { team1Wins: number; team2Wins: number } {
+    let team1Wins = 0;
+    let team2Wins = 0;
+    mapScores.forEach((_, idx) => {
+      const winner = getTeamMapWinner(idx);
+      if (winner === 'team1') team1Wins++;
+      if (winner === 'team2') team2Wins++;
+    });
+    return { team1Wins, team2Wins };
+  }
+
+  function getTeamSeriesWinner(): 'team1' | 'team2' | null {
+    const { team1Wins, team2Wins } = getTeamSeriesScore();
+    const winsNeeded = Math.ceil(mapsPerMatch / 2);
+    if (team1Wins >= winsNeeded) return 'team1';
+    if (team2Wins >= winsNeeded) return 'team2';
+    return null;
+  }
+
+  // Start editing a team match
+  function startEditingTeamMatch(matchId: string) {
+    const match = teamBracketMatches.find(m => m.id === matchId);
+    if (!match || match.winnerId) return;
+    
+    editingMatchId = matchId;
+    // Initialize with existing scores or empty
+    if (match.games && match.games.length > 0) {
+      mapScores = match.games.map((g: any) => ({
+        player1Score: g.team1Score || 0,
+        player2Score: g.team2Score || 0
+      }));
+      selectedMaps = match.games.map((g: any) => g.mapName || '');
+    } else {
+      mapScores = Array(mapsPerMatch).fill(null).map(() => ({ player1Score: 0, player2Score: 0 }));
+      selectedMaps = Array(mapsPerMatch).fill('');
+    }
+    
+    // Initialize player stats for K/D tracking
+    initPlayerStatsForMatch(match);
+  }
+
+  // Solo tournament bracket functions
   function getRounds() {
       const rounds = [...new Set(bracketMatches.map(m => m.round))].sort((a, b) => a - b);
       return rounds;
@@ -498,28 +1030,47 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       return bracketMatches.filter(m => m.round === round);
   }
 
+  // Team tournament bracket functions
+  function getTeamRounds() {
+    const rounds = [...new Set(teamBracketMatches.map(m => m.round))].sort((a, b) => a - b);
+    return rounds;
+  }
+
+  function getTeamMatchesForRound(round: number) {
+    return teamBracketMatches.filter(m => m.round === round);
+  }
+
+  // Unified functions that work for both solo and team
+  function getEffectiveRounds() {
+    return isTeamBased ? getTeamRounds() : getRounds();
+  }
+
+  function getEffectiveMatchesForRound(round: number) {
+    return isTeamBased ? getTeamMatchesForRound(round) : getMatchesForRound(round);
+  }
+
   // Track tallest round to normalize column heights for alignment
   const maxMatchesInRound = $derived.by(() => {
-    const rounds = getRounds().filter(r => !getMatchesForRound(r).every(m => m.bracketType === '3rd-place'));
+    const rounds = getEffectiveRounds().filter(r => !getEffectiveMatchesForRound(r).every((m: any) => m.bracketType === '3rd-place'));
     if (rounds.length === 0) return 1;
-    return Math.max(...rounds.map(r => getMatchesForRound(r).filter(m => m.bracketType !== '3rd-place').length || 1));
+    return Math.max(...rounds.map(r => getEffectiveMatchesForRound(r).filter((m: any) => m.bracketType !== '3rd-place').length || 1));
   });
 
   const baseMatchHeight = 260;
   const maxColumnHeight = $derived.by(() => Math.max(600, maxMatchesInRound * baseMatchHeight + 40));
 
   function getRoundLabel(round: number, totalRounds: number) {
-    const roundMatches = getMatchesForRound(round);
-    const hasThirdPlace = roundMatches.some(m => m.bracketType === '3rd-place');
+    const roundMatches = getEffectiveMatchesForRound(round);
+    const hasThirdPlace = roundMatches.some((m: any) => m.bracketType === '3rd-place');
     
     // Check bracket types in this round
-    if (roundMatches.some(m => m.bracketType === 'finals')) {
+    if (roundMatches.some((m: any) => m.bracketType === 'finals')) {
       return 'Finals';
     }
-    if (roundMatches.some(m => m.bracketType === 'semifinals')) {
+    if (roundMatches.some((m: any) => m.bracketType === 'semifinals')) {
       return 'Semifinals';
     }
-    if (roundMatches.some(m => m.bracketType === 'quarterfinals')) {
+    if (roundMatches.some((m: any) => m.bracketType === 'quarterfinals')) {
       return 'Quarterfinals';
     }
     if (hasThirdPlace) {
@@ -668,8 +1219,10 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       </div>
     {:else}
       
-      <!-- Immersive Champion Podium -->
-      {#if champion}
+      <!-- Immersive Champion Podium (Team or Solo) -->
+      {#if champion || teamChampion}
+        {@const displayChampion = isTeamBased ? teamChampion : champion}
+        {@const displayName = isTeamBased ? teamChampion?.name : champion?.name}
         <div class="mb-4">
           <!-- Trophy Header -->
           <div class="text-center mb-0">
@@ -701,7 +1254,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           <!-- Medal Ring -->
                           <div class="mb-4">
                             <div class="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center shadow-xl ring-4 ring-gray-400/40 border-2 border-gray-200">
-                              <img src={getPlayerImageUrl(runnerUp.name)} alt={runnerUp.name} class="w-20 h-20 rounded-full object-cover" />
+                              {#if isTeamBased}
+                                <img src={getTeamImageUrl(runnerUp)} alt={runnerUp.name} class="w-20 h-20 rounded-full object-cover" />
+                              {:else}
+                                <img src={getPlayerImageUrl(runnerUp.name)} alt={runnerUp.name} class="w-20 h-20 rounded-full object-cover" />
+                              {/if}
                             </div>
                           </div>
                           <!-- Name -->
@@ -709,15 +1266,17 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           <!-- Rank -->
                           <p class="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">2nd Place</p>
                           <!-- Stats -->
-                          <div class="text-sm font-bold text-gray-400">
-                            {#if isHealthBased}
-                              {getPlayerTotalScore(runnerUp.id)} HP
-                            {:else if isKillBased}
-                              {getPlayerTotalScore(runnerUp.id)} Kills
-                            {:else}
-                              {getPlayerTotalScore(runnerUp.id)} Rounds
-                            {/if}
-                          </div>
+                          {#if !isTeamBased}
+                            <div class="text-sm font-bold text-gray-400">
+                              {#if isHealthBased}
+                                {getPlayerTotalScore(runnerUp.id)} HP
+                              {:else if isKillBased}
+                                {getPlayerTotalScore(runnerUp.id)} Kills
+                              {:else}
+                                {getPlayerTotalScore(runnerUp.id)} Rounds
+                              {/if}
+                            </div>
+                          {/if}
                         </div>
                       </div>
                       <!-- Podium Base -->
@@ -738,23 +1297,29 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                         <!-- Medal Ring -->
                         <div class="mb-4">
                           <div class="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-2xl ring-4 ring-yellow-400/50 border-3 border-yellow-300">
-                            <img src={getPlayerImageUrl(champion.name)} alt={champion.name} class="w-24 h-24 rounded-full object-cover" />
+                            {#if isTeamBased && teamChampion}
+                              <img src={getTeamImageUrl(teamChampion)} alt={teamChampion.name} class="w-24 h-24 rounded-full object-cover" />
+                            {:else if champion}
+                              <img src={getPlayerImageUrl(champion.name)} alt={champion.name} class="w-24 h-24 rounded-full object-cover" />
+                            {/if}
                           </div>
                         </div>
                         <!-- Name -->
-                        <h4 class="text-2xl font-black text-yellow-300 mb-2">{champion.name}</h4>
+                        <h4 class="text-2xl font-black text-yellow-300 mb-2">{displayName}</h4>
                         <!-- Rank -->
                         <p class="text-xs font-bold uppercase tracking-wider text-yellow-400 mb-3">Champion</p>
                         <!-- Stats -->
-                        <div class="text-sm font-bold text-cyber-green">
-                          {#if isHealthBased}
-                            {getPlayerTotalScore(champion.id)} HP
-                          {:else if isKillBased}
-                            {getPlayerTotalScore(champion.id)} Kills
-                          {:else}
-                            {getPlayerTotalScore(champion.id)} Rounds
-                          {/if}
-                        </div>
+                        {#if !isTeamBased && champion}
+                          <div class="text-sm font-bold text-cyber-green">
+                            {#if isHealthBased}
+                              {getPlayerTotalScore(champion.id)} HP
+                            {:else if isKillBased}
+                              {getPlayerTotalScore(champion.id)} Kills
+                            {:else}
+                              {getPlayerTotalScore(champion.id)} Rounds
+                            {/if}
+                          </div>
+                        {/if}
                       </div>
                     </div>
                     <!-- Podium Base -->
@@ -776,7 +1341,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           <!-- Medal Ring -->
                           <div class="mb-4">
                             <div class="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-xl ring-4 ring-orange-400/40 border-2 border-orange-300">
-                              <img src={getPlayerImageUrl(thirdPlace.name)} alt={thirdPlace.name} class="w-20 h-20 rounded-full object-cover" />
+                              {#if isTeamBased}
+                                <img src={getTeamImageUrl(thirdPlace)} alt={thirdPlace.name} class="w-20 h-20 rounded-full object-cover" />
+                              {:else}
+                                <img src={getPlayerImageUrl(thirdPlace.name)} alt={thirdPlace.name} class="w-20 h-20 rounded-full object-cover" />
+                              {/if}
                             </div>
                           </div>
                           <!-- Name -->
@@ -784,15 +1353,17 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           <!-- Rank -->
                           <p class="text-xs font-bold uppercase tracking-wider text-orange-400 mb-3">3rd Place</p>
                           <!-- Stats -->
-                          <div class="text-sm font-bold text-orange-400">
-                            {#if isHealthBased}
-                              {getPlayerTotalScore(thirdPlace.id)} HP
-                            {:else if isKillBased}
-                              {getPlayerTotalScore(thirdPlace.id)} Kills
-                            {:else}
-                              {getPlayerTotalScore(thirdPlace.id)} Rounds
-                            {/if}
-                          </div>
+                          {#if !isTeamBased}
+                            <div class="text-sm font-bold text-orange-400">
+                              {#if isHealthBased}
+                                {getPlayerTotalScore(thirdPlace.id)} HP
+                              {:else if isKillBased}
+                                {getPlayerTotalScore(thirdPlace.id)} Kills
+                              {:else}
+                                {getPlayerTotalScore(thirdPlace.id)} Rounds
+                              {/if}
+                            </div>
+                          {/if}
                         </div>
                       </div>
                       <!-- Podium Base -->
@@ -849,27 +1420,27 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           <div class="relative" data-bracket-container>
             <!-- Championship Bracket -->
             <div class="flex gap-16 overflow-x-auto pb-4 px-2">
-              {#each getRounds() as round, roundIndex}
-                {@const roundMatchesAll = getMatchesForRound(round)}
+              {#each getEffectiveRounds() as round, roundIndex}
+                {@const roundMatchesAll = getEffectiveMatchesForRound(round)}
                 {@const isThirdPlaceRound = roundMatchesAll.every(m => m.bracketType === '3rd-place')}
                 {#if !isThirdPlaceRound}
                 {@const roundMatches = roundMatchesAll.filter(m => m.bracketType !== '3rd-place')}
-                {@const totalRounds = getRounds().filter(r => !getMatchesForRound(r).every(m => m.bracketType === '3rd-place')).length}
+                {@const totalRounds = getEffectiveRounds().filter(r => !getEffectiveMatchesForRound(r).every(m => m.bracketType === '3rd-place')).length}
                 {@const roundLabel = getRoundLabel(round, totalRounds)}
                 {@const isFinals = roundLabel === 'Finals'}
                 {@const isSemis = roundLabel === 'Semifinals'}
                 {@const isQuarters = roundLabel === 'Quarterfinals'}
                 
                 <!-- Check if 3rd place match exists -->
-                {@const thirdPlaceRound = getRounds().find(r => getMatchesForRound(r).some(m => m.bracketType === '3rd-place'))}
-                {@const thirdPlaceMatches = thirdPlaceRound && isFinals ? getMatchesForRound(thirdPlaceRound).filter(m => m.bracketType === '3rd-place') : []}
-                {@const semifinalRound = getRounds().find(r => getMatchesForRound(r).some(m => m.bracketType === 'semifinals'))}
-                {@const semifinals = semifinalRound ? getMatchesForRound(semifinalRound).filter(m => m.bracketType === 'semifinals') : []}
+                {@const thirdPlaceRound = getEffectiveRounds().find(r => getEffectiveMatchesForRound(r).some(m => m.bracketType === '3rd-place'))}
+                {@const thirdPlaceMatches = thirdPlaceRound && isFinals ? getEffectiveMatchesForRound(thirdPlaceRound).filter(m => m.bracketType === '3rd-place') : []}
+                {@const semifinalRound = getEffectiveRounds().find(r => getEffectiveMatchesForRound(r).some(m => m.bracketType === 'semifinals'))}
+                {@const semifinals = semifinalRound ? getEffectiveMatchesForRound(semifinalRound).filter(m => m.bracketType === 'semifinals') : []}
                 
                 <!-- Slot-based vertical centering so Semis sit between their Quarter pairs -->
                 {@const totalSlotsInColumn = Math.pow(2, totalRounds - 1)}
                 {@const singleSlotHeight = maxColumnHeight / totalSlotsInColumn}
-                {@const hasThirdPlace = isFinals && getRounds().some(r => getMatchesForRound(r).some(m => m.bracketType === '3rd-place'))}
+                {@const hasThirdPlace = isFinals && getEffectiveRounds().some(r => getEffectiveMatchesForRound(r).some(m => m.bracketType === '3rd-place'))}
                 {@const slotsThisMatchOccupies = Math.pow(2, roundIndex)}
                 {@const marginTop = 0}
                 <div class="flex-shrink-0 w-72">
@@ -882,13 +1453,18 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                   
                   <div class="flex flex-col {totalRounds === 1 ? 'gap-4' : 'justify-center'}" style={totalRounds > 1 ? `height: ${maxColumnHeight}px;` : ''}>
                   {#each roundMatches as match, matchIndex}
-                    {@const player1 = getPlayer(match.player1Id)}
-                    {@const player2 = getPlayer(match.player2Id)}
+                    {@const entity1Id = getEntityId1(match)}
+                    {@const entity2Id = getEntityId2(match)}
+                    {@const entity1Name = getEntityName(entity1Id)}
+                    {@const entity2Name = getEntityName(entity2Id)}
+                    {@const entity1Image = getEntityImage(entity1Id)}
+                    {@const entity2Image = getEntityImage(entity2Id)}
                     {@const isEditing = editingMatchId === match.id}
                     {@const hasWinner = !!match.winnerId}
                     {@const seriesScore = match.games ? match.games.reduce((acc: any, game: any) => {
-                      if (game.winnerId === match.player1Id) acc.player1++;
-                      if (game.winnerId === match.player2Id) acc.player2++;
+                      const gameWinner = getGameWinnerId(game);
+                      if (gameWinner === entity1Id) acc.player1++;
+                      if (gameWinner === entity2Id) acc.player2++;
                       return acc;
                     }, { player1: 0, player2: 0 }) : { player1: 0, player2: 0 }}
                     <!-- Generate unique IDs for this match and its players -->
@@ -900,10 +1476,10 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                     {@const nextRoundPlayerSlot = matchIndex % 2 === 0 ? 'p1' : 'p2'}
                     {@const nextMatchId = roundIndex < totalRounds - 1 ? `match-r${roundIndex + 1}-m${nextRoundMatchIndex}` : null}
                     {@const nextPlayerRowId = nextMatchId ? `${nextMatchId}-${nextRoundPlayerSlot}` : null}
-                    {@const winnerRowId = match.winnerId === match.player1Id ? player1RowId : match.winnerId === match.player2Id ? player2RowId : null}
+                    {@const winnerRowId = match.winnerId === entity1Id ? player1RowId : match.winnerId === entity2Id ? player2RowId : null}
                     <!-- Determine where the loser goes (for semifinals → 3rd place) -->
                     {@const loserPlayerRowId = isSemis && match.winnerId ? (matchIndex === 0 ? 'match-3rd-place-p1' : 'match-3rd-place-p2') : null}
-                    {@const loserRowId = match.winnerId === match.player1Id ? player2RowId : match.winnerId === match.player2Id ? player1RowId : null}
+                    {@const loserRowId = match.winnerId === entity1Id ? player2RowId : match.winnerId === entity2Id ? player1RowId : null}
                     <!-- Create boxes for positioning -->
                     {@const matchCardHeight = isFinals ? (finalsCardHeight || 220) : baseMatchHeight}
                     {@const boxHeight = hasThirdPlace && isFinals ? singleSlotHeight * 2 : singleSlotHeight * slotsThisMatchOccupies}
@@ -944,13 +1520,13 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             <!-- Player Names Header -->
                             <div class="flex items-center justify-between text-sm bg-space-700/50 rounded-lg p-2">
                               <div class="flex items-center gap-2 flex-1">
-                                <img src={getPlayerImageUrl(getPlayerName(match.player1Id))} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-cyber-blue" />
-                                <span class="font-bold text-white truncate">{getPlayerName(match.player1Id)}</span>
+                                <img src={entity1Image} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-cyber-blue" />
+                                <span class="font-bold text-white truncate">{entity1Name}</span>
                               </div>
                               <div class="px-3 text-gray-500 font-bold">VS</div>
                               <div class="flex items-center gap-2 flex-1 justify-end">
-                                <span class="font-bold text-white truncate">{getPlayerName(match.player2Id)}</span>
-                                <img src={getPlayerImageUrl(getPlayerName(match.player2Id))} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-brand-purple" />
+                                <span class="font-bold text-white truncate">{entity2Name}</span>
+                                <img src={entity2Image} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-brand-purple" />
                               </div>
                             </div>
 
@@ -1068,7 +1644,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                 Cancel
                               </button>
                               <button
-                                onclick={submitBO3Result}
+                                onclick={submitResult}
                                 disabled={!canSubmitSeries()}
                                 class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-300 {canSubmitSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
                               >
@@ -1083,11 +1659,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           </div>
                         {:else}
                           <!-- Normal View / Click to Edit -->
-                          {#if !match.winnerId && match.player1Id && match.player2Id}
+                          {#if !match.winnerId && entity1Id && entity2Id}
                             <button
                               type="button"
                               class="w-full p-3 text-center text-sm font-bold text-brand-cyan hover:bg-brand-cyan/10 transition-all duration-300 border-b border-space-600 hover:text-brand-cyan hover:shadow-inner"
-                              onclick={() => startEditingMatch(match.id)}
+                              onclick={() => startEditing(match.id)}
                             >
                               <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                               Enter Match Scores
@@ -1098,18 +1674,19 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           {#if match.games && match.games.length > 0}
                             <div class="px-3 py-2 bg-space-800/50 border-b border-space-600/50 space-y-1.5">
                               {#each match.games as game, idx}
+                                {@const gameWinner = getGameWinnerId(game)}
                                 <div class="flex items-center justify-between text-xs">
                                   <div class="flex items-center gap-2 flex-1">
                                     <span class="text-gray-400 font-bold">G{idx + 1}:</span>
                                     <span class="text-brand-cyan font-medium">{game.mapName || `Map ${idx + 1}`}</span>
                                   </div>
                                   <div class="flex items-center gap-2 font-bold">
-                                    <span class="text-white">{game.player1Score}</span>
+                                    <span class="text-white">{getGameScore1(game)}</span>
                                     <span class="text-gray-500">:</span>
-                                    <span class="text-white">{game.player2Score}</span>
-                                    {#if game.winnerId === match.player1Id}
+                                    <span class="text-white">{getGameScore2(game)}</span>
+                                    {#if gameWinner === entity1Id}
                                       <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-                                    {:else if game.winnerId === match.player2Id}
+                                    {:else if gameWinner === entity2Id}
                                       <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                     {/if}
                                   </div>
@@ -1118,29 +1695,29 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             </div>
                           {/if}
 
-                          <!-- Player 1 -->
+                          <!-- Entity 1 (Player or Team) -->
                           <div 
                             id={player1RowId}
-                            data-player-id={match.player1Id}
-                            data-is-winner={match.winnerId === match.player1Id}
-                            data-next-row-id={match.winnerId === match.player1Id ? nextPlayerRowId : (match.winnerId === match.player2Id && loserPlayerRowId ? loserPlayerRowId : null)}
-                            class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match.winnerId === match.player1Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== match.player1Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                            data-player-id={entity1Id}
+                            data-is-winner={match.winnerId === entity1Id}
+                            data-next-row-id={match.winnerId === entity1Id ? nextPlayerRowId : (match.winnerId === entity2Id && loserPlayerRowId ? loserPlayerRowId : null)}
+                            class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match.winnerId === entity1Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== entity1Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
                           >
                             <div class="flex items-center justify-between">
                               <div class="flex items-center gap-2.5 flex-1 min-w-0">
                                 <div class="relative flex-shrink-0">
-                                  <img src={getPlayerImageUrl(getPlayerName(match.player1Id))} alt="Profile" class="w-10 h-10 rounded-full object-cover {match.winnerId === match.player1Id ? 'ring-2 ring-cyber-green' : ''}" />
-                                  {#if match.winnerId === match.player1Id}
+                                  <img src={entity1Image} alt="Profile" class="w-10 h-10 rounded-full object-cover {match.winnerId === entity1Id ? 'ring-2 ring-cyber-green' : ''}" />
+                                  {#if match.winnerId === entity1Id}
                                     <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-cyber-green rounded-full flex items-center justify-center">
                                       <svg class="w-3 h-3 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                     </div>
                                   {/if}
                                 </div>
                                 <div class="min-w-0 flex-1">
-                                  <div class="font-bold text-sm text-white truncate">{getPlayerName(match.player1Id)}</div>
+                                  <div class="font-bold text-sm text-white truncate">{entity1Name}</div>
                                   {#if hasWinner}
                                     <div class="text-xs text-gray-400 mt-0.5">
-                                      <span class="font-bold {match.winnerId === match.player1Id ? 'text-cyber-green' : ''}">{seriesScore.player1}</span>
+                                      <span class="font-bold {match.winnerId === entity1Id ? 'text-cyber-green' : ''}">{seriesScore.player1}</span>
                                       <span class="text-gray-500 mx-1">maps</span>
                                     </div>
                                   {/if}
@@ -1148,35 +1725,35 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                               </div>
                               {#if hasWinner}
                                 <div class="text-right flex-shrink-0 ml-2">
-                                  <div class="text-2xl font-black {match.winnerId === match.player1Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player1}</div>
+                                  <div class="text-2xl font-black {match.winnerId === entity1Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player1}</div>
                                 </div>
                               {/if}
                             </div>
                           </div>
                           
-                          <!-- Player 2 -->
+                          <!-- Entity 2 (Player or Team) -->
                           <div 
                             id={player2RowId}
-                            data-player-id={match.player2Id}
-                            data-is-winner={match.winnerId === match.player2Id}
-                            data-next-row-id={match.winnerId === match.player2Id ? nextPlayerRowId : (match.winnerId === match.player1Id && loserPlayerRowId ? loserPlayerRowId : null)}
-                            class="w-full text-left px-3 py-3 transition-all duration-300 {match.winnerId === match.player2Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== match.player2Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                            data-player-id={entity2Id}
+                            data-is-winner={match.winnerId === entity2Id}
+                            data-next-row-id={match.winnerId === entity2Id ? nextPlayerRowId : (match.winnerId === entity1Id && loserPlayerRowId ? loserPlayerRowId : null)}
+                            class="w-full text-left px-3 py-3 transition-all duration-300 {match.winnerId === entity2Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== entity2Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
                           >
                             <div class="flex items-center justify-between">
                               <div class="flex items-center gap-2.5 flex-1 min-w-0">
                                 <div class="relative flex-shrink-0">
-                                  <img src={getPlayerImageUrl(getPlayerName(match.player2Id))} alt="Profile" class="w-10 h-10 rounded-full object-cover {match.winnerId === match.player2Id ? 'ring-2 ring-cyber-green' : ''}" />
-                                  {#if match.winnerId === match.player2Id}
+                                  <img src={entity2Image} alt="Profile" class="w-10 h-10 rounded-full object-cover {match.winnerId === entity2Id ? 'ring-2 ring-cyber-green' : ''}" />
+                                  {#if match.winnerId === entity2Id}
                                     <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-cyber-green rounded-full flex items-center justify-center">
                                       <svg class="w-3 h-3 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                     </div>
                                   {/if}
                                 </div>
                                 <div class="min-w-0 flex-1">
-                                  <div class="font-bold text-sm text-white truncate">{getPlayerName(match.player2Id)}</div>
+                                  <div class="font-bold text-sm text-white truncate">{entity2Name}</div>
                                   {#if hasWinner}
                                     <div class="text-xs text-gray-400 mt-0.5">
-                                      <span class="font-bold {match.winnerId === match.player2Id ? 'text-cyber-green' : ''}">{seriesScore.player2}</span>
+                                      <span class="font-bold {match.winnerId === entity2Id ? 'text-cyber-green' : ''}">{seriesScore.player2}</span>
                                       <span class="text-gray-500 mx-1">maps</span>
                                     </div>
                                   {/if}
@@ -1184,7 +1761,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                               </div>
                               {#if hasWinner}
                                 <div class="text-right flex-shrink-0 ml-2">
-                                  <div class="text-2xl font-black {match.winnerId === match.player2Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player2}</div>
+                                  <div class="text-2xl font-black {match.winnerId === entity2Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player2}</div>
                                 </div>
                               {/if}
                             </div>
@@ -1205,13 +1782,18 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                     <div class="flex items-center justify-center flex-shrink-0" style={totalRounds > 1 ? `height: ${thirdPlaceBoxHeight}px;` : ''}>
                       <div class="w-full">
                         {#each thirdPlaceMatches as match3rd}
-                          {@const player1 = getPlayer(match3rd.player1Id)}
-                          {@const player2 = getPlayer(match3rd.player2Id)}
+                          {@const entity1Id3rd = getEntityId1(match3rd)}
+                          {@const entity2Id3rd = getEntityId2(match3rd)}
+                          {@const entity1Name3rd = getEntityName(entity1Id3rd)}
+                          {@const entity2Name3rd = getEntityName(entity2Id3rd)}
+                          {@const entity1Image3rd = getEntityImage(entity1Id3rd)}
+                          {@const entity2Image3rd = getEntityImage(entity2Id3rd)}
                           {@const isEditing3rd = editingMatchId === match3rd.id}
                           {@const hasWinner = !!match3rd.winnerId}
                           {@const seriesScore = match3rd.games ? match3rd.games.reduce((acc: any, game: any) => {
-                            if (game.winnerId === match3rd.player1Id) acc.player1++;
-                            if (game.winnerId === match3rd.player2Id) acc.player2++;
+                            const gameWinner = getGameWinnerId(game);
+                            if (gameWinner === entity1Id3rd) acc.player1++;
+                            if (gameWinner === entity2Id3rd) acc.player2++;
                             return acc;
                           }, { player1: 0, player2: 0 }) : { player1: 0, player2: 0 }}
                           
@@ -1240,13 +1822,13 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                 <!-- Reuse BO3 editor for 3rd place -->
                                 <div class="flex items-center justify-between text-sm bg-space-700/50 rounded-lg p-2">
                                   <div class="flex items-center gap-2 flex-1">
-                                    <img src={getPlayerImageUrl(getPlayerName(match3rd.player1Id))} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-cyber-blue" />
-                                    <span class="font-bold text-white truncate">{getPlayerName(match3rd.player1Id)}</span>
+                                    <img src={entity1Image3rd} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-cyber-blue" />
+                                    <span class="font-bold text-white truncate">{entity1Name3rd}</span>
                                   </div>
                                   <div class="px-3 text-gray-500 font-bold">VS</div>
                                   <div class="flex items-center gap-2 flex-1 justify-end">
-                                    <span class="font-bold text-white truncate">{getPlayerName(match3rd.player2Id)}</span>
-                                    <img src={getPlayerImageUrl(getPlayerName(match3rd.player2Id))} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-brand-purple" />
+                                    <span class="font-bold text-white truncate">{entity2Name3rd}</span>
+                                    <img src={entity2Image3rd} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-brand-purple" />
                                   </div>
                                 </div>
 
@@ -1360,7 +1942,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                     Cancel
                                   </button>
                                   <button
-                                    onclick={submitBO3Result}
+                                    onclick={submitResult}
                                     disabled={!canSubmitSeries()}
                                     class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-300 {canSubmitSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
                                   >
@@ -1373,11 +1955,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   </button>
                                 </div>
                               {:else}
-                                {#if !match3rd.winnerId && match3rd.player1Id && match3rd.player2Id}
+                                {#if !match3rd.winnerId && entity1Id3rd && entity2Id3rd}
                                   <button
                                     type="button"
                                     class="w-full p-3 text-center text-sm font-bold text-brand-cyan hover:bg-brand-cyan/10 transition-all duration-300 border-b border-space-600 hover:text-brand-cyan hover:shadow-inner"
-                                    onclick={() => startEditingMatch(match3rd.id)}
+                                    onclick={() => startEditing(match3rd.id)}
                                   >
                                     <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                                     Enter Match Scores
@@ -1387,18 +1969,19 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                 {#if match3rd.games && match3rd.games.length > 0}
                                   <div class="px-3 py-2 bg-space-800/50 border-b border-space-600/50 space-y-1.5">
                                     {#each match3rd.games as game, idx}
+                                      {@const gameWinner = getGameWinnerId(game)}
                                       <div class="flex items-center justify-between text-xs">
                                         <div class="flex items-center gap-2 flex-1">
                                           <span class="text-gray-400 font-bold">G{idx + 1}:</span>
                                           <span class="text-brand-cyan font-medium">{game.mapName || `Map ${idx + 1}`}</span>
                                         </div>
                                         <div class="flex items-center gap-2 font-bold">
-                                          <span class="text-white">{game.player1Score}</span>
+                                          <span class="text-white">{getGameScore1(game)}</span>
                                           <span class="text-gray-500">:</span>
-                                          <span class="text-white">{game.player2Score}</span>
-                                          {#if game.winnerId === match3rd.player1Id}
+                                          <span class="text-white">{getGameScore2(game)}</span>
+                                          {#if gameWinner === entity1Id3rd}
                                             <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-                                          {:else if game.winnerId === match3rd.player2Id}
+                                          {:else if gameWinner === entity2Id3rd}
                                             <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                           {/if}
                                         </div>
@@ -1407,28 +1990,28 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   </div>
                                 {/if}
 
-                                <!-- Player 1 -->
+                                <!-- Entity 1 (3rd place) -->
                                 <div 
                                   id="match-3rd-place-p1"
-                                  data-player-id={match3rd.player1Id}
-                                  data-is-winner={match3rd.winnerId === match3rd.player1Id}
-                                  class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match3rd.winnerId === match3rd.player1Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== match3rd.player1Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                                  data-player-id={entity1Id3rd}
+                                  data-is-winner={match3rd.winnerId === entity1Id3rd}
+                                  class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match3rd.winnerId === entity1Id3rd ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== entity1Id3rd ? 'opacity-40' : 'hover:bg-space-700/30'}"
                                 >
                                   <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-2.5 flex-1 min-w-0">
                                       <div class="relative flex-shrink-0">
-                                        <img src={getPlayerImageUrl(getPlayerName(match3rd.player1Id))} alt="Profile" class="w-10 h-10 rounded-full object-cover {match3rd.winnerId === match3rd.player1Id ? 'ring-2 ring-cyber-green' : ''}" />
-                                        {#if match3rd.winnerId === match3rd.player1Id}
+                                        <img src={entity1Image3rd} alt="Profile" class="w-10 h-10 rounded-full object-cover {match3rd.winnerId === entity1Id3rd ? 'ring-2 ring-cyber-green' : ''}" />
+                                        {#if match3rd.winnerId === entity1Id3rd}
                                           <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-cyber-green rounded-full flex items-center justify-center">
                                             <svg class="w-3 h-3 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                           </div>
                                         {/if}
                                       </div>
                                       <div class="min-w-0 flex-1">
-                                        <div class="font-bold text-sm text-white truncate">{getPlayerName(match3rd.player1Id)}</div>
+                                        <div class="font-bold text-sm text-white truncate">{entity1Name3rd}</div>
                                         {#if hasWinner}
                                           <div class="text-xs text-gray-400 mt-0.5">
-                                            <span class="font-bold {match3rd.winnerId === match3rd.player1Id ? 'text-cyber-green' : ''}">{seriesScore.player1}</span>
+                                            <span class="font-bold {match3rd.winnerId === entity1Id3rd ? 'text-cyber-green' : ''}">{seriesScore.player1}</span>
                                             <span class="text-gray-500 mx-1">maps</span>
                                           </div>
                                         {/if}
@@ -1436,34 +2019,34 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                     </div>
                                     {#if hasWinner}
                                       <div class="text-right flex-shrink-0 ml-2">
-                                        <div class="text-2xl font-black {match3rd.winnerId === match3rd.player1Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player1}</div>
+                                        <div class="text-2xl font-black {match3rd.winnerId === entity1Id3rd ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player1}</div>
                                       </div>
                                     {/if}
                                   </div>
                                 </div>
                                 
-                                <!-- Player 2 -->
+                                <!-- Entity 2 (3rd place) -->
                                 <div 
                                   id="match-3rd-place-p2"
-                                  data-player-id={match3rd.player2Id}
-                                  data-is-winner={match3rd.winnerId === match3rd.player2Id}
-                                  class="w-full text-left px-3 py-3 transition-all duration-300 {match3rd.winnerId === match3rd.player2Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== match3rd.player2Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                                  data-player-id={entity2Id3rd}
+                                  data-is-winner={match3rd.winnerId === entity2Id3rd}
+                                  class="w-full text-left px-3 py-3 transition-all duration-300 {match3rd.winnerId === entity2Id3rd ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== entity2Id3rd ? 'opacity-40' : 'hover:bg-space-700/30'}"
                                 >
                                   <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-2.5 flex-1 min-w-0">
                                       <div class="relative flex-shrink-0">
-                                        <img src={getPlayerImageUrl(getPlayerName(match3rd.player2Id))} alt="Profile" class="w-10 h-10 rounded-full object-cover {match3rd.winnerId === match3rd.player2Id ? 'ring-2 ring-cyber-green' : ''}" />
-                                        {#if match3rd.winnerId === match3rd.player2Id}
+                                        <img src={entity2Image3rd} alt="Profile" class="w-10 h-10 rounded-full object-cover {match3rd.winnerId === entity2Id3rd ? 'ring-2 ring-cyber-green' : ''}" />
+                                        {#if match3rd.winnerId === entity2Id3rd}
                                           <div class="absolute -bottom-1 -right-1 w-5 h-5 bg-cyber-green rounded-full flex items-center justify-center">
                                             <svg class="w-3 h-3 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                           </div>
                                         {/if}
                                       </div>
                                       <div class="min-w-0 flex-1">
-                                        <div class="font-bold text-sm text-white truncate">{getPlayerName(match3rd.player2Id)}</div>
+                                        <div class="font-bold text-sm text-white truncate">{entity2Name3rd}</div>
                                         {#if hasWinner}
                                           <div class="text-xs text-gray-400 mt-0.5">
-                                            <span class="font-bold {match3rd.winnerId === match3rd.player2Id ? 'text-cyber-green' : ''}">{seriesScore.player2}</span>
+                                            <span class="font-bold {match3rd.winnerId === entity2Id3rd ? 'text-cyber-green' : ''}">{seriesScore.player2}</span>
                                             <span class="text-gray-500 mx-1">maps</span>
                                           </div>
                                         {/if}
@@ -1471,7 +2054,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                     </div>
                                     {#if hasWinner}
                                       <div class="text-right flex-shrink-0 ml-2">
-                                        <div class="text-2xl font-black {match3rd.winnerId === match3rd.player2Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player2}</div>
+                                        <div class="text-2xl font-black {match3rd.winnerId === entity2Id3rd ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player2}</div>
                                       </div>
                                     {/if}
                                   </div>
@@ -1493,6 +2076,256 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       </div>
     {/if}
   </div>
+
+  <!-- Team Match Modal -->
+  {#if showTeamMatchModal && modalMatchId}
+    {@const modalMatch = getModalMatch()}
+    {#if modalMatch}
+      {@const team1 = getTeam(modalMatch.team1Id || '')}
+      {@const team2 = getTeam(modalMatch.team2Id || '')}
+      {@const team1Players = getTeamPlayers(modalMatch.team1Id || '')}
+      {@const team2Players = getTeamPlayers(modalMatch.team2Id || '')}
+      {@const seriesScore = getModalSeriesScore()}
+      
+      <!-- Modal backdrop -->
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+      <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" role="button" tabindex="-1" onclick={closeTeamMatchModal}>
+        <!-- Modal content -->
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="bg-space-800 border-2 border-brand-cyan rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" role="presentation" onclick={(e) => e.stopPropagation()}>
+          <!-- Modal header -->
+          <div class="bg-gradient-to-r from-space-700 to-space-800 px-6 py-4 border-b border-space-600 flex items-center justify-between sticky top-0 z-10">
+            <div class="flex items-center gap-4">
+              <h2 class="text-xl font-black text-white">{modalMatch.matchLabel || 'Match'}</h2>
+              <span class="px-3 py-1 bg-brand-cyan/20 text-brand-cyan font-bold rounded-lg text-sm">BO{mapsPerMatch}</span>
+            </div>
+            <div class="flex items-center gap-4">
+              <!-- Series score -->
+              <div class="flex items-center gap-3 px-4 py-2 bg-space-700 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <img src={getTeamImageUrl(team1)} alt="" class="w-8 h-8 rounded-lg object-cover" />
+                  <span class="text-2xl font-black {seriesScore.team1Wins > seriesScore.team2Wins ? 'text-cyber-green' : 'text-white'}">{seriesScore.team1Wins}</span>
+                </div>
+                <span class="text-gray-500 font-bold">-</span>
+                <div class="flex items-center gap-2">
+                  <span class="text-2xl font-black {seriesScore.team2Wins > seriesScore.team1Wins ? 'text-cyber-green' : 'text-white'}">{seriesScore.team2Wins}</span>
+                  <img src={getTeamImageUrl(team2)} alt="" class="w-8 h-8 rounded-lg object-cover" />
+                </div>
+              </div>
+              <button onclick={closeTeamMatchModal} class="p-2 hover:bg-space-600 rounded-lg transition-colors" aria-label="Close modal">
+                <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Team headers -->
+          <div class="grid grid-cols-2 gap-4 px-6 py-3 bg-space-700/50 border-b border-space-600">
+            <div class="flex items-center gap-3">
+              <img src={getTeamImageUrl(team1)} alt="" class="w-12 h-12 rounded-lg object-cover border-2 border-brand-purple" />
+              <div>
+                <div class="font-bold text-white text-lg">{team1?.name || 'TBD'}</div>
+                <div class="text-xs text-gray-400">{team1Players.length} players</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 justify-end">
+              <div class="text-right">
+                <div class="font-bold text-white text-lg">{team2?.name || 'TBD'}</div>
+                <div class="text-xs text-gray-400">{team2Players.length} players</div>
+              </div>
+              <img src={getTeamImageUrl(team2)} alt="" class="w-12 h-12 rounded-lg object-cover border-2 border-brand-orange" />
+            </div>
+          </div>
+          
+          <!-- Games -->
+          <div class="p-6 space-y-6">
+            {#each Array(mapsPerMatch) as _, gameIdx}
+              {@const gameWinner = getModalGameWinner(gameIdx)}
+              {@const isGameComplete = !!gameWinner}
+              {@const team1Score = modalGameScores[gameIdx]?.team1Score}
+              {@const team2Score = modalGameScores[gameIdx]?.team2Score}
+              {@const gameTie = isGameTie(gameIdx)}
+              {@const gameReady = isGameReadyForInput(gameIdx)}
+              {@const maxScore = maxScorePerMap || 99}
+              
+              <div class="bg-space-700/50 rounded-xl border {isGameComplete ? 'border-cyber-green/50' : gameTie ? 'border-red-500/50' : 'border-space-600'} overflow-hidden">
+                <!-- Game header with score inputs -->
+                <div class="bg-space-700 px-4 py-3 border-b border-space-600">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-3">
+                      <span class="text-lg font-black text-white">Game {gameIdx + 1}</span>
+                      {#if gameTie}
+                        <span class="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs font-bold rounded">
+                          Tie not allowed
+                        </span>
+                      {:else if isGameComplete}
+                        <span class="px-2 py-0.5 bg-cyber-green/20 text-cyber-green text-xs font-bold rounded">
+                          {gameWinner === 'team1' ? team1?.name : team2?.name} wins
+                        </span>
+                      {/if}
+                    </div>
+                    {#if mapPool.length > 0}
+                      <select 
+                        class="bg-space-600 border border-space-500 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan"
+                        value={modalGameMaps[gameIdx] || ''}
+                        onchange={(e) => { modalGameMaps[gameIdx] = (e.target as HTMLSelectElement).value; modalGameMaps = {...modalGameMaps}; }}
+                      >
+                        <option value="">Select Map *</option>
+                        {#each mapPool as map}
+                          <option value={map}>{map}</option>
+                        {/each}
+                      </select>
+                    {/if}
+                  </div>
+                  
+                  <!-- Map required warning -->
+                  {#if mapPool.length > 0 && !modalGameMaps[gameIdx]}
+                    <div class="text-center text-yellow-400 text-xs font-medium mb-3 bg-yellow-500/10 rounded-lg py-2">
+                      ⚠️ Select a map to enable score input
+                    </div>
+                  {/if}
+                  
+                  <!-- Duplicate map error -->
+                  {#if getModalDuplicateMapError(gameIdx)}
+                    <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded-lg px-2 py-2 mb-3">{getModalDuplicateMapError(gameIdx)}</div>
+                  {/if}
+                  
+                  <!-- Round Score inputs -->
+                  <div class="flex items-center justify-center gap-4 {!gameReady ? 'opacity-50 pointer-events-none' : ''}">
+                    <div class="flex items-center gap-3">
+                      <img src={getTeamImageUrl(team1)} alt="" class="w-10 h-10 rounded-lg object-cover border-2 {gameWinner === 'team1' ? 'border-cyber-green' : 'border-brand-purple'}" />
+                      <span class="text-sm font-bold text-white w-24 truncate">{team1?.name}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max={maxScore}
+                        placeholder="0"
+                        disabled={!gameReady}
+                        class="w-20 h-14 text-3xl font-black text-center rounded-lg transition-all {gameWinner === 'team1' ? 'bg-cyber-green/20 border-2 border-cyber-green text-cyber-green' : gameTie ? 'bg-red-500/20 border-2 border-red-500 text-red-400' : 'bg-space-600 border-2 border-space-500 text-white'} focus:outline-none focus:ring-2 focus:ring-brand-cyan disabled:cursor-not-allowed placeholder:text-gray-500"
+                        value={team1Score ?? ''}
+                        onchange={(e) => updateModalGameScore(gameIdx, 'team1', parseInt((e.target as HTMLInputElement).value) || 0)}
+                      />
+                    </div>
+                    <span class="text-2xl font-bold text-gray-500">:</span>
+                    <div class="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min="0"
+                        max={maxScore}
+                        placeholder="0"
+                        disabled={!gameReady}
+                        class="w-20 h-14 text-3xl font-black text-center rounded-lg transition-all {gameWinner === 'team2' ? 'bg-cyber-green/20 border-2 border-cyber-green text-cyber-green' : gameTie ? 'bg-red-500/20 border-2 border-red-500 text-red-400' : 'bg-space-600 border-2 border-space-500 text-white'} focus:outline-none focus:ring-2 focus:ring-brand-cyan disabled:cursor-not-allowed placeholder:text-gray-500"
+                        value={team2Score ?? ''}
+                        onchange={(e) => updateModalGameScore(gameIdx, 'team2', parseInt((e.target as HTMLInputElement).value) || 0)}
+                      />
+                      <span class="text-sm font-bold text-white w-24 truncate text-right">{team2?.name}</span>
+                      <img src={getTeamImageUrl(team2)} alt="" class="w-10 h-10 rounded-lg object-cover border-2 {gameWinner === 'team2' ? 'border-cyber-green' : 'border-brand-orange'}" />
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Player K/D stats -->
+                <div class="p-4 {!gameReady ? 'opacity-50 pointer-events-none' : ''}">
+                  <div class="text-xs text-gray-400 mb-3 font-semibold">Player Stats (Kills / Deaths)</div>
+                  <div class="grid grid-cols-2 gap-4">
+                    <!-- Team 1 Players -->
+                    <div class="bg-brand-purple/10 rounded-lg p-3 border border-brand-purple/20">
+                      <div class="text-sm font-bold text-brand-purple mb-3 border-b border-brand-purple/20 pb-2">{team1?.name}</div>
+                      {#each team1Players as player (player.id)}
+                        <div class="flex items-center gap-2 mb-2">
+                          <img src={getPlayerImageUrl(player.name)} alt="" class="w-6 h-6 rounded-full flex-shrink-0" />
+                          <span class="text-sm text-gray-200 flex-1 truncate font-medium">{player.name}</span>
+                          <div class="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="K"
+                              class="w-14 px-2 py-1.5 text-sm bg-space-600 border border-cyber-green/30 rounded text-center text-cyber-green font-bold focus:border-cyber-green focus:outline-none"
+                              value={modalGamePlayerStats[gameIdx]?.[player.id]?.kills || 0}
+                              oninput={(e) => updateModalPlayerStat(gameIdx, player.id, 'kills', parseInt((e.target as HTMLInputElement).value) || 0)}
+                            />
+                            <span class="text-gray-500 font-bold">/</span>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="D"
+                              class="w-14 px-2 py-1.5 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none"
+                              value={modalGamePlayerStats[gameIdx]?.[player.id]?.deaths || 0}
+                              oninput={(e) => updateModalPlayerStat(gameIdx, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value) || 0)}
+                            />
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                    
+                    <!-- Team 2 Players -->
+                    <div class="bg-brand-orange/10 rounded-lg p-3 border border-brand-orange/20">
+                      <div class="text-sm font-bold text-brand-orange mb-3 border-b border-brand-orange/20 pb-2">{team2?.name}</div>
+                      {#each team2Players as player (player.id)}
+                        <div class="flex items-center gap-2 mb-2">
+                          <img src={getPlayerImageUrl(player.name)} alt="" class="w-6 h-6 rounded-full flex-shrink-0" />
+                          <span class="text-sm text-gray-200 flex-1 truncate font-medium">{player.name}</span>
+                          <div class="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="K"
+                              class="w-14 px-2 py-1.5 text-sm bg-space-600 border border-cyber-green/30 rounded text-center text-cyber-green font-bold focus:border-cyber-green focus:outline-none"
+                              value={modalGamePlayerStats[gameIdx]?.[player.id]?.kills || 0}
+                              oninput={(e) => updateModalPlayerStat(gameIdx, player.id, 'kills', parseInt((e.target as HTMLInputElement).value) || 0)}
+                            />
+                            <span class="text-gray-500 font-bold">/</span>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="D"
+                              class="w-14 px-2 py-1.5 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none"
+                              value={modalGamePlayerStats[gameIdx]?.[player.id]?.deaths || 0}
+                              oninput={(e) => updateModalPlayerStat(gameIdx, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value) || 0)}
+                            />
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+          
+          <!-- Modal footer -->
+          <div class="bg-space-700/50 px-6 py-4 border-t border-space-600 flex items-center justify-between sticky bottom-0">
+            <button
+              onclick={closeTeamMatchModal}
+              class="px-6 py-2.5 text-sm font-bold bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-all"
+            >
+              Close (Save Progress)
+            </button>
+            <div class="flex items-center gap-3">
+              {#if hasAnyTie()}
+                <span class="text-red-400 text-sm font-medium">⚠️ Fix tied games</span>
+              {/if}
+              <button
+                onclick={submitModalMatchResult}
+                disabled={!canSubmitModalSeries()}
+                class="px-8 py-2.5 text-sm font-bold rounded-lg transition-all {canSubmitModalSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
+              >
+                {#if canSubmitModalSeries()}
+                  <svg class="w-5 h-5 inline-block mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                  Submit Result ({seriesScore.team1Wins}-{seriesScore.team2Wins})
+                {:else if hasAnyTie()}
+                  Ties Not Allowed
+                {:else}
+                  Need {Math.ceil(mapsPerMatch / 2)} Game Winners
+                {/if}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    {/if}
+  {/if}
 
   <!-- Confetti (shows on champion declaration) -->
   <Confetti bind:show={showConfetti} duration={5000} />

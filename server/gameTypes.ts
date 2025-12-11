@@ -33,6 +33,13 @@ export interface GameConfig {
     // Default scoring archetype
     defaultArchetype: ScoreArchetype;
     
+    // Team mode settings - can play in team mode if supportsTeamMode is true
+    supportsTeamMode?: boolean;   // Can this game be played in team mode?
+    isTeamGame?: boolean;         // Legacy: Whether this is always a team-based game
+    defaultTeamSize?: number;     // Default team size (e.g., 5 for CS)
+    minTeamSize?: number;         // Minimum team size
+    maxTeamSize?: number;         // Maximum team size
+    
     // Group stage rules
     groupStage: {
         format: string;
@@ -65,6 +72,11 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         shortName: 'CS 1.6',
         logo: '/games/CounterStrike.png',
         defaultArchetype: 'rounds',
+        // Team mode support
+        supportsTeamMode: true,
+        defaultTeamSize: 5,
+        minTeamSize: 2,
+        maxTeamSize: 5,
         
         groupStage: {
             format: 'MR15 (30 rounds)',
@@ -633,6 +645,16 @@ export function getGameConfig(gameType: GameType): GameConfig {
 
 export function getAllGames(): GameConfig[] {
     return Object.values(GAME_CONFIGS);
+}
+
+// Get games that support team mode
+export function getTeamModeGames(): GameConfig[] {
+    return Object.values(GAME_CONFIGS).filter(g => g.supportsTeamMode);
+}
+
+// Check if a game type supports team mode
+export function supportsTeamMode(gameType: GameType): boolean {
+    return GAME_CONFIGS[gameType]?.supportsTeamMode === true;
 }
 
 // Helper to get the effective archetype for a tournament

@@ -99,16 +99,28 @@ function validateBrackets(tournament: any, numPlayers: number): { valid: boolean
     const bracketMatches = tournament.bracketMatches;
     const numGroups = tournament.pods.length;
     
-    // Calculate playoff players: top 2 from each group, capped at 8
-    let expectedPlayoffPlayers = Math.min(numGroups * 2, 8);
+    // Calculate playoff players based on actual tournament logic
+    let expectedPlayoffPlayers: number;
     
-    // Adjust to valid bracket sizes (4, 6, or 8)
-    if (expectedPlayoffPlayers <= 4) {
+    if (numGroups === 1) {
+        // Single group: top 4 advance (unless fewer than 6 total players)
         expectedPlayoffPlayers = Math.min(4, numPlayers);
-    } else if (expectedPlayoffPlayers <= 6) {
+    } else if (numGroups === 2) {
+        // Two groups: determine based on group size
+        const avgGroupSize = numPlayers / 2;
+        if (avgGroupSize >= 5) {
+            // Large groups (5-7+ players): top 4 from each group = 8 total
+            expectedPlayoffPlayers = 8;
+        } else {
+            // Small groups (3-4 players): top 2 from each = 4 total
+            expectedPlayoffPlayers = 4;
+        }
+    } else if (numGroups === 3) {
+        // Three groups: top 2 from each = 6 total
         expectedPlayoffPlayers = 6;
     } else {
-        expectedPlayoffPlayers = 8;
+        // Four+ groups: top 2 from each, capped at 8
+        expectedPlayoffPlayers = Math.min(numGroups * 2, 8);
     }
     
     // Expected structures based on total players and playoff players

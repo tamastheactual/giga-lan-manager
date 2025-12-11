@@ -30,11 +30,23 @@ export interface GameConfig {
     shortName: string;
     logo: string;
     defaultArchetype: ScoreArchetype;
+    
+    // Team mode settings - can play in team mode if supportsTeamMode is true
+    supportsTeamMode?: boolean;   // Can this game be played in team mode?
+    isTeamGame?: boolean;         // Legacy: Whether this is always a team-based game
+    defaultTeamSize?: number;     // Default team size (e.g., 5 for CS)
+    minTeamSize?: number;         // Minimum team size
+    maxTeamSize?: number;         // Maximum team size
+    
     groupStage: {
         format: string;
         description: string;
         maxDuration: string;
         maxScore?: number;
+        // Extended properties for team games
+        maxRounds?: number;
+        tieAllowed?: boolean;
+        scoreType?: 'rounds' | 'kills' | 'health' | 'time' | 'points';
     };
     playoffs: {
         format: string;
@@ -42,6 +54,9 @@ export interface GameConfig {
         description: string;
         maxDuration: string;
         maxScorePerMap?: number;
+        // Extended properties for team games
+        roundsPerMap?: number;
+        scoreType?: 'rounds' | 'kills' | 'health' | 'time' | 'points';
     };
     rules: string[];
     maps: string[];
@@ -56,6 +71,11 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         shortName: 'CS 1.6',
         logo: '/games/CounterStrike.png',
         defaultArchetype: 'rounds',
+        // Team mode support
+        supportsTeamMode: true,
+        defaultTeamSize: 5,
+        minTeamSize: 2,
+        maxTeamSize: 5,
         groupStage: {
             format: 'MR15 (30 rounds)',
             description: 'First to 16 wins, 15-15 tie possible',
@@ -585,12 +605,13 @@ export async function createTournament(
     mapPool: string[] = [], 
     groupStageRoundLimit?: number, 
     playoffsRoundLimit?: number,
-    useCustomPoints?: boolean
+    useCustomPoints?: boolean,
+    teamMode?: boolean
 ) {
     const res = await fetch(`${API_URL}/tournaments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints })
+        body: JSON.stringify({ name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -734,4 +755,228 @@ export async function updateBracketMatch(tournamentId: string, matchId: string, 
     });
     if (!response.ok) throw new Error('Failed to update bracket match');
     return response.json();
+}
+
+// ========================================
+// TEAM TOURNAMENT TYPES & API
+// ========================================
+
+export interface Team {
+    id: string;
+    name: string;
+    playerIds: string[];
+    logo?: string;
+}
+
+export interface PlayerGameStats {
+    playerId: string;
+    kills: number;
+    deaths: number;
+}
+
+export interface TeamGameResult {
+    gameNumber: number;
+    mapName?: string;
+    team1Score: number;
+    team2Score: number;
+    winnerTeamId: string;
+    playerStats?: PlayerGameStats[];
+}
+
+export interface TeamMatch {
+    id: string;
+    matchNumber: number;
+    round: number;
+    team1Id: string;
+    team2Id: string;
+    team1Score?: number;
+    team2Score?: number;
+    winnerId?: string;
+    games?: TeamGameResult[];
+    completed: boolean;
+}
+
+export interface TeamPod {
+    id: string;
+    round: number;
+    teams: string[];
+    matchId: string;
+    name?: string;
+}
+
+export interface TeamBracketMatch {
+    id: string;
+    round: number;
+    team1Id?: string;
+    team2Id?: string;
+    winnerId?: string;
+    nextMatchId?: string;
+    nextMatchSlot?: 1 | 2;
+    bracketType: 'quarterfinals' | 'semifinals' | 'finals' | '3rd-place';
+    matchLabel?: string;
+    loserFromMatch1?: string;
+    loserFromMatch2?: string;
+    games?: TeamGameResult[];
+    team1Wins?: number;
+    team2Wins?: number;
+}
+
+export interface PlayerStats {
+    playerId: string;
+    kills: number;
+    deaths: number;
+    kdRatio: number;
+    gamesPlayed: number;
+}
+
+// Helper to check if a game type is team-based
+export function isTeamGame(gameType: GameType): boolean {
+    const config = GAME_CONFIGS[gameType];
+    return config?.isTeamBased === true;
+}
+
+// Get all team games
+export function getTeamGameConfigs(): GameConfig[] {
+    return Object.values(GAME_CONFIGS).filter(config => config.isTeamBased);
+}
+
+// Get team games from server
+export async function getTeamGames(): Promise<GameConfig[]> {
+    const res = await fetch(`${API_URL}/team-games`);
+    return res.json();
+}
+
+// Add a team to a tournament
+export async function addTeam(tournamentId: string, name: string, playerIds: string[], logo?: string): Promise<Team> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/teams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, playerIds, logo })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to add team');
+    return data;
+}
+
+// Update a team
+export async function updateTeam(tournamentId: string, teamId: string, updates: { name?: string; playerIds?: string[]; logo?: string }): Promise<Team> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team/${teamId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to update team');
+    return data;
+}
+
+// Remove a team
+export async function removeTeam(tournamentId: string, teamId: string): Promise<void> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team/${teamId}`, {
+        method: 'DELETE'
+    });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to remove team');
+    }
+}
+
+// Update team logo
+export async function updateTeamLogo(tournamentId: string, teamId: string, logo: string): Promise<void> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team/${teamId}/logo`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logo })
+    });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to update team logo');
+    }
+}
+
+// Start team group stage
+export async function startTeamGroupStage(tournamentId: string): Promise<void> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/start-team`, {
+        method: 'POST'
+    });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to start team group stage');
+    }
+}
+
+// Submit team match result (group stage)
+export async function submitTeamMatchResult(
+    tournamentId: string, 
+    matchId: string, 
+    team1Score: number, 
+    team2Score: number, 
+    games?: TeamGameResult[]
+): Promise<void> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-match/${matchId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team1Score, team2Score, games })
+    });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to submit team match result');
+    }
+}
+
+// Generate team brackets
+export async function generateTeamBrackets(tournamentId: string): Promise<void> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-brackets`, {
+        method: 'POST'
+    });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to generate team brackets');
+    }
+}
+
+// Submit team bracket winner
+export async function submitTeamBracketWinner(tournamentId: string, matchId: string, winnerId: string): Promise<void> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-bracket-match/${matchId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ winnerId })
+    });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to submit team bracket winner');
+    }
+}
+
+// Submit a single game result for team bracket match
+export async function submitTeamBracketGameResult(
+    tournamentId: string, 
+    matchId: string, 
+    gameResult: TeamGameResult
+): Promise<void> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-bracket-match/${matchId}/game`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(gameResult)
+    });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to submit team bracket game result');
+    }
+}
+
+// Get player statistics for team tournament
+export async function getPlayerStats(tournamentId: string): Promise<PlayerStats[]> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/player-stats`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to get player stats');
+    return data;
+}
+
+// Get team rankings
+export async function getTeamRankings(tournamentId: string): Promise<Team[]> {
+    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-rankings`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to get team rankings');
+    return data;
 }

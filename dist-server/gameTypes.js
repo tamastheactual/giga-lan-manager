@@ -34,7 +34,7 @@ export const GAME_CONFIGS = {
         id: 'rtcw',
         name: 'Return to Castle Wolfenstein',
         shortName: 'RtCW',
-        logo: '/games/RTCW.png',
+        logo: '/games/wolfenstein.png',
         defaultArchetype: 'rounds',
         groupStage: {
             format: 'Objective-based',
@@ -60,7 +60,7 @@ export const GAME_CONFIGS = {
         id: 'wolfet',
         name: 'Wolfenstein: Enemy Territory',
         shortName: 'W:ET',
-        logo: '/games/WolfET.png',
+        logo: '/games/wolfenstein-enemy.png',
         defaultArchetype: 'rounds',
         groupStage: {
             format: 'Objective-based',
@@ -112,7 +112,7 @@ export const GAME_CONFIGS = {
         id: 'ut99',
         name: 'Unreal Tournament 99',
         shortName: 'UT99',
-        logo: '/games/UT99.png',
+        logo: '/games/ut1999.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Deathmatch (10 min)',
@@ -137,7 +137,7 @@ export const GAME_CONFIGS = {
         id: 'quake3',
         name: 'Quake III Arena',
         shortName: 'Q3A',
-        logo: '/games/Quake3.png',
+        logo: '/games/quake3.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Deathmatch (10 min)',
@@ -162,7 +162,7 @@ export const GAME_CONFIGS = {
         id: 'halo',
         name: 'Halo: Combat Evolved',
         shortName: 'Halo CE',
-        logo: '/games/HaloCE.png',
+        logo: '/games/halo.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Slayer (10 min)',
@@ -186,7 +186,7 @@ export const GAME_CONFIGS = {
         id: 'mohaa',
         name: 'Medal of Honor: Allied Assault',
         shortName: 'MoH:AA',
-        logo: '/games/MOHAA.png',
+        logo: '/games/mohaa.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Deathmatch/TDM',
@@ -210,7 +210,7 @@ export const GAME_CONFIGS = {
         id: 'bf1942',
         name: 'Battlefield 1942',
         shortName: 'BF1942',
-        logo: '/games/BF1942.png',
+        logo: '/games/battlefield1942.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Conquest/TDM',
@@ -234,7 +234,7 @@ export const GAME_CONFIGS = {
         id: 'bfvietnam',
         name: 'Battlefield Vietnam',
         shortName: 'BF:V',
-        logo: '/games/BFVietnam.png',
+        logo: '/games/battlefieldvietnam.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Conquest/TDM',
@@ -258,7 +258,7 @@ export const GAME_CONFIGS = {
         id: 'swbf1',
         name: 'Star Wars Battlefront',
         shortName: 'SWBF1',
-        logo: '/games/SWBF1.png',
+        logo: '/games/battlefront.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Conquest',
@@ -282,7 +282,7 @@ export const GAME_CONFIGS = {
         id: 'swbf2',
         name: 'Star Wars Battlefront 2',
         shortName: 'SWBF2',
-        logo: '/games/SWBF2.png',
+        logo: '/games/battlefront2.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Conquest',
@@ -306,7 +306,7 @@ export const GAME_CONFIGS = {
         id: 'deltaforce',
         name: 'Delta Force: Black Hawk Down',
         shortName: 'DF:BHD',
-        logo: '/games/DeltaForce.png',
+        logo: '/games/blackhawkdawn.png',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'TDM/Deathmatch',
@@ -325,30 +325,6 @@ export const GAME_CONFIGS = {
             'Standard loadouts'
         ],
         maps: ['Mogadishu Mile', 'Lost Village', 'Radio Tower']
-    },
-    duke3d: {
-        id: 'duke3d',
-        name: 'Duke Nukem 3D',
-        shortName: 'Duke3D',
-        logo: '/games/Duke3D.png',
-        defaultArchetype: 'kills',
-        groupStage: {
-            format: 'Deathmatch',
-            description: 'Most frags wins',
-            maxDuration: '~10 min'
-        },
-        playoffs: {
-            format: 'BO3',
-            mapsPerMatch: 3,
-            description: 'First to win 2 maps',
-            maxDuration: '~30 min'
-        },
-        rules: [
-            '1v1 Deathmatch mode',
-            'Frag limit or time limit',
-            'DOSBox or eDuke32'
-        ],
-        maps: ['E1L1', 'E1L2', 'E1L3']
     },
     // ==================== HEALTH-BASED GAMES ====================
     worms: {
@@ -380,9 +356,9 @@ export const GAME_CONFIGS = {
     // ==================== WIN-ONLY GAMES ====================
     aoe2: {
         id: 'aoe2',
-        name: 'Age of Empires 2',
-        shortName: 'AoE2',
-        logo: '/games/AoE2.png',
+        name: 'Age of Empires 2 HD',
+        shortName: 'AoE2 HD',
+        logo: '/games/aoe2.png',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1 Random Map',
@@ -406,7 +382,7 @@ export const GAME_CONFIGS = {
         id: 'warcraft3',
         name: 'Warcraft III',
         shortName: 'WC3',
-        logo: '/games/Warcraft3.png',
+        logo: '/games/warcraft3.png',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1',
@@ -430,7 +406,7 @@ export const GAME_CONFIGS = {
         id: 'stronghold',
         name: 'Stronghold Crusader HD',
         shortName: 'Stronghold',
-        logo: '/games/Stronghold.png',
+        logo: '/games/stronghold.png',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1 Skirmish',
@@ -454,7 +430,7 @@ export const GAME_CONFIGS = {
         id: 'cncra1',
         name: 'C&C: Red Alert',
         shortName: 'RA1',
-        logo: '/games/RedAlert1.png',
+        logo: '/games/cc1.png',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1',
@@ -478,7 +454,7 @@ export const GAME_CONFIGS = {
         id: 'cncra2',
         name: "C&C: Red Alert 2",
         shortName: 'RA2',
-        logo: '/games/RedAlert2.png',
+        logo: '/games/cc2.png',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1',
@@ -497,6 +473,134 @@ export const GAME_CONFIGS = {
             'Faction pick allowed (Soviet/Allied)'
         ],
         maps: ['Urban Rush', 'Dry Heat', 'Little Big Lake']
+    },
+    // ==================== TEAM-BASED GAMES ====================
+    cs16_team: {
+        id: 'cs16_team',
+        name: 'Counter-Strike 1.6 (Team)',
+        shortName: 'CS 1.6 Team',
+        logo: '/games/CounterStrike.png',
+        defaultArchetype: 'team-rounds',
+        isTeamGame: true,
+        defaultTeamSize: 5,
+        minTeamSize: 3,
+        maxTeamSize: 5,
+        groupStage: {
+            format: 'MR15 (30 rounds)',
+            description: 'First to 16 wins, 15-15 tie possible',
+            maxDuration: '~45 min',
+            maxScore: 16
+        },
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'MR15 per map (first to 16)',
+            maxDuration: '~2.5 hours',
+            maxScorePerMap: 16
+        },
+        rules: [
+            'Team-based 5v5 (or 4v4/3v3)',
+            'MR15 format (first to 16 wins)',
+            'Track individual K/D per map',
+            'Tiebreaker: Round difference',
+            'Standard competitive configs'
+        ],
+        maps: ['de_dust2', 'de_inferno', 'de_nuke', 'de_train', 'de_mirage']
+    },
+    cs2_team: {
+        id: 'cs2_team',
+        name: 'Counter-Strike 2 (Team)',
+        shortName: 'CS2 Team',
+        logo: '/games/cs2.png',
+        defaultArchetype: 'team-rounds',
+        isTeamGame: true,
+        defaultTeamSize: 5,
+        minTeamSize: 3,
+        maxTeamSize: 5,
+        groupStage: {
+            format: 'MR12 (24 rounds)',
+            description: 'First to 13 wins, overtime if tied',
+            maxDuration: '~40 min',
+            maxScore: 13
+        },
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'MR12 per map (first to 13)',
+            maxDuration: '~2 hours',
+            maxScorePerMap: 13
+        },
+        rules: [
+            'Team-based 5v5 (or smaller)',
+            'MR12 format (first to 13 wins)',
+            'Overtime: MR3 until winner',
+            'Track individual K/D per map',
+            'Premier/Competitive settings'
+        ],
+        maps: ['de_dust2', 'de_inferno', 'de_mirage', 'de_anubis', 'de_ancient', 'de_nuke', 'de_vertigo']
+    },
+    valorant_team: {
+        id: 'valorant_team',
+        name: 'Valorant (Team)',
+        shortName: 'Valorant',
+        logo: '/games/valorant.png',
+        defaultArchetype: 'team-rounds',
+        isTeamGame: true,
+        defaultTeamSize: 5,
+        minTeamSize: 3,
+        maxTeamSize: 5,
+        groupStage: {
+            format: 'First to 13',
+            description: '24 rounds max, overtime if tied',
+            maxDuration: '~40 min',
+            maxScore: 13
+        },
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'First to 13 per map',
+            maxDuration: '~2 hours',
+            maxScorePerMap: 13
+        },
+        rules: [
+            'Team-based 5v5',
+            'First to 13 rounds wins',
+            'Overtime if 12-12',
+            'Track individual K/D per map',
+            'Agent selection allowed'
+        ],
+        maps: ['Bind', 'Haven', 'Split', 'Ascent', 'Icebox', 'Breeze', 'Lotus']
+    },
+    cod4_team: {
+        id: 'cod4_team',
+        name: 'Call of Duty 4 (Team)',
+        shortName: 'CoD4 Team',
+        logo: '/games/cod4.png',
+        defaultArchetype: 'team-rounds',
+        isTeamGame: true,
+        defaultTeamSize: 5,
+        minTeamSize: 3,
+        maxTeamSize: 5,
+        groupStage: {
+            format: 'Search & Destroy',
+            description: 'First to 6 or 10 rounds',
+            maxDuration: '~30 min',
+            maxScore: 6
+        },
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'S&D - First to 6 per map',
+            maxDuration: '~1.5 hours',
+            maxScorePerMap: 6
+        },
+        rules: [
+            'Team-based S&D',
+            'Promod settings',
+            'Track individual K/D per map',
+            'Standard competitive configs'
+        ],
+        maps: ['mp_backlot', 'mp_crash', 'mp_crossfire', 'mp_citystreets', 'mp_strike']
     }
 };
 export function getGameConfig(gameType) {
@@ -504,6 +608,18 @@ export function getGameConfig(gameType) {
 }
 export function getAllGames() {
     return Object.values(GAME_CONFIGS);
+}
+// Get only solo games (non-team)
+export function getSoloGames() {
+    return Object.values(GAME_CONFIGS).filter(g => !g.isTeamGame);
+}
+// Get only team games
+export function getTeamGames() {
+    return Object.values(GAME_CONFIGS).filter(g => g.isTeamGame);
+}
+// Check if a game type is team-based
+export function isTeamGame(gameType) {
+    return GAME_CONFIGS[gameType]?.isTeamGame === true;
 }
 // Helper to get the effective archetype for a tournament
 // (allows custom points override)

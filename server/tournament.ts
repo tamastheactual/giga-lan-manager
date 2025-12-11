@@ -1,5 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
-import { type GameType, getGameConfig } from './gameTypes.js';
+import { type GameType, getGameConfig, supportsTeamMode } from './gameTypes.js';
+
+// Schema version for data migrations
+const SCHEMA_VERSION = 2;
 
 export interface Player {
     id: string;
@@ -12,6 +15,44 @@ export interface Player {
     scoreDifferential: number; // For tiebreakers (kills, rounds won, etc.)
     totalGameScore: number; // Total in-game score (kills, rounds, etc.)
     profilePhoto?: string; // Base64-encoded image data
+    // Team game stats (aggregated across all matches)
+    totalKills?: number;
+    totalDeaths?: number;
+    totalAssists?: number;
+}
+
+// Team structure for team-based games
+export interface Team {
+    id: string;
+    name: string;
+    playerIds: string[]; // References to Player IDs
+    logo?: string; // Base64-encoded team logo
+    // Team aggregate stats
+    points: number;
+    matchesPlayed: number;
+    wins: number;
+    draws: number;
+    losses: number;
+    roundsWon: number;
+    roundsLost: number;
+}
+
+// Player stats for a single game/map in team matches
+export interface PlayerGameStats {
+    playerId: string;
+    kills: number;
+    deaths: number;
+    assists?: number;
+}
+
+// Team game result for a single map/game in a match
+export interface TeamGameResult {
+    gameNumber: number;
+    mapName?: string;
+    team1Score: number;
+    team2Score: number;
+    winnerTeamId: string;
+    playerStats?: PlayerGameStats[];
 }
 
 // Single game result within a match (for BO3)
@@ -77,6 +118,49 @@ export interface BracketMatch {
     player2Wins?: number;
 }
 
+// Team bracket match for team-based tournaments
+export interface TeamBracketMatch {
+    id: string;
+    round: number;
+    team1Id?: string;
+    team2Id?: string;
+    winnerId?: string; // Winning team ID
+    nextMatchId?: string;
+    nextMatchSlot?: 1 | 2;
+    bracketType: 'quarterfinals' | 'semifinals' | 'finals' | '3rd-place';
+    matchLabel?: string;
+    loserFromMatch1?: string;
+    loserFromMatch2?: string;
+    // BO3/BO5 tracking with player stats
+    games?: TeamGameResult[];
+    team1Wins?: number;
+    team2Wins?: number;
+}
+
+// Group stage match for team tournaments
+export interface TeamMatch {
+    id: string;
+    matchNumber: number;
+    round: number;
+    podId?: string; // Group/pod this match belongs to
+    team1Id: string;
+    team2Id: string;
+    team1Score?: number;
+    team2Score?: number;
+    winnerId?: string;
+    games?: TeamGameResult[];
+    completed: boolean;
+}
+
+// Pod for team group stage
+export interface TeamPod {
+    id: string;
+    round: number;
+    teams: string[]; // Team IDs
+    matchId: string;
+    name?: string;
+}
+
 export class TournamentManager {
     id: string;
     name: string;
@@ -92,8 +176,16 @@ export class TournamentManager {
     groupStageRoundLimit?: number; // Custom round limit for group stage (CS 1.6)
     playoffsRoundLimit?: number; // Custom round limit for playoffs (CS 1.6)
     useCustomPoints?: boolean; // Override default archetype with custom points
+    
+    // Team tournament support
+    _schemaVersion: number = 1; // 1 = solo, 2 = team-capable
+    isTeamBased: boolean = false;
+    teams: Team[] = [];
+    teamPods: TeamPod[] = [];
+    teamMatches: TeamMatch[] = [];
+    teamBracketMatches: TeamBracketMatch[] = [];
 
-    constructor(id: string, name: string, gameType: GameType = 'cs16', mapPool: string[] = [], groupStageRoundLimit?: number, playoffsRoundLimit?: number, useCustomPoints?: boolean) {
+    constructor(id: string, name: string, gameType: GameType = 'cs16', mapPool: string[] = [], groupStageRoundLimit?: number, playoffsRoundLimit?: number, useCustomPoints?: boolean, teamMode?: boolean) {
         this.id = id;
         this.name = name;
         this.gameType = gameType;
@@ -102,6 +194,26 @@ export class TournamentManager {
         this.groupStageRoundLimit = groupStageRoundLimit;
         this.playoffsRoundLimit = playoffsRoundLimit;
         this.useCustomPoints = useCustomPoints;
+        // Team mode is enabled via parameter (game must support it)
+        this.isTeamBased = teamMode === true;
+        this._schemaVersion = this.isTeamBased ? 2 : 1;
+    }
+    
+    // Enable/disable team mode (only during registration)
+    setTeamMode(enabled: boolean): void {
+        if (this.state !== 'registration') {
+            throw new Error("Cannot change team mode after tournament has started");
+        }
+        const config = this.getGameConfig();
+        if (enabled && !config.supportsTeamMode) {
+            throw new Error(`${config.name} does not support team mode`);
+        }
+        this.isTeamBased = enabled;
+        this._schemaVersion = enabled ? 2 : 1;
+        // Clear teams if disabling
+        if (!enabled) {
+            this.teams = [];
+        }
     }
     
     // Get game configuration
@@ -161,9 +273,135 @@ export class TournamentManager {
         this.players.splice(index, 1);
     }
 
+    // Team management methods
+    addTeam(name: string, playerIds: string[], logo?: string): Team {
+        if (!this.isTeamBased) {
+            throw new Error("Cannot add teams to a solo tournament");
+        }
+        
+        // Check for duplicate team name
+        const normalizedName = name.trim().toLowerCase();
+        if (this.teams.some(t => t.name.trim().toLowerCase() === normalizedName)) {
+            throw new Error(`Team name "${name}" already exists`);
+        }
+        
+        // Validate all players exist
+        for (const playerId of playerIds) {
+            if (!this.players.find(p => p.id === playerId)) {
+                throw new Error(`Player ${playerId} not found`);
+            }
+        }
+        
+        // Check team size limits
+        const config = this.getGameConfig();
+        if (config.minTeamSize !== undefined && playerIds.length < config.minTeamSize) {
+            throw new Error(`Team must have at least ${config.minTeamSize} players`);
+        }
+        if (config.maxTeamSize !== undefined && playerIds.length > config.maxTeamSize) {
+            throw new Error(`Team can have at most ${config.maxTeamSize} players`);
+        }
+        
+        const team: Team = {
+            id: uuidv4(),
+            name,
+            playerIds,
+            logo,
+            // Initialize stats
+            points: 0,
+            matchesPlayed: 0,
+            wins: 0,
+            draws: 0,
+            losses: 0,
+            roundsWon: 0,
+            roundsLost: 0
+        };
+        this.teams.push(team);
+        return team;
+    }
+
+    removeTeam(teamId: string): void {
+        if (this.state !== 'registration') {
+            throw new Error("Cannot remove teams after tournament has started");
+        }
+        const index = this.teams.findIndex(t => t.id === teamId);
+        if (index === -1) {
+            throw new Error("Team not found");
+        }
+        this.teams.splice(index, 1);
+    }
+
+    updateTeam(teamId: string, updates: { name?: string; playerIds?: string[]; logo?: string }): Team {
+        if (this.state !== 'registration') {
+            throw new Error("Cannot update teams after tournament has started");
+        }
+        const team = this.teams.find(t => t.id === teamId);
+        if (!team) {
+            throw new Error("Team not found");
+        }
+        
+        if (updates.name) {
+            // Check for duplicate team name (excluding current team)
+            const normalizedName = updates.name.trim().toLowerCase();
+            if (this.teams.some(t => t.id !== teamId && t.name.trim().toLowerCase() === normalizedName)) {
+                throw new Error(`Team name "${updates.name}" already exists`);
+            }
+            team.name = updates.name;
+        }
+        if (updates.logo !== undefined) team.logo = updates.logo;
+        if (updates.playerIds) {
+            // Validate all players exist
+            for (const playerId of updates.playerIds) {
+                if (!this.players.find(p => p.id === playerId)) {
+                    throw new Error(`Player ${playerId} not found`);
+                }
+            }
+            
+            // Check team size limits
+            const config = this.getGameConfig();
+            if (config.minTeamSize !== undefined && updates.playerIds.length < config.minTeamSize) {
+                throw new Error(`Team must have at least ${config.minTeamSize} players`);
+            }
+            if (config.maxTeamSize !== undefined && updates.playerIds.length > config.maxTeamSize) {
+                throw new Error(`Team can have at most ${config.maxTeamSize} players`);
+            }
+            team.playerIds = updates.playerIds;
+        }
+        
+        return team;
+    }
+
+    getTeam(teamId: string): Team | undefined {
+        return this.teams.find(t => t.id === teamId);
+    }
+
+    getTeamByPlayerId(playerId: string): Team | undefined {
+        return this.teams.find(t => t.playerIds.includes(playerId));
+    }
+
     startGroupStage() {
-        if (this.players.length < 4) {
-            throw new Error("Need at least 4 players");
+        // Dispatch to team or solo start based on tournament type
+        if (this.isTeamBased) {
+            return this.startTeamGroupStage();
+        }
+        
+        if (this.players.length < 2) {
+            throw new Error("Need at least 2 players");
+        }
+        
+        // For 2 players: skip group stage, go directly to finals
+        if (this.players.length === 2) {
+            this.state = 'playoffs';
+            this.startedAt = new Date().toISOString();
+            this.createDirectFinals2Players(this.players);
+            return;
+        }
+        
+        // For 3 players: single group round-robin, top 2 go to finals
+        if (this.players.length === 3) {
+            this.state = 'group';
+            this.startedAt = new Date().toISOString();
+            this.generate3PlayerPod();
+            return;
         }
         
         // Auto-add dummy player for awkward tournament sizes
@@ -325,6 +563,72 @@ export class TournamentManager {
                     });
                 });
             });
+        });
+    }
+    
+    // Create direct finals for 2 players (no group stage)
+    private createDirectFinals2Players(players: Player[]) {
+        const finalId = uuidv4();
+        
+        // Just the final match: player 1 vs player 2
+        this.bracketMatches.push({
+            id: finalId,
+            round: 1,
+            bracketType: 'finals',
+            matchLabel: 'Grand Final',
+            player1Id: players[0].id,
+            player2Id: players[1].id
+        });
+    }
+    
+    // Generate group stage for exactly 3 players (round-robin, top 2 to finals)
+    private generate3PlayerPod() {
+        const podId = uuidv4();
+        const players = [...this.players];
+        
+        // Store pod with all 3 players
+        this.pods.push({
+            id: podId,
+            round: 1,
+            players: players.map(p => p.id),
+            matchId: ''
+        });
+        
+        // Round-robin for 3 players: 3 matches across 3 rounds
+        // Round 1: P1 vs P2
+        // Round 2: P1 vs P3  
+        // Round 3: P2 vs P3
+        const matchups: [number, number, number][] = [
+            [0, 1, 1], // P1 vs P2, Round 1
+            [0, 2, 2], // P1 vs P3, Round 2
+            [1, 2, 3], // P2 vs P3, Round 3
+        ];
+        
+        matchups.forEach(([i, j, round]) => {
+            this.matches.push({
+                id: uuidv4(),
+                podId,
+                round,
+                player1Id: players[i].id,
+                player2Id: players[j].id,
+                players: [players[i].id, players[j].id],
+                completed: false
+            });
+        });
+    }
+    
+    // Create playoff bracket for 3-player tournament (top 2 go to finals)
+    private create3PlayerFinalsBracket(players: Player[]) {
+        const finalId = uuidv4();
+        
+        // Just the final: 1st vs 2nd from group stage
+        this.bracketMatches.push({
+            id: finalId,
+            round: 1,
+            bracketType: 'finals',
+            matchLabel: 'Grand Final',
+            player1Id: players[0].id,
+            player2Id: players[1].id
         });
     }
 
@@ -548,6 +852,15 @@ export class TournamentManager {
         const rankings = this.getRankings();
         const numGroups = this.pods.length;
         const totalPlayers = this.players.length;
+        
+        // For 3-player tournaments: top 2 go to finals
+        if (totalPlayers === 3) {
+            const qualifiedPlayers = rankings.slice(0, 2);
+            this.bracketMatches = [];
+            this.create3PlayerFinalsBracket(qualifiedPlayers);
+            this.state = 'playoffs';
+            return;
+        }
         
         // Determine playoff size based on group size and count
         let numQualified: number;
@@ -920,6 +1233,39 @@ export class TournamentManager {
 
     // Reset group data (clear all match results for players in this group)
     resetGroupData(podId: string) {
+        // Check if it's a team tournament
+        if (this.isTeamBased) {
+            const teamPod = this.teamPods.find(p => p.id === podId);
+            if (!teamPod) throw new Error("Team group not found");
+
+            // Reset team stats for teams in this group
+            teamPod.teams.forEach(teamId => {
+                const team = this.teams.find(t => t.id === teamId);
+                if (team) {
+                    team.points = 0;
+                    team.matchesPlayed = 0;
+                    team.wins = 0;
+                    team.draws = 0;
+                    team.losses = 0;
+                    team.roundsWon = 0;
+                    team.roundsLost = 0;
+                }
+            });
+
+            // Reset all team matches for this group
+            this.teamMatches.forEach(match => {
+                if (match.podId === podId) {
+                    match.team1Score = undefined;
+                    match.team2Score = undefined;
+                    match.winnerId = undefined;
+                    match.games = undefined;
+                    match.completed = false;
+                }
+            });
+            return;
+        }
+
+        // Solo tournament
         const pod = this.pods.find(p => p.id === podId);
         if (!pod) throw new Error("Group not found");
 
@@ -933,6 +1279,7 @@ export class TournamentManager {
                 player.draws = 0;
                 player.losses = 0;
                 player.scoreDifferential = 0;
+                player.totalGameScore = 0;
             }
         });
 
@@ -941,6 +1288,7 @@ export class TournamentManager {
             if (match.podId === podId) {
                 match.result = undefined;
                 match.completed = false;
+                match.mapName = undefined;
             }
         });
     }
@@ -966,6 +1314,742 @@ export class TournamentManager {
         const finals = this.bracketMatches.find(m => m.bracketType === 'finals');
         if (!finals?.winnerId) return null;
         return this.players.find(p => p.id === finals.winnerId) || null;
+    }
+
+    // ========================================
+    // TEAM TOURNAMENT METHODS
+    // ========================================
+
+    // Get the winning team (winner of finals)
+    getChampionTeam(): Team | null {
+        if (!this.isTeamBased) return null;
+        if (this.state !== 'completed') return null;
+        const finals = this.teamBracketMatches.find(m => m.bracketType === 'finals');
+        if (!finals?.winnerId) return null;
+        return this.teams.find(t => t.id === finals.winnerId) || null;
+    }
+
+    // Start team group stage
+    startTeamGroupStage() {
+        if (!this.isTeamBased) {
+            throw new Error("Cannot start team group stage for solo tournament");
+        }
+        if (this.teams.length < 2) {
+            throw new Error("Need at least 2 teams");
+        }
+        
+        // For 2 teams: skip group stage, go directly to finals
+        if (this.teams.length === 2) {
+            this.state = 'playoffs';
+            this.startedAt = new Date().toISOString();
+            this.createDirectTeamFinals2Teams(this.teams);
+            return;
+        }
+        
+        // For 3 teams: single group round-robin, top 2 go to finals
+        if (this.teams.length === 3) {
+            this.state = 'group';
+            this.startedAt = new Date().toISOString();
+            this.generate3TeamPod();
+            return;
+        }
+        
+        this.state = 'group';
+        this.startedAt = new Date().toISOString();
+        this.generateTeamPods();
+    }
+
+    // Generate team pods for group stage
+    private generateTeamPods() {
+        const numTeams = this.teams.length;
+        
+        // Determine group size and count (same logic as solo)
+        let groupSize = 4;
+        let numGroups = 1;
+        
+        if (numTeams === 4) {
+            groupSize = 4;
+            numGroups = 1;
+        } else if (numTeams === 5) {
+            groupSize = 5;
+            numGroups = 1;
+        } else if (numTeams === 6) {
+            groupSize = 6;
+            numGroups = 1;
+        } else if (numTeams === 7) {
+            groupSize = 7;
+            numGroups = 1;
+        } else if (numTeams === 8) {
+            groupSize = 4;
+            numGroups = 2;
+        } else if (numTeams >= 9 && numTeams <= 12) {
+            groupSize = Math.ceil(numTeams / 3);
+            numGroups = 3;
+        } else {
+            groupSize = Math.ceil(numTeams / 4);
+            numGroups = 4;
+        }
+
+        const shuffledTeams = [...this.teams].sort(() => Math.random() - 0.5);
+        
+        // Distribute teams into groups
+        const groups: string[][] = Array.from({ length: numGroups }, () => []);
+        shuffledTeams.forEach((team, i) => {
+            groups[i % numGroups].push(team.id);
+        });
+
+        // Create team pods and round-robin matches
+        groups.forEach((groupTeams, groupIndex) => {
+            const podId = uuidv4();
+            const pod: TeamPod = {
+                id: podId,
+                round: 1,
+                teams: groupTeams,
+                matchId: '',
+                name: `Group ${String.fromCharCode(65 + groupIndex)}`
+            };
+            this.teamPods.push(pod);
+
+            // Generate proper round-robin schedule for this group
+            const n = groupTeams.length;
+            if (n < 2) return;
+
+            // Use round-robin scheduling algorithm (same as 1v1 tournaments)
+            const matchesPerRound = Math.floor(n / 2);
+            const totalRounds = n % 2 === 0 ? n - 1 : n;
+            
+            const teamsCopy = [...groupTeams];
+            
+            for (let round = 0; round < totalRounds; round++) {
+                for (let i = 0; i < matchesPerRound; i++) {
+                    const t1 = teamsCopy[i];
+                    const t2 = teamsCopy[n - 1 - i];
+                    if (t1 && t2) {
+                        const match: TeamMatch = {
+                            id: uuidv4(),
+                            matchNumber: this.teamMatches.length + 1,
+                            round: round + 1, // Proper round number
+                            podId: podId,
+                            team1Id: t1,
+                            team2Id: t2,
+                            completed: false
+                        };
+                        this.teamMatches.push(match);
+                        if (!pod.matchId) pod.matchId = match.id;
+                    }
+                }
+                
+                // Rotate teams for next round (keep first team fixed for even, rotate all for odd)
+                if (n % 2 === 0) {
+                    const last = teamsCopy.pop()!;
+                    teamsCopy.splice(1, 0, last);
+                } else {
+                    teamsCopy.push(teamsCopy.shift()!);
+                }
+            }
+        });
+    }
+    
+    // Create direct finals for 2 teams (no group stage)
+    private createDirectTeamFinals2Teams(teams: Team[]) {
+        const finalId = uuidv4();
+        
+        // Just the final match: team 1 vs team 2
+        this.teamBracketMatches.push({
+            id: finalId,
+            round: 1,
+            bracketType: 'finals',
+            matchLabel: 'Grand Final',
+            team1Id: teams[0].id,
+            team2Id: teams[1].id
+        });
+    }
+    
+    // Generate group stage for exactly 3 teams (round-robin, top 2 to finals)
+    private generate3TeamPod() {
+        const podId = uuidv4();
+        const teams = [...this.teams];
+        
+        // Store pod with all 3 teams
+        const pod: TeamPod = {
+            id: podId,
+            round: 1,
+            teams: teams.map(t => t.id),
+            matchId: '',
+            name: 'Group A'
+        };
+        this.teamPods.push(pod);
+        
+        // Round-robin for 3 teams: 3 matches across 3 rounds
+        // Round 1: T1 vs T2
+        // Round 2: T1 vs T3  
+        // Round 3: T2 vs T3
+        const matchups: [number, number, number][] = [
+            [0, 1, 1], // T1 vs T2, Round 1
+            [0, 2, 2], // T1 vs T3, Round 2
+            [1, 2, 3], // T2 vs T3, Round 3
+        ];
+        
+        matchups.forEach(([i, j, round], idx) => {
+            const match: TeamMatch = {
+                id: uuidv4(),
+                matchNumber: idx + 1,
+                round,
+                podId,
+                team1Id: teams[i].id,
+                team2Id: teams[j].id,
+                completed: false
+            };
+            this.teamMatches.push(match);
+            if (!pod.matchId) pod.matchId = match.id;
+        });
+    }
+    
+    // Create playoff bracket for 3-team tournament (top 2 go to finals)
+    private create3TeamFinalsBracket(teams: Team[]) {
+        const finalId = uuidv4();
+        
+        // Just the final: 1st vs 2nd from group stage
+        this.teamBracketMatches.push({
+            id: finalId,
+            round: 1,
+            bracketType: 'finals',
+            matchLabel: 'Grand Final',
+            team1Id: teams[0].id,
+            team2Id: teams[1].id
+        });
+    }
+
+    // Submit a team match result (group stage)
+    submitTeamMatchResult(matchId: string, team1Score: number, team2Score: number, games?: TeamGameResult[]) {
+        const match = this.teamMatches.find(m => m.id === matchId);
+        if (!match) throw new Error("Team match not found");
+
+        match.team1Score = team1Score;
+        match.team2Score = team2Score;
+        match.games = games;
+        match.completed = true;
+
+        // Determine winner
+        if (team1Score > team2Score) {
+            match.winnerId = match.team1Id;
+        } else if (team2Score > team1Score) {
+            match.winnerId = match.team2Id;
+        }
+        // Note: For team games, draws are rare but possible
+
+        // Update team stats
+        this.recalculateTeamStats();
+    }
+
+    // Recalculate all team stats from completed matches
+    recalculateTeamStats() {
+        // Reset all team stats
+        this.teams.forEach(team => {
+            team.points = 0;
+            team.matchesPlayed = 0;
+            team.wins = 0;
+            team.draws = 0;
+            team.losses = 0;
+            team.roundsWon = 0;
+            team.roundsLost = 0;
+        });
+
+        // Calculate from completed team matches
+        this.teamMatches.filter(m => m.completed).forEach(match => {
+            const team1 = this.teams.find(t => t.id === match.team1Id);
+            const team2 = this.teams.find(t => t.id === match.team2Id);
+            
+            if (!team1 || !team2) return;
+
+            team1.matchesPlayed++;
+            team2.matchesPlayed++;
+            team1.roundsWon += match.team1Score || 0;
+            team1.roundsLost += match.team2Score || 0;
+            team2.roundsWon += match.team2Score || 0;
+            team2.roundsLost += match.team1Score || 0;
+
+            if (match.winnerId === team1.id) {
+                team1.wins++;
+                team1.points += 3;
+                team2.losses++;
+            } else if (match.winnerId === team2.id) {
+                team2.wins++;
+                team2.points += 3;
+                team1.losses++;
+            } else {
+                // Draw
+                team1.draws++;
+                team2.draws++;
+                team1.points += 1;
+                team2.points += 1;
+            }
+        });
+    }
+
+    // Submit a single game result for a team bracket match (BO3/BO5)
+    submitTeamBracketGameResult(matchId: string, gameResult: TeamGameResult) {
+        const match = this.teamBracketMatches.find(m => m.id === matchId);
+        if (!match) throw new Error("Team bracket match not found");
+
+        if (!match.games) {
+            match.games = [];
+            match.team1Wins = 0;
+            match.team2Wins = 0;
+        }
+
+        // Don't allow more than 5 games (BO5 max)
+        if (match.games.length >= 5) {
+            throw new Error("BO5 match already has 5 games");
+        }
+
+        match.games.push(gameResult);
+
+        // Update win counts
+        if (gameResult.winnerTeamId === match.team1Id) {
+            match.team1Wins = (match.team1Wins || 0) + 1;
+        } else if (gameResult.winnerTeamId === match.team2Id) {
+            match.team2Wins = (match.team2Wins || 0) + 1;
+        }
+
+        // Check if match is won (BO3: first to 2, BO5: first to 3)
+        const winsNeeded = match.games.length > 3 ? 3 : 2; // Detect BO5 vs BO3
+        if ((match.team1Wins || 0) >= winsNeeded) {
+            this.submitTeamBracketWinner(matchId, match.team1Id!);
+        } else if ((match.team2Wins || 0) >= winsNeeded) {
+            this.submitTeamBracketWinner(matchId, match.team2Id!);
+        }
+    }
+
+    // Submit the winner of a team bracket match
+    submitTeamBracketWinner(matchId: string, winnerTeamId: string) {
+        const match = this.teamBracketMatches.find(m => m.id === matchId);
+        if (!match) throw new Error("Team bracket match not found");
+
+        if (match.team1Id !== winnerTeamId && match.team2Id !== winnerTeamId) {
+            throw new Error("Winner must be one of the teams in the match");
+        }
+
+        match.winnerId = winnerTeamId;
+        const loserId = match.team1Id === winnerTeamId ? match.team2Id : match.team1Id;
+
+        // Advance winner to next match
+        if (match.nextMatchId) {
+            const nextMatch = this.teamBracketMatches.find(m => m.id === match.nextMatchId);
+            if (nextMatch) {
+                if (match.nextMatchSlot === 1) {
+                    nextMatch.team1Id = winnerTeamId;
+                } else {
+                    nextMatch.team2Id = winnerTeamId;
+                }
+            }
+        }
+
+        // If this is a semifinal, send loser to third place match
+        if (match.bracketType === 'semifinals') {
+            const thirdPlaceMatch = this.teamBracketMatches.find(m => m.bracketType === '3rd-place');
+            if (thirdPlaceMatch && loserId) {
+                if (!thirdPlaceMatch.team1Id) {
+                    thirdPlaceMatch.team1Id = loserId;
+                } else if (!thirdPlaceMatch.team2Id) {
+                    thirdPlaceMatch.team2Id = loserId;
+                }
+            }
+        }
+
+        // Check if all bracket matches are completed
+        const allCompleted = this.teamBracketMatches.every(m => m.winnerId);
+        if (allCompleted) {
+            this.state = 'completed';
+        }
+    }
+
+    // Generate team brackets (playoffs)
+    generateTeamBrackets() {
+        if (!this.isTeamBased) {
+            throw new Error("Cannot generate team brackets for solo tournament");
+        }
+
+        const rankings = this.getTeamRankings();
+        const numTeams = this.teams.length;
+        
+        // For 3-team tournaments: top 2 go to finals
+        if (numTeams === 3) {
+            const qualifiedTeams = rankings.slice(0, 2);
+            this.teamBracketMatches = [];
+            this.create3TeamFinalsBracket(qualifiedTeams);
+            this.state = 'playoffs';
+            return;
+        }
+
+        // Determine playoff size
+        let numQualified = Math.min(4, rankings.length);
+        if (rankings.length >= 8) numQualified = 8;
+        else if (rankings.length >= 6) numQualified = 6;
+
+        const qualifiedTeams = rankings.slice(0, numQualified);
+        this.teamBracketMatches = [];
+        this.createTeamPlayoffBracket(qualifiedTeams);
+        this.state = 'playoffs';
+    }
+
+    // Create team playoff bracket
+    private createTeamPlayoffBracket(teams: Team[]) {
+        const numTeams = teams.length;
+        const totalTournamentTeams = this.teams.length;
+
+        // Only use direct finals for exactly 4-team tournaments in a single group
+        // (everyone played everyone in groups, no need for semifinals)
+        if (totalTournamentTeams === 4 && numTeams === 4 && this.teamPods.length === 1) {
+            this.createDirectTeamFinalsBracket(teams);
+        } else if (numTeams === 4) {
+            this.create4TeamBracket(teams);
+        } else if (numTeams === 6) {
+            this.create6TeamBracket(teams);
+        } else if (numTeams === 8) {
+            this.create8TeamBracket(teams);
+        } else {
+            // Fallback to top 4
+            this.create4TeamBracket(teams.slice(0, 4));
+        }
+    }
+
+    // For single group team tournaments where everyone has played each other
+    private createDirectTeamFinalsBracket(teams: Team[]) {
+        const thirdPlaceId = uuidv4();
+        const finalId = uuidv4();
+        
+        // Third place match: 3rd seed vs 4th seed
+        this.teamBracketMatches.push({
+            id: thirdPlaceId,
+            round: 1,
+            bracketType: '3rd-place',
+            matchLabel: '3rd Place Match',
+            team1Id: teams[2]?.id,
+            team2Id: teams[3]?.id
+        });
+        
+        // Final: 1st seed vs 2nd seed
+        this.teamBracketMatches.push({
+            id: finalId,
+            round: 1,
+            bracketType: 'finals',
+            matchLabel: 'Grand Final',
+            team1Id: teams[0].id,
+            team2Id: teams[1].id
+        });
+    }
+
+    private create4TeamBracket(teams: Team[]) {
+        const semi1Id = uuidv4();
+        const semi2Id = uuidv4();
+        const thirdPlaceId = uuidv4();
+        const finalId = uuidv4();
+
+        // Semifinals: 1v4, 2v3
+        this.teamBracketMatches.push({
+            id: semi1Id,
+            round: 1,
+            bracketType: 'semifinals',
+            matchLabel: 'Semifinal 1',
+            team1Id: teams[0].id,
+            team2Id: teams[3].id,
+            nextMatchId: finalId,
+            nextMatchSlot: 1
+        });
+
+        this.teamBracketMatches.push({
+            id: semi2Id,
+            round: 1,
+            bracketType: 'semifinals',
+            matchLabel: 'Semifinal 2',
+            team1Id: teams[1].id,
+            team2Id: teams[2].id,
+            nextMatchId: finalId,
+            nextMatchSlot: 2
+        });
+
+        // Third place match
+        this.teamBracketMatches.push({
+            id: thirdPlaceId,
+            round: 2,
+            bracketType: '3rd-place',
+            matchLabel: '3rd Place Match',
+            loserFromMatch1: semi1Id,
+            loserFromMatch2: semi2Id
+        });
+
+        // Final
+        this.teamBracketMatches.push({
+            id: finalId,
+            round: 2,
+            bracketType: 'finals',
+            matchLabel: 'Grand Final'
+        });
+    }
+
+    private create6TeamBracket(teams: Team[]) {
+        const qf1Id = uuidv4();
+        const qf2Id = uuidv4();
+        const semi1Id = uuidv4();
+        const semi2Id = uuidv4();
+        const thirdPlaceId = uuidv4();
+        const finalId = uuidv4();
+
+        // Quarter-finals (seeds 3-6 play)
+        this.teamBracketMatches.push({
+            id: qf1Id,
+            round: 1,
+            bracketType: 'quarterfinals',
+            matchLabel: 'Quarter-final 1',
+            team1Id: teams[2].id, // 3rd seed
+            team2Id: teams[5].id, // 6th seed
+            nextMatchId: semi2Id,
+            nextMatchSlot: 2
+        });
+
+        this.teamBracketMatches.push({
+            id: qf2Id,
+            round: 1,
+            bracketType: 'quarterfinals',
+            matchLabel: 'Quarter-final 2',
+            team1Id: teams[3].id, // 4th seed
+            team2Id: teams[4].id, // 5th seed
+            nextMatchId: semi1Id,
+            nextMatchSlot: 2
+        });
+
+        // Semifinals (seeds 1-2 have byes)
+        this.teamBracketMatches.push({
+            id: semi1Id,
+            round: 2,
+            bracketType: 'semifinals',
+            matchLabel: 'Semifinal 1',
+            team1Id: teams[0].id, // 1st seed (bye)
+            nextMatchId: finalId,
+            nextMatchSlot: 1
+        });
+
+        this.teamBracketMatches.push({
+            id: semi2Id,
+            round: 2,
+            bracketType: 'semifinals',
+            matchLabel: 'Semifinal 2',
+            team1Id: teams[1].id, // 2nd seed (bye)
+            nextMatchId: finalId,
+            nextMatchSlot: 2
+        });
+
+        // Third place
+        this.teamBracketMatches.push({
+            id: thirdPlaceId,
+            round: 3,
+            bracketType: '3rd-place',
+            matchLabel: '3rd Place Match',
+            loserFromMatch1: semi1Id,
+            loserFromMatch2: semi2Id
+        });
+
+        // Final
+        this.teamBracketMatches.push({
+            id: finalId,
+            round: 3,
+            bracketType: 'finals',
+            matchLabel: 'Grand Final'
+        });
+    }
+
+    private create8TeamBracket(teams: Team[]) {
+        const qf1Id = uuidv4();
+        const qf2Id = uuidv4();
+        const qf3Id = uuidv4();
+        const qf4Id = uuidv4();
+        const semi1Id = uuidv4();
+        const semi2Id = uuidv4();
+        const thirdPlaceId = uuidv4();
+        const finalId = uuidv4();
+
+        // Quarter-finals: 1v8, 4v5, 2v7, 3v6
+        this.teamBracketMatches.push({
+            id: qf1Id,
+            round: 1,
+            bracketType: 'quarterfinals',
+            matchLabel: 'Quarter-final 1',
+            team1Id: teams[0].id,
+            team2Id: teams[7].id,
+            nextMatchId: semi1Id,
+            nextMatchSlot: 1
+        });
+
+        this.teamBracketMatches.push({
+            id: qf2Id,
+            round: 1,
+            bracketType: 'quarterfinals',
+            matchLabel: 'Quarter-final 2',
+            team1Id: teams[3].id,
+            team2Id: teams[4].id,
+            nextMatchId: semi1Id,
+            nextMatchSlot: 2
+        });
+
+        this.teamBracketMatches.push({
+            id: qf3Id,
+            round: 1,
+            bracketType: 'quarterfinals',
+            matchLabel: 'Quarter-final 3',
+            team1Id: teams[1].id,
+            team2Id: teams[6].id,
+            nextMatchId: semi2Id,
+            nextMatchSlot: 1
+        });
+
+        this.teamBracketMatches.push({
+            id: qf4Id,
+            round: 1,
+            bracketType: 'quarterfinals',
+            matchLabel: 'Quarter-final 4',
+            team1Id: teams[2].id,
+            team2Id: teams[5].id,
+            nextMatchId: semi2Id,
+            nextMatchSlot: 2
+        });
+
+        // Semifinals
+        this.teamBracketMatches.push({
+            id: semi1Id,
+            round: 2,
+            bracketType: 'semifinals',
+            matchLabel: 'Semifinal 1',
+            nextMatchId: finalId,
+            nextMatchSlot: 1
+        });
+
+        this.teamBracketMatches.push({
+            id: semi2Id,
+            round: 2,
+            bracketType: 'semifinals',
+            matchLabel: 'Semifinal 2',
+            nextMatchId: finalId,
+            nextMatchSlot: 2
+        });
+
+        // Third place
+        this.teamBracketMatches.push({
+            id: thirdPlaceId,
+            round: 3,
+            bracketType: '3rd-place',
+            matchLabel: '3rd Place Match',
+            loserFromMatch1: semi1Id,
+            loserFromMatch2: semi2Id
+        });
+
+        // Final
+        this.teamBracketMatches.push({
+            id: finalId,
+            round: 3,
+            bracketType: 'finals',
+            matchLabel: 'Grand Final'
+        });
+    }
+
+    // Get team rankings based on group stage performance
+    getTeamRankings(): Team[] {
+        // Build stats from team matches
+        const teamStats: Map<string, { points: number; wins: number; roundsWon: number; roundsDiff: number }> = new Map();
+        
+        this.teams.forEach(team => {
+            teamStats.set(team.id, { points: 0, wins: 0, roundsWon: 0, roundsDiff: 0 });
+        });
+
+        this.teamMatches.filter(m => m.completed).forEach(match => {
+            const stats1 = teamStats.get(match.team1Id)!;
+            const stats2 = teamStats.get(match.team2Id)!;
+
+            const score1 = match.team1Score || 0;
+            const score2 = match.team2Score || 0;
+
+            stats1.roundsWon += score1;
+            stats1.roundsDiff += score1 - score2;
+            stats2.roundsWon += score2;
+            stats2.roundsDiff += score2 - score1;
+
+            if (match.winnerId === match.team1Id) {
+                stats1.points += 3;
+                stats1.wins += 1;
+            } else if (match.winnerId === match.team2Id) {
+                stats2.points += 3;
+                stats2.wins += 1;
+            } else {
+                // Draw
+                stats1.points += 1;
+                stats2.points += 1;
+            }
+        });
+
+        return [...this.teams].sort((a, b) => {
+            const statsA = teamStats.get(a.id)!;
+            const statsB = teamStats.get(b.id)!;
+
+            // Primary: Points
+            if (statsB.points !== statsA.points) return statsB.points - statsA.points;
+            // Tiebreaker 1: Round differential
+            if (statsB.roundsDiff !== statsA.roundsDiff) return statsB.roundsDiff - statsA.roundsDiff;
+            // Tiebreaker 2: Rounds won
+            if (statsB.roundsWon !== statsA.roundsWon) return statsB.roundsWon - statsA.roundsWon;
+            // Tiebreaker 3: More wins
+            if (statsB.wins !== statsA.wins) return statsB.wins - statsA.wins;
+            // Final: Alphabetical
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    // Get player stats aggregated from all team matches
+    getPlayerStatistics(): Map<string, { kills: number; deaths: number; kdRatio: number; gamesPlayed: number }> {
+        const playerStats: Map<string, { kills: number; deaths: number; gamesPlayed: number }> = new Map();
+
+        // Initialize stats for all players
+        this.players.forEach(p => {
+            playerStats.set(p.id, { kills: 0, deaths: 0, gamesPlayed: 0 });
+        });
+
+        // Aggregate from group stage team matches
+        this.teamMatches.filter(m => m.completed && m.games).forEach(match => {
+            match.games!.forEach(game => {
+                game.playerStats?.forEach((ps: PlayerGameStats) => {
+                    const stats = playerStats.get(ps.playerId);
+                    if (stats) {
+                        stats.kills += ps.kills;
+                        stats.deaths += ps.deaths;
+                        stats.gamesPlayed += 1;
+                    }
+                });
+            });
+        });
+
+        // Aggregate from bracket matches
+        this.teamBracketMatches.filter(m => m.games).forEach(match => {
+            match.games!.forEach(game => {
+                game.playerStats?.forEach((ps: PlayerGameStats) => {
+                    const stats = playerStats.get(ps.playerId);
+                    if (stats) {
+                        stats.kills += ps.kills;
+                        stats.deaths += ps.deaths;
+                        stats.gamesPlayed += 1;
+                    }
+                });
+            });
+        });
+
+        // Calculate K/D ratios
+        const result: Map<string, { kills: number; deaths: number; kdRatio: number; gamesPlayed: number }> = new Map();
+        playerStats.forEach((stats, playerId) => {
+            result.set(playerId, {
+                ...stats,
+                kdRatio: stats.deaths > 0 ? stats.kills / stats.deaths : stats.kills
+            });
+        });
+
+        return result;
     }
 
 }

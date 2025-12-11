@@ -6,8 +6,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 
-import { TournamentManager } from './tournament.js';
-import { type GameType, GAME_CONFIGS, getAllGames } from './gameTypes.js';
+import { TournamentManager, type Team, type TeamGameResult, type PlayerGameStats } from './tournament.js';
+import { type GameType, GAME_CONFIGS, getAllGames, supportsTeamMode, getTeamModeGames } from './gameTypes.js';
 
 const app = express();
 const port = 3000;
@@ -65,7 +65,8 @@ app.get('/api/tournaments', (req, res) => {
     playerCount: t.players.length,
     gameType: t.gameType,
     createdAt: t.createdAt,
-    startedAt: t.startedAt
+    startedAt: t.startedAt,
+    isTeamBased: t.isTeamBased
   }));
   res.json(tournamentList);
 });
@@ -76,7 +77,7 @@ app.get('/api/games', (req, res) => {
 });
 
 app.post('/api/tournaments', async (req, res) => {
-  const { name, gameType, mapPool = [], groupStageRoundLimit, playoffsRoundLimit, useCustomPoints } = req.body;
+  const { name, gameType, mapPool = [], groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   if (!gameType || !GAME_CONFIGS[gameType as GameType]) {
     return res.status(400).json({ error: 'Valid game type is required' });
@@ -87,11 +88,11 @@ app.post('/api/tournaments', async (req, res) => {
     return res.status(400).json({ error: 'A tournament with this name already exists' });
   }
   const id = uuidv4();
-  const tournament = new TournamentManager(id, name, gameType as GameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints);
+  const tournament = new TournamentManager(id, name, gameType as GameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode);
   tournaments.set(id, tournament);
   await redisClient.sAdd('tournaments:list', id);
   await saveState(id);
-  res.json({ id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints });
+  res.json({ id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, isTeamBased: tournament.isTeamBased });
 });
 
 // Delete a tournament
@@ -137,6 +138,11 @@ app.post('/api/tournaments/import', async (req, res) => {
         tournament.matches = importData.matches || [];
         tournament.bracketMatches = importData.bracketMatches || [];
         tournament.state = importData.state || 'setup';
+        tournament.isTeamBased = importData.isTeamBased || false;
+        tournament.teams = importData.teams || [];
+        tournament.teamPods = importData.teamPods || [];
+        tournament.teamMatches = importData.teamMatches || [];
+        tournament.teamBracketMatches = importData.teamBracketMatches || [];
         
         tournaments.set(id, tournament);
         await redisClient.sAdd('tournaments:list', id);
@@ -175,7 +181,20 @@ app.get('/api/tournament/:tournamentId/state', (req, res) => {
     mapPool: tournament.mapPool,
     groupStageRoundLimit: tournament.groupStageRoundLimit,
     playoffsRoundLimit: tournament.playoffsRoundLimit,
-    useCustomPoints: tournament.useCustomPoints
+    useCustomPoints: tournament.useCustomPoints,
+    // Team tournament data
+    isTeamBased: tournament.isTeamBased,
+    teams: tournament.teams.map(t => ({
+      ...t,
+      roundDiff: t.roundsWon - t.roundsLost,
+      members: t.playerIds // Alias for frontend compatibility
+    })),
+    teamPods: tournament.teamPods,
+    teamMatches: tournament.teamMatches,
+    teamBracketMatches: tournament.teamBracketMatches,
+    championTeam: tournament.getChampionTeam(),
+    // Player statistics (for team tournaments with K/D tracking)
+    playerStatistics: tournament.isTeamBased ? Object.fromEntries(tournament.getPlayerStatistics()) : {}
   });
 });
 
@@ -227,7 +246,12 @@ app.post('/api/tournament/:tournamentId/brackets', async (req, res) => {
     const tournament = tournaments.get(tournamentId);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     try {
-        tournament.generateBrackets();
+        // Automatically detect team vs solo tournament and call appropriate method
+        if (tournament.isTeamBased) {
+            tournament.generateTeamBrackets();
+        } else {
+            tournament.generateBrackets();
+        }
         await saveState(tournamentId);
         res.json({ success: true });
     } catch (e: any) {
@@ -372,6 +396,206 @@ app.delete('/api/tournament/:tournamentId/player/:playerId', async (req, res) =>
   } catch (e: any) {
     res.status(400).json({ error: e.message });
   }
+});
+
+// ========================================
+// TEAM TOURNAMENT API ENDPOINTS
+// ========================================
+
+// Get available team games
+app.get('/api/team-games', (req, res) => {
+  res.json(getTeamModeGames());
+});
+
+// Add a team to a tournament
+app.post('/api/tournament/:tournamentId/teams', async (req, res) => {
+  const { tournamentId } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  const { name, playerIds, logo } = req.body;
+  if (!name) return res.status(400).json({ error: 'Team name is required' });
+  if (!playerIds || !Array.isArray(playerIds) || playerIds.length === 0) {
+    return res.status(400).json({ error: 'At least one player is required' });
+  }
+  
+  try {
+    const team = tournament.addTeam(name, playerIds, logo);
+    await saveState(tournamentId);
+    res.json(team);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Update a team
+app.put('/api/tournament/:tournamentId/team/:teamId', async (req, res) => {
+  const { tournamentId, teamId } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  const { name, playerIds, logo } = req.body;
+  
+  try {
+    const team = tournament.updateTeam(teamId, { name, playerIds, logo });
+    await saveState(tournamentId);
+    res.json(team);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Remove a team
+app.delete('/api/tournament/:tournamentId/team/:teamId', async (req, res) => {
+  const { tournamentId, teamId } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  try {
+    tournament.removeTeam(teamId);
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Update team logo
+app.put('/api/tournament/:tournamentId/team/:teamId/logo', async (req, res) => {
+  const { tournamentId, teamId } = req.params;
+  const { logo } = req.body;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  try {
+    tournament.updateTeam(teamId, { logo });
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Start team group stage
+app.post('/api/tournament/:tournamentId/start-team', async (req, res) => {
+  const { tournamentId } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  try {
+    tournament.startTeamGroupStage();
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Submit team match result (group stage)
+app.post('/api/tournament/:tournamentId/team-match/:id', async (req, res) => {
+  const { tournamentId, id } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  const { team1Score, team2Score, games } = req.body;
+  
+  try {
+    tournament.submitTeamMatchResult(id, team1Score, team2Score, games);
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Generate team brackets
+app.post('/api/tournament/:tournamentId/team-brackets', async (req, res) => {
+  const { tournamentId } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  try {
+    tournament.generateTeamBrackets();
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Submit team bracket winner
+app.post('/api/tournament/:tournamentId/team-bracket-match/:id', async (req, res) => {
+  const { tournamentId, id } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  const { winnerId } = req.body;
+  
+  try {
+    tournament.submitTeamBracketWinner(id, winnerId);
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Submit a single game result for team bracket match (BO3/BO5)
+app.post('/api/tournament/:tournamentId/team-bracket-match/:id/game', async (req, res) => {
+  const { tournamentId, id } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  const { gameNumber, mapName, team1Score, team2Score, winnerTeamId, playerStats } = req.body;
+  
+  try {
+    const gameResult: TeamGameResult = {
+      gameNumber,
+      mapName,
+      team1Score,
+      team2Score,
+      winnerTeamId,
+      playerStats: playerStats || []
+    };
+    tournament.submitTeamBracketGameResult(id, gameResult);
+    await saveState(tournamentId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Get player statistics for team tournament
+app.get('/api/tournament/:tournamentId/player-stats', (req, res) => {
+  const { tournamentId } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  if (!tournament.isTeamBased) {
+    return res.status(400).json({ error: 'Player stats only available for team tournaments' });
+  }
+  
+  const stats = tournament.getPlayerStatistics();
+  // Convert Map to array of objects for JSON
+  const statsArray = Array.from(stats.entries()).map(([playerId, data]) => ({
+    playerId,
+    ...data
+  }));
+  
+  res.json(statsArray);
+});
+
+// Get team rankings
+app.get('/api/tournament/:tournamentId/team-rankings', (req, res) => {
+  const { tournamentId } = req.params;
+  const tournament = tournaments.get(tournamentId);
+  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  
+  if (!tournament.isTeamBased) {
+    return res.status(400).json({ error: 'Team rankings only available for team tournaments' });
+  }
+  
+  res.json(tournament.getTeamRankings());
 });
 
 // Serve static files from the Svelte app build

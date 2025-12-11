@@ -21,6 +21,7 @@
   let groupStageRoundLimit = $state<number>(16);
   let playoffsRoundLimit = $state<number>(10);
   let useCustomPoints = $state(false);
+  let teamMode = $state(false);
   let showCreateForm = $state(false);
   let importing = $state(false);
   
@@ -93,6 +94,9 @@
     // Pass round limits for rounds-based games (cs16, rtcw, wolfet)
     const isRoundsBased = GAME_CONFIGS[selectedGameType].defaultArchetype === 'rounds';
     
+    // Check if team mode should be passed
+    const supportsTeamMode = GAME_CONFIGS[selectedGameType].supportsTeamMode === true;
+    
     try {
       const result = await createTournament(
         newTournamentName.trim(), 
@@ -100,7 +104,8 @@
         mapPool,
         isRoundsBased ? groupStageRoundLimit : undefined,
         isRoundsBased ? playoffsRoundLimit : undefined,
-        useCustomPoints
+        useCustomPoints,
+        supportsTeamMode && teamMode ? true : undefined
       );
       newTournamentName = '';
       selectedGameType = 'cs16';
@@ -110,6 +115,7 @@
       groupStageRoundLimit = 16;
       playoffsRoundLimit = 10;
       useCustomPoints = false;
+      teamMode = false;
       showCreateForm = false;
       await loadTournaments();
 
@@ -315,7 +321,7 @@
               Create
             </button>
             <button
-              onclick={() => { showCreateForm = false; newTournamentName = ''; selectedGameType = 'cs16'; map1 = ''; map2 = ''; map3 = ''; useCustomPoints = false; }}
+              onclick={() => { showCreateForm = false; newTournamentName = ''; selectedGameType = 'cs16'; map1 = ''; map2 = ''; map3 = ''; useCustomPoints = false; teamMode = false; }}
               class="bg-gray-600 hover:bg-gray-500 text-white font-bold px-4 py-2 text-sm rounded-lg transition-all duration-300"
             >
               Cancel
@@ -369,6 +375,26 @@
                 </p>
               </div>
             </div>
+
+            <!-- Team Mode Toggle (only for games that support it) -->
+            {#if GAME_CONFIGS[selectedGameType].supportsTeamMode}
+              <div class="flex items-center gap-3">
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" bind:checked={teamMode} class="sr-only peer" />
+                  <div class="w-9 h-5 bg-space-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-brand-purple/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-purple"></div>
+                </label>
+                <div>
+                  <span class="text-sm text-gray-300">Team Tournament</span>
+                  <p class="text-xs text-gray-500">
+                    {#if teamMode}
+                      Teams compete ({GAME_CONFIGS[selectedGameType].minTeamSize}-{GAME_CONFIGS[selectedGameType].maxTeamSize} players per team)
+                    {:else}
+                      1v1 individual matches
+                    {/if}
+                  </p>
+                </div>
+              </div>
+            {/if}
 
             <!-- Round Limits for rounds-based games -->
             {#if GAME_CONFIGS[selectedGameType].defaultArchetype === 'rounds' && !useCustomPoints}
@@ -468,6 +494,16 @@
                         {GAME_CONFIGS[tournament.gameType as GameType].shortName}
                       </div>
                     {/if}
+                    <!-- Team/1v1 indicator -->
+                    <div class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold {tournament.isTeamBased ? 'bg-brand-orange/20 text-brand-orange' : 'bg-brand-purple/20 text-brand-purple'}">
+                      {#if tournament.isTeamBased}
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
+                        TEAM
+                      {:else}
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                        1v1
+                      {/if}
+                    </div>
                   </div>
                 </div>
 
@@ -538,6 +574,16 @@
                         {GAME_CONFIGS[tournament.gameType as GameType].shortName}
                       </div>
                     {/if}
+                    <!-- Team/1v1 indicator -->
+                    <div class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold {tournament.isTeamBased ? 'bg-brand-orange/20 text-brand-orange' : 'bg-brand-purple/20 text-brand-purple'}">
+                      {#if tournament.isTeamBased}
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
+                        TEAM
+                      {:else}
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                        1v1
+                      {/if}
+                    </div>
                   </div>
                 </div>
 

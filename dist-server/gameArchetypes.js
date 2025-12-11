@@ -61,6 +61,21 @@ export const SCORE_ARCHETYPES = {
         requiresMaxScore: false,
         statLabel: 'Total Points',
         statLabelShort: 'Points'
+    },
+    'team-rounds': {
+        id: 'team-rounds',
+        name: 'Team Rounds',
+        description: 'Team-based round game (e.g., CS 5v5) with player K/D tracking',
+        scoreLabel: 'Rounds Won',
+        tiesPossible: true,
+        loserHasScore: true,
+        higherIsBetter: true,
+        requiresMaxScore: true,
+        defaultMaxScore: 16,
+        statLabel: 'Total Rounds Won',
+        statLabelShort: 'Rounds',
+        isTeamBased: true,
+        trackPlayerStats: true
     }
 };
 export function getArchetypeConfig(archetype) {

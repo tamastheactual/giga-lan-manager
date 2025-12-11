@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, submitMatch, generateBrackets, updateGroupName, resetGroupData, resetTournament, type GameType, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
+  import { getState, submitMatch, submitTeamMatchResult, generateBrackets, updateGroupName, resetGroupData, resetTournament, type GameType, GAME_CONFIGS, getEffectiveArchetype, type TeamGameResult, type PlayerGameStats } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
+  import { getTeamImageUrl } from '$lib/teamImages';
   import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
   import Footer from '../components/Footer.svelte';
 
   let { tournamentId } = $props<{ tournamentId: string }>();
 
+  let isLoading = $state(true);
   let pods = $state([]) as any[];
   let matches = $state([]) as any[];
   let players = $state([]) as any[];
@@ -17,9 +19,23 @@
   let groupStageRoundLimit = $state<number | undefined>(undefined);
   let useCustomPoints = $state(false);
 
+  // Team tournament support
+  let isTeamBased = $state(false);
+  let teams = $state([]) as any[];
+  let teamPods = $state([]) as any[];
+  let teamMatches = $state([]) as any[];
+  // Aggregated player statistics (K/D) from server
+  let playerStatistics = $state({}) as Record<string, { kills: number; deaths: number; kdRatio: number; gamesPlayed: number }>;
+
   // Score-based input state (player1Score, player2Score per match)
   let matchScores = $state({}) as Record<string, { player1Score: number; player2Score: number }>;
   let matchMaps = $state({}) as Record<string, string>; // Selected map per match
+  
+  // Player stats tracking for team matches (K/D per player per match)
+  let matchPlayerStats = $state({}) as Record<string, Record<string, { kills: number; deaths: number }>>;
+  // Expanded match for showing player stats
+  let expandedMatchId = $state<string | null>(null);
+  
   // Group editing state
   let editingGroupId = $state(null) as string | null;
   let editingGroupName = $state('');
@@ -122,22 +138,44 @@
   }
 
   function getGroupDisplayName(groupId: string) {
+    if (isTeamBased) {
+      const pod = teamPods.find((p: any) => p.id === groupId);
+      return pod?.name || `Group ${groupId}`;
+    }
     const pod = pods.find(p => p.id === groupId);
     return pod?.name || `Group ${groupId}`;
   }
   
-  // Reactive derived values using $derived
-  let currentRoundMatches = $derived(getMatchesForRound(currentRound));
-  let groupsWithPlayers = $derived(getGroupsWithPlayers());
-  let availableRounds = $derived([...new Set(matches.map(m => m.round))].sort((a, b) => a - b));
+  // Reactive derived values using $derived.by for proper reactivity with state arrays
+  let currentRoundMatches = $derived.by(() => {
+    if (isTeamBased) {
+      return teamMatches.filter((m: any) => m.round === currentRound);
+    }
+    return matches.filter(m => m.round === currentRound);
+  });
+  let groupsWithPlayers = $derived.by(() => isTeamBased ? getGroupsWithTeams() : getGroupsWithPlayers());
+  // Get available rounds with fallback to [1] if empty
+  let availableRounds = $derived.by(() => {
+    const matchList = isTeamBased ? teamMatches : matches;
+    const rounds = [...new Set(matchList.map((m: any) => m.round))].sort((a, b) => a - b);
+    return rounds.length > 0 ? rounds : [1];
+  });
+  
+  // Check if this is a 2-participant tournament that skipped group stage
+  let hasNoGroupStage = $derived.by(() => {
+    const participantCount = isTeamBased ? teams.length : players.length;
+    const podsEmpty = isTeamBased ? teamPods.length === 0 : pods.length === 0;
+    return participantCount === 2 && podsEmpty;
+  });
   
   // Debug logging with $effect
   $effect(() => {
     console.log('[Groups] Reactive update - currentRound:', currentRound);
-    console.log('[Groups] Reactive update - matches count:', matches.length);
+    console.log('[Groups] Reactive update - matches count:', isTeamBased ? teamMatches.length : matches.length);
     console.log('[Groups] Reactive update - currentRoundMatches count:', currentRoundMatches.length);
     console.log('[Groups] Reactive update - matchScores:', matchScores);
-    console.log('[Groups] Reactive update - pods:', pods.length);
+    console.log('[Groups] Reactive update - pods:', isTeamBased ? teamPods.length : pods.length);
+    console.log('[Groups] Reactive update - isTeamBased:', isTeamBased);
   });
 
   // Track if we've done initial auto-advance
@@ -145,11 +183,13 @@
 
   // Auto-advance to the first incomplete round on initial load only
   $effect(() => {
-    if (!hasAutoAdvanced && matches.length > 0) {
+    const matchList = isTeamBased ? teamMatches : matches;
+    if (!hasAutoAdvanced && matchList.length > 0) {
       // Find the first incomplete round
       const maxRound = Math.max(...availableRounds);
       for (let round = 1; round <= maxRound; round++) {
-        if (!isRoundComplete(round)) {
+        const roundComplete = isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round);
+        if (!roundComplete) {
           if (round !== currentRound) {
             console.log(`[Groups] Initial load: advancing to first incomplete round ${round}`);
             currentRound = round;
@@ -172,7 +212,12 @@
       mapPoolLength: data.mapPool?.length || 0,
       useCustomPoints: data.useCustomPoints,
       groupStageRoundLimit: data.groupStageRoundLimit,
-      gameType: data.gameType
+      gameType: data.gameType,
+      isTeamBased: data.isTeamBased,
+      teamsCount: data.teams?.length || 0,
+      teamPodsCount: data.teamPods?.length || 0,
+      teamMatchesCount: data.teamMatches?.length || 0,
+      playerStatisticsCount: Object.keys(data.playerStatistics || {}).length
     });
 
     // With $state, direct assignment triggers reactivity
@@ -184,18 +229,67 @@
     mapPool = data.mapPool || [];
     groupStageRoundLimit = data.groupStageRoundLimit;
     useCustomPoints = data.useCustomPoints || false;
+    
+    // Team tournament data
+    isTeamBased = data.isTeamBased || false;
+    teams = data.teams || [];
+    teamPods = data.teamPods || [];
+    teamMatches = data.teamMatches || [];
+    playerStatistics = data.playerStatistics || {};
 
-    // Initialize scores from existing results
-    matches.forEach(m => {
-        if (m.result) {
-            // Try to get stored scores, or calculate from points
+    // For team tournaments, use teamMatches for score initialization
+    const matchesToInit = isTeamBased ? teamMatches : matches;
+    
+    // Initialize scores from existing results, but preserve user-entered scores for incomplete matches
+    matchesToInit.forEach((m: any) => {
+        const existingScore = matchScores[m.id];
+        const hasUserInput = existingScore && (existingScore.player1Score > 0 || existingScore.player2Score > 0);
+        
+        if (isTeamBased) {
+            // Team matches store scores directly
+            // Only update if match is completed OR user hasn't entered anything yet
+            if (m.completed || !hasUserInput) {
+                matchScores[m.id] = {
+                    player1Score: m.team1Score ?? 0,
+                    player2Score: m.team2Score ?? 0
+                };
+            }
+            // Initialize player stats for team matches - preserve user input for incomplete matches
+            const existingPlayerStats = matchPlayerStats[m.id];
+            const hasPlayerStatsInput = existingPlayerStats && Object.values(existingPlayerStats).some((s: any) => s.kills > 0 || s.deaths > 0);
+            
+            if (!existingPlayerStats || (m.completed && !hasPlayerStatsInput)) {
+              const team1 = teams.find((t: any) => t.id === m.team1Id);
+              const team2 = teams.find((t: any) => t.id === m.team2Id);
+              const allMembers = [...(team1?.members || []), ...(team2?.members || [])];
+              const stats: Record<string, { kills: number; deaths: number }> = {};
+              allMembers.forEach((pid: string) => {
+                stats[pid] = { kills: 0, deaths: 0 };
+              });
+              // If match has games with playerStats, load them
+              if (m.games && m.games[0]?.playerStats) {
+                m.games[0].playerStats.forEach((ps: any) => {
+                  if (stats[ps.playerId]) {
+                    stats[ps.playerId] = { kills: ps.kills || 0, deaths: ps.deaths || 0 };
+                  }
+                });
+              }
+              matchPlayerStats[m.id] = stats;
+            }
+        } else if (m.result) {
+            // Individual matches use result object - always load from completed results
             const p1Result = m.result[m.player1Id];
             const p2Result = m.result[m.player2Id];
             matchScores[m.id] = {
                 player1Score: p1Result?.score ?? (p1Result?.points === 3 ? 16 : p1Result?.points === 1 ? 15 : 0),
                 player2Score: p2Result?.score ?? (p2Result?.points === 3 ? 16 : p2Result?.points === 1 ? 15 : 0)
             };
+        } else if (!hasUserInput) {
+            // No result yet and no user input - initialize to 0
+            matchScores[m.id] = { player1Score: 0, player2Score: 0 };
         }
+        // Preserve user-entered scores for incomplete matches (don't overwrite)
+        
         // Initialize map selection from match data
         if (m.mapName) {
             matchMaps[m.id] = m.mapName;
@@ -204,6 +298,17 @@
 
     console.log('[Groups] loadState() complete - matchScores:', matchScores);
     console.log('[Groups] loadState() complete - mapPool:', mapPool);
+    
+    // Ensure currentRound is valid after loading
+    const loadedMatches = isTeamBased ? teamMatches : matches;
+    if (loadedMatches.length > 0) {
+      const rounds = [...new Set(loadedMatches.map((m: any) => m.round))].sort((a: number, b: number) => a - b);
+      if (!rounds.includes(currentRound) && rounds.length > 0) {
+        currentRound = rounds[0];
+      }
+    }
+    
+    isLoading = false;
   }
 
   function getPlayerName(id: string) {
@@ -212,6 +317,62 @@
 
   function getPlayer(id: string) {
     return players.find(p => p.id === id);
+  }
+  
+  // Team helper functions
+  function getTeamName(id: string) {
+    return teams.find((t: any) => t.id === id)?.name || 'Unknown Team';
+  }
+  
+  function getTeam(id: string) {
+    return teams.find((t: any) => t.id === id);
+  }
+  
+  function getTeamPlayers(teamId: string): any[] {
+    const team = getTeam(teamId);
+    if (!team || !team.members) return [];
+    return team.members.map((pid: string) => players.find(p => p.id === pid)).filter(Boolean);
+  }
+  
+  function getPlayerStats(playerId: string) {
+    return playerStatistics[playerId] || { kills: 0, deaths: 0, kdRatio: 0, gamesPlayed: 0 };
+  }
+  
+  function getMatchPlayers(match: any): { team1Players: any[], team2Players: any[] } {
+    return {
+      team1Players: getTeamPlayers(match.team1Id),
+      team2Players: getTeamPlayers(match.team2Id)
+    };
+  }
+  
+  function initPlayerStatsForMatch(matchId: string, match: any) {
+    if (matchPlayerStats[matchId]) return;
+    
+    const { team1Players, team2Players } = getMatchPlayers(match);
+    const stats: Record<string, { kills: number; deaths: number }> = {};
+    
+    [...team1Players, ...team2Players].forEach(p => {
+      stats[p.id] = { kills: 0, deaths: 0 };
+    });
+    
+    matchPlayerStats[matchId] = stats;
+  }
+  
+  // Helper to update player K/D with clamping (max 999)
+  function updatePlayerKD(matchId: string, playerId: string, stat: 'kills' | 'deaths', value: number) {
+    if (!matchPlayerStats[matchId]) matchPlayerStats[matchId] = {};
+    if (!matchPlayerStats[matchId][playerId]) matchPlayerStats[matchId][playerId] = { kills: 0, deaths: 0 };
+    const clamped = Math.max(0, Math.min(999, value || 0));
+    matchPlayerStats[matchId][playerId][stat] = clamped;
+  }
+  
+  function getTeamMatchesForRound(round: number) {
+    return teamMatches.filter((m: any) => m.round === round);
+  }
+  
+  function isTeamRoundComplete(round: number) {
+    const roundMatches = getTeamMatchesForRound(round);
+    return roundMatches.length > 0 && roundMatches.every((m: any) => m.completed);
   }
 
   function getMatchForPod(podId: string) {
@@ -295,9 +456,6 @@
       return false;
     }
     
-    // For games that don't allow ties, scores must be different
-    if (!tieAllowed && player1Score === player2Score) return false;
-    
     // Only enforce strict round rules for rounds-based games (CS, RtCW, Wolf:ET)
     // When useCustomPoints is true, isRoundsBased is false, so this won't run
     if (isRoundsBased) {
@@ -311,10 +469,15 @@
         // Player 2 wins - must have exactly winScore, loser max winScore-1
         if (player2Score !== winScore || player1Score > maxLoserScore) return false;
       } else {
-        // Tie - only valid at maxLoserScore-maxLoserScore
+        // Tie - only valid at maxLoserScore-maxLoserScore (e.g., 15-15 for MR15)
         if (player1Score !== maxLoserScore || player2Score !== maxLoserScore) return false;
       }
+      return true;
     }
+    
+    // For non-rounds games: just check that ties are allowed if scores are equal
+    if (!tieAllowed && player1Score === player2Score) return false;
+    
     return true;
   }
 
@@ -330,11 +493,7 @@
       return 'Please select a map';
     }
     
-    if (!tieAllowed && player1Score === player2Score) {
-      return 'Ties not allowed - scores must be different';
-    }
-    
-    // Only enforce strict round rules for rounds-based games
+    // Only enforce strict round rules for rounds-based games (applies to both solo and team)
     if (isRoundsBased) {
       const winScore = maxScore || 16;
       const maxLoserScore = winScore - 1;
@@ -356,6 +515,12 @@
       } else if (player1Score !== maxLoserScore || player2Score !== maxLoserScore) {
         return `Ties only valid at ${maxLoserScore}-${maxLoserScore}`;
       }
+      return null;
+    }
+    
+    // For non-rounds games, just check tie rules
+    if (!tieAllowed && player1Score === player2Score) {
+      return 'Ties not allowed - scores must be different';
     }
     
     return null;
@@ -393,6 +558,44 @@
       console.log('[Groups] submitMatchResult - match submitted, reloading state');
       await loadState();
       console.log('[Groups] submitMatchResult complete');
+  }
+  
+  // Submit team match result with player K/D stats
+  async function submitTeamMatch(matchId: string, match: any) {
+    console.log('[Groups] submitTeamMatch called:', matchId);
+    const scores = matchScores[matchId];
+    if (!scores) return;
+    
+    const { player1Score: team1Score, player2Score: team2Score } = scores;
+    
+    // Gather player stats
+    const stats = matchPlayerStats[matchId] || {};
+    const playerStats: PlayerGameStats[] = Object.entries(stats).map(([playerId, s]) => ({
+      playerId,
+      kills: s.kills || 0,
+      deaths: s.deaths || 0
+    }));
+    
+    // Create a game result for this match
+    const selectedMap = matchMaps[matchId];
+    const game: TeamGameResult = {
+      gameNumber: 1,
+      mapName: selectedMap || undefined,
+      team1Score,
+      team2Score,
+      winnerTeamId: team1Score > team2Score ? match.team1Id : (team2Score > team1Score ? match.team2Id : ''),
+      playerStats
+    };
+    
+    try {
+      await submitTeamMatchResult(tournamentId, matchId, team1Score, team2Score, [game]);
+      console.log('[Groups] submitTeamMatch - submitted, reloading state');
+      expandedMatchId = null;
+      await loadState();
+    } catch (error: any) {
+      console.error('[Groups] Error submitting team match:', error);
+      showError(error.message || 'Failed to submit team match result');
+    }
   }
 
   function handleGenerateBrackets() {
@@ -457,6 +660,42 @@
     return groups;
   }
 
+  // Group teams by their pod/group (for team tournaments)
+  function getGroupsWithTeams() {
+    // For team tournaments, teamPods contain the groups
+    const groups: Record<string, any[]> = {};
+    
+    console.log('[Groups] getGroupsWithTeams - teamPods:', teamPods);
+    
+    teamPods.forEach((pod: any) => {
+      const groupKey = pod.id;
+      if (!groups[groupKey]) groups[groupKey] = [];
+      
+      // Get teams directly from pod.teams
+      pod.teams?.forEach((teamId: string) => {
+        const team = getTeam(teamId);
+        if (team && !groups[groupKey].find((t: any) => t.id === teamId)) {
+          groups[groupKey].push(team);
+        }
+      });
+    });
+    
+    console.log('[Groups] getGroupsWithTeams - groups:', groups);
+    
+    // Sort teams within each group by standings
+    Object.keys(groups).forEach(key => {
+      groups[key].sort((a, b) => {
+        if ((b.points || 0) !== (a.points || 0)) return (b.points || 0) - (a.points || 0);
+        // Tiebreaker: round difference
+        if ((b.roundDiff || 0) !== (a.roundDiff || 0)) return (b.roundDiff || 0) - (a.roundDiff || 0);
+        if ((b.wins || 0) !== (a.wins || 0)) return (b.wins || 0) - (a.wins || 0);
+        return 0;
+      });
+    });
+    
+    return groups;
+  }
+
   onMount(loadState);
 </script>
 
@@ -478,7 +717,7 @@
         </div>
       </div>
       
-      {#if tournamentState === 'group' && matches.every(m => m.completed)}
+      {#if tournamentState === 'group' && (isTeamBased ? teamMatches.every((m: any) => m.completed) : matches.every(m => m.completed))}
         <button 
           onclick={handleGenerateBrackets}
           class="bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold text-xs py-1.5 px-4 rounded-lg shadow-glow-orange hover:scale-105 transition-transform flex items-center gap-1.5"
@@ -488,6 +727,32 @@
         </button>
       {/if}
     </div>
+    
+    <!-- No Group Stage Message (for 2-participant tournaments) -->
+    {#if hasNoGroupStage}
+      <div class="glass rounded-xl p-8 text-center">
+        <div class="flex flex-col items-center gap-4">
+          <div class="w-16 h-16 rounded-full bg-brand-cyan/20 flex items-center justify-center">
+            <svg class="w-8 h-8 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-xl font-bold text-white mb-2">No Group Stage</h2>
+            <p class="text-gray-400 mb-4">
+              With only 2 {isTeamBased ? 'teams' : 'players'}, the tournament goes directly to the Grand Final!
+            </p>
+            <a 
+              href={`/tournament/${tournamentId}/brackets`}
+              class="inline-flex items-center gap-2 bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold py-2 px-6 rounded-lg hover:scale-105 transition-transform"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Go to Playoffs
+            </a>
+          </div>
+        </div>
+      </div>
+    {:else}
 
     <!-- Round Progress -->
     <div class="glass rounded-lg p-2 mb-3">
@@ -497,8 +762,8 @@
             onclick={() => currentRound = round}
             class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded {currentRound === round ? 'bg-brand-cyan/20 text-brand-cyan' : 'text-gray-500 hover:bg-space-700'} transition-all"
           >
-            <div class="w-6 h-6 rounded-full border {isRoundComplete(round) ? 'bg-brand-cyan border-brand-cyan text-space-900' : currentRound === round ? 'border-brand-cyan' : 'border-gray-600'} flex items-center justify-center font-bold text-xs">
-              {#if isRoundComplete(round)}
+            <div class="w-6 h-6 rounded-full border {(isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round)) ? 'bg-brand-cyan border-brand-cyan text-space-900' : currentRound === round ? 'border-brand-cyan' : 'border-gray-600'} flex items-center justify-center font-bold text-xs">
+              {#if isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round)}
                 <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
               {:else}
                 {round}
@@ -571,42 +836,74 @@
                 </svg>
               </button>
             </div>
-            <table class="w-full text-xs">
+            <table class="w-full {isTeamBased ? 'text-sm' : 'text-xs'}">
               <thead>
-                <tr class="border-b border-space-600">
-                  <th class="text-left py-1 px-1 text-gray-400 font-bold text-xs">#</th>
-                  <th class="text-left py-1 px-1 text-gray-400 font-bold text-xs">Player</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">P</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">W</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">D</th>
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">L</th>
+                <tr class="{isTeamBased ? 'bg-space-700/50' : ''} border-b border-space-500">
+                  <th class="text-left py-2 px-2 text-gray-300 font-bold {isTeamBased ? 'text-sm' : 'text-xs'}">#</th>
+                  <th class="text-left py-2 px-2 text-gray-300 font-bold {isTeamBased ? 'text-sm' : 'text-xs'}">{isTeamBased ? 'Team' : 'Player'}</th>
+                  <th class="text-center py-2 px-2 text-gray-300 font-bold {isTeamBased ? 'text-sm' : 'text-xs'}">P</th>
+                  <th class="text-center py-2 px-2 text-gray-300 font-bold {isTeamBased ? 'text-sm' : 'text-xs'}">W</th>
+                  <th class="text-center py-2 px-2 text-gray-300 font-bold {isTeamBased ? 'text-sm' : 'text-xs'}">D</th>
+                  <th class="text-center py-2 px-2 text-gray-300 font-bold {isTeamBased ? 'text-sm' : 'text-xs'}">L</th>
                   {#if !isWinOnly}
-                    <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs" title="{scoreLabel} - Tiebreaker">{scoreLabelShort}</th>
+                    <th class="text-center py-2 px-2 text-gray-300 font-bold {isTeamBased ? 'text-sm' : 'text-xs'}" title="{scoreLabel} - Tiebreaker">{isTeamBased ? 'RD' : scoreLabelShort}</th>
                   {/if}
-                  <th class="text-center py-1 px-1 text-gray-400 font-bold text-xs">Pts</th>
+                  <th class="text-center py-2 px-2 text-gray-300 font-bold {isTeamBased ? 'text-sm' : 'text-xs'}">Pts</th>
                 </tr>
               </thead>
               <tbody>
-                {#each groupPlayers as player, index (player.id)}
-                  <tr class="border-b border-space-700/50 hover:bg-space-700/30 transition-colors">
-                    <td class="py-1 px-1">
-                      <div class="w-4 h-4 rounded-full flex items-center justify-center font-bold text-xs {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900' : index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' : 'bg-space-600 text-gray-400'}">
+                {#each groupPlayers as entity, index (entity.id)}
+                  <tr class="{isTeamBased ? 'border-b border-space-500' : 'border-b border-space-700/50'} hover:bg-space-700/30 transition-colors {index === 0 && isTeamBased ? 'bg-gradient-to-r from-yellow-500/10 to-transparent' : index === 1 && isTeamBased ? 'bg-gradient-to-r from-gray-400/10 to-transparent' : ''}">
+                    <td class="py-2 px-2">
+                      <div class="{isTeamBased ? 'w-6 h-6 text-sm' : 'w-4 h-4 text-xs'} rounded-full flex items-center justify-center font-bold {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900 shadow-lg shadow-yellow-500/30' : index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' : index === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-800 text-white' : 'bg-space-600 text-gray-400'}">
                         {index + 1}
                       </div>
                     </td>
-                    <td class="py-1 px-1 font-bold text-white text-xs flex items-center gap-2">
-                      <img src={getPlayerImageUrl(player.name)} alt="Profile" class="w-6 h-6 rounded-full object-cover inline-block" />
-                      {player.name}
+                    <td class="py-2 px-2 font-bold text-white {isTeamBased ? 'text-base' : 'text-xs'}">
+                      <div class="flex items-center gap-2">
+                        {#if isTeamBased}
+                          <img src={getTeamImageUrl(entity)} alt="{entity.name}" class="w-8 h-8 rounded-lg object-cover border-2 border-brand-purple/50 shadow-md flex-shrink-0" />
+                        {:else}
+                          <img src={getPlayerImageUrl(entity.name)} alt="Profile" class="w-6 h-6 rounded-full object-cover inline-block" />
+                        {/if}
+                        <span class="{isTeamBased ? 'font-bold' : ''}">{entity.name}</span>
+                      </div>
                     </td>                    
-                    <td class="text-center py-1 px-1 text-gray-400">{(player.wins || 0) + (player.draws || 0) + (player.losses || 0)}</td>
-                    <td class="text-center py-1 px-1 text-cyber-green font-bold">{player.wins || 0}</td>
-                    <td class="text-center py-1 px-1 text-yellow-500 font-bold">{player.draws || 0}</td>
-                    <td class="text-center py-1 px-1 text-red-400 font-bold">{player.losses || 0}</td>
+                    <td class="text-center py-2 px-2 text-gray-400 {isTeamBased ? 'text-base' : ''}">{(entity.wins || 0) + (entity.draws || 0) + (entity.losses || 0)}</td>
+                    <td class="text-center py-2 px-2 text-cyber-green font-bold {isTeamBased ? 'text-base' : ''}">{entity.wins || 0}</td>
+                    <td class="text-center py-2 px-2 text-yellow-500 font-bold {isTeamBased ? 'text-base' : ''}">{entity.draws || 0}</td>
+                    <td class="text-center py-2 px-2 text-red-400 font-bold {isTeamBased ? 'text-base' : ''}">{entity.losses || 0}</td>
                     {#if !isWinOnly}
-                      <td class="text-center py-1 px-1 text-brand-cyan font-bold" title="{scoreLabel}">{player.totalGameScore || 0}</td>
+                      <td class="text-center py-2 px-2 text-brand-cyan font-bold {isTeamBased ? 'text-base' : ''}" title="{scoreLabel}">{entity.totalGameScore || entity.roundDiff || 0}</td>
                     {/if}
-                    <td class="text-center py-1 px-1 text-cyber-green font-black">{player.points || 0}</td>
+                    <td class="text-center py-2 px-2 text-cyber-green font-black {isTeamBased ? 'text-lg' : ''}">{entity.points || 0}</td>
                   </tr>
+                  <!-- For team tournaments, show expanded player stats under each team -->
+                  {#if isTeamBased && entity.members}
+                    <tr class="bg-space-800/50 border-b border-space-600">
+                      <td colspan={isWinOnly ? 7 : 8} class="py-3 px-2">
+                        <div class="grid grid-cols-2 gap-2 w-full">
+                          {#each entity.members as memberId}
+                            {@const player = players.find(p => p.id === memberId)}
+                            {@const stats = getPlayerStats(memberId)}
+                            {#if player}
+                              <div class="flex items-center gap-2 bg-space-700/80 rounded-lg px-3 py-2 border border-space-500 w-full">
+                                <img src={getPlayerImageUrl(player.name)} alt="" class="w-6 h-6 rounded-full flex-shrink-0" />
+                                <span class="text-gray-200 text-sm font-medium flex-1 truncate">{player.name}</span>
+                                <span class="text-gray-400 text-xs font-medium">K/D</span>
+                                <span class="text-cyber-green font-bold text-sm">{stats.kills}</span>
+                                <span class="text-gray-500">/</span>
+                                <span class="text-red-400 font-bold text-sm">{stats.deaths}</span>
+                                {#if stats.gamesPlayed > 0}
+                                  <span class="text-brand-cyan text-xs font-semibold">({stats.kdRatio.toFixed(2)})</span>
+                                {/if}
+                              </div>
+                            {/if}
+                          {/each}
+                        </div>
+                      </td>
+                    </tr>
+                  {/if}
                 {/each}
               </tbody>
             </table>
@@ -617,10 +914,23 @@
     <!-- Matches Section -->
     <div>
       <h2 class="text-base font-bold mb-2 text-white">Round {currentRound} Matches</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      {#if isLoading}
+        <div class="text-center py-8 text-gray-400">
+          <svg class="animate-spin h-8 w-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Loading matches...
+        </div>
+      {:else if currentRoundMatches.length === 0}
+        <div class="text-center py-8 text-gray-400">No matches found for this round</div>
+      {:else}
+      <div class="grid {isTeamBased ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'} gap-3">
         {#each currentRoundMatches as match (match.id)}
-          {@const player1 = getPlayer(match.player1Id)}
-          {@const player2 = getPlayer(match.player2Id)}
+          {@const entity1 = isTeamBased ? getTeam(match.team1Id) : getPlayer(match.player1Id)}
+          {@const entity2 = isTeamBased ? getTeam(match.team2Id) : getPlayer(match.player2Id)}
+          {@const entity1Name = isTeamBased ? entity1?.name || 'Unknown Team' : entity1?.name || 'Unknown'}
+          {@const entity2Name = isTeamBased ? entity2?.name || 'Unknown Team' : entity2?.name || 'Unknown'}
           {@const status = getMatchStatus(match)}
           {@const result = getMatchResult(match.id)}
           {@const scores = matchScores[match.id] || { player1Score: 0, player2Score: 0 }}
@@ -753,12 +1063,16 @@
                   {/if}
                 </div>
 
-                <!-- Player Names Row -->
+                <!-- Player/Team Names Row -->
                 <div class="flex items-center justify-between gap-3">
-                  <!-- Player 1 Info -->
+                  <!-- Entity 1 Info -->
                   <div class="flex-1 flex items-center gap-2 {result === 'player2' ? 'opacity-50' : ''}">
-                    <img src={getPlayerImageUrl(player1?.name || 'Unknown')} alt="Profile" class="w-7 h-7 rounded-full object-cover flex-shrink-0" />
-                    <span class="font-bold text-xs text-white truncate">{player1?.name || 'Unknown'}</span>
+                    {#if !isTeamBased}
+                      <img src={getPlayerImageUrl(entity1Name)} alt="Profile" class="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                    {:else}
+                      <img src={getTeamImageUrl(entity1)} alt="{entity1Name} logo" class="w-8 h-8 rounded-lg object-cover border border-brand-purple/50 flex-shrink-0" />
+                    {/if}
+                    <span class="font-bold {isTeamBased ? 'text-sm' : 'text-xs'} text-white truncate">{entity1Name}</span>
                     {#if result === 'player1'}
                       <svg class="w-4 h-4 text-cyber-green flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
                     {/if}
@@ -767,25 +1081,135 @@
                   <!-- Spacer -->
                   <div class="w-12"></div>
                   
-                  <!-- Player 2 Info -->
+                  <!-- Entity 2 Info -->
                   <div class="flex-1 flex items-center justify-end gap-2 {result === 'player1' ? 'opacity-50' : ''}">
                     {#if result === 'player2'}
                       <svg class="w-4 h-4 text-cyber-green flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
                     {/if}
-                    <span class="font-bold text-xs text-white truncate">{player2?.name || 'Unknown'}</span>
-                    <img src={getPlayerImageUrl(player2?.name || 'Unknown')} alt="Profile" class="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                    <span class="font-bold {isTeamBased ? 'text-sm' : 'text-xs'} text-white truncate">{entity2Name}</span>
+                    {#if !isTeamBased}
+                      <img src={getPlayerImageUrl(entity2Name)} alt="Profile" class="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                    {:else}
+                      <img src={getTeamImageUrl(entity2)} alt="{entity2Name} logo" class="w-8 h-8 rounded-lg object-cover border border-brand-orange/50 flex-shrink-0" />
+                    {/if}
                   </div>
                 </div>
 
+                <!-- Player K/D Stats (always shown for team matches) -->
+                {#if isTeamBased}
+                  {@const { team1Players, team2Players } = getMatchPlayers(match)}
+                  <div class="mt-3 pt-3 border-t border-space-600">
+                    <div class="text-xs text-gray-400 mb-2 font-semibold">Player Stats (K/D)</div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <!-- Team 1 Players -->
+                      <div class="bg-brand-purple/10 rounded-lg p-2 border border-brand-purple/20">
+                        <div class="text-xs font-bold text-brand-purple mb-2 border-b border-brand-purple/20 pb-1">{entity1Name}</div>
+                        {#each team1Players as player (player.id)}
+                          <div class="flex items-center gap-2 mb-1.5">
+                            <img src={getPlayerImageUrl(player.name)} alt="" class="w-5 h-5 rounded-full flex-shrink-0" />
+                            <span class="text-xs text-gray-200 flex-1 truncate font-medium">{player.name}</span>
+                            <div class="flex items-center gap-0.5">
+                              {#if match.completed}
+                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-cyber-green font-bold">{matchPlayerStats[match.id]?.[player.id]?.kills || 0}</span>
+                                <span class="text-gray-500 font-bold">/</span>
+                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-red-400 font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
+                              {:else}
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="999"
+                                  placeholder="K"
+                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-cyber-green/30 rounded text-center text-cyber-green font-bold focus:border-cyber-green focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  value={matchPlayerStats[match.id]?.[player.id]?.kills || 0}
+                                  onchange={(e) => {
+                                    updatePlayerKD(match.id, player.id, 'kills', parseInt((e.target as HTMLInputElement).value));
+                                    (e.target as HTMLInputElement).value = String(matchPlayerStats[match.id]?.[player.id]?.kills || 0);
+                                  }}
+                                />
+                                <span class="text-gray-500 font-bold">/</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="999"
+                                  placeholder="D"
+                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  value={matchPlayerStats[match.id]?.[player.id]?.deaths || 0}
+                                  onchange={(e) => {
+                                    updatePlayerKD(match.id, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value));
+                                    (e.target as HTMLInputElement).value = String(matchPlayerStats[match.id]?.[player.id]?.deaths || 0);
+                                  }}
+                                />
+                              {/if}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                      
+                      <!-- Team 2 Players -->
+                      <div class="bg-brand-orange/10 rounded-lg p-2 border border-brand-orange/20">
+                        <div class="text-xs font-bold text-brand-orange mb-2 border-b border-brand-orange/20 pb-1">{entity2Name}</div>
+                        {#each team2Players as player (player.id)}
+                          <div class="flex items-center gap-2 mb-1.5">
+                            <img src={getPlayerImageUrl(player.name)} alt="" class="w-5 h-5 rounded-full flex-shrink-0" />
+                            <span class="text-xs text-gray-200 flex-1 truncate font-medium">{player.name}</span>
+                            <div class="flex items-center gap-0.5">
+                              {#if match.completed}
+                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-cyber-green font-bold">{matchPlayerStats[match.id]?.[player.id]?.kills || 0}</span>
+                                <span class="text-gray-500 font-bold">/</span>
+                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-red-400 font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
+                              {:else}
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="999"
+                                  placeholder="K"
+                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-cyber-green/30 rounded text-center text-cyber-green font-bold focus:border-cyber-green focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  value={matchPlayerStats[match.id]?.[player.id]?.kills || 0}
+                                  onchange={(e) => {
+                                    updatePlayerKD(match.id, player.id, 'kills', parseInt((e.target as HTMLInputElement).value));
+                                    (e.target as HTMLInputElement).value = String(matchPlayerStats[match.id]?.[player.id]?.kills || 0);
+                                  }}
+                                />
+                                <span class="text-gray-500 font-bold">/</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="999"
+                                  placeholder="D"
+                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  value={matchPlayerStats[match.id]?.[player.id]?.deaths || 0}
+                                  onchange={(e) => {
+                                    updatePlayerKD(match.id, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value));
+                                    (e.target as HTMLInputElement).value = String(matchPlayerStats[match.id]?.[player.id]?.deaths || 0);
+                                  }}
+                                />
+                              {/if}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+
                 <!-- Submit Button -->
                 {#if !match.completed && isValidScore(match.id)}
-                  <div class="mt-3 pt-3 border-t border-space-600">
-                    <button 
-                      onclick={() => submitMatchResult(match.id, match)}
-                      class="w-full bg-gradient-to-r from-brand-cyan to-cyber-blue text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
-                    >
-                      Submit Result ({scores.player1Score} - {scores.player2Score})
-                    </button>
+                  <div class="mt-2 pt-2 border-t border-space-600">
+                    {#if isTeamBased}
+                      <button 
+                        onclick={() => submitTeamMatch(match.id, match)}
+                        class="w-full bg-gradient-to-r from-brand-cyan to-cyber-blue text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
+                      >
+                        Submit Result ({scores.player1Score} - {scores.player2Score})
+                      </button>
+                    {:else}
+                      <button 
+                        onclick={() => submitMatchResult(match.id, match)}
+                        class="w-full bg-gradient-to-r from-brand-cyan to-cyber-blue text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
+                      >
+                        Submit Result ({scores.player1Score} - {scores.player2Score})
+                      </button>
+                    {/if}
                   </div>
                 {:else if !match.completed && (scores.player1Score > 0 || scores.player2Score > 0)}
                   {@const validationError = getValidationError(match.id)}
@@ -799,6 +1223,7 @@
             </div>
         {/each}
       </div>
+      {/if}
     </div>
 
     <!-- Full Tournament Reset Button -->
@@ -813,6 +1238,7 @@
         Reset Tournament Data
       </button>
     </div>
+    {/if}
   </div>
     
   <Footer />

@@ -1,6 +1,6 @@
 // Score Archetypes - defines how scoring works for different game types
 
-export type ScoreArchetype = 'rounds' | 'kills' | 'health' | 'winonly' | 'points';
+export type ScoreArchetype = 'rounds' | 'kills' | 'health' | 'winonly' | 'points' | 'team-rounds' | 'team-kills';
 
 export interface ArchetypeConfig {
   id: ScoreArchetype;
@@ -20,6 +20,10 @@ export interface ArchetypeConfig {
   // Statistics
   statLabel: string;          // Label for cumulative stats (e.g., "Total Kills")
   statLabelShort: string;     // Short label (e.g., "Kills")
+  
+  // Team game properties
+  isTeamBased?: boolean;      // Whether this archetype requires team mode
+  trackPlayerStats?: boolean; // Whether to track individual K/D
 }
 
 export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
@@ -87,6 +91,37 @@ export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
     requiresMaxScore: false,
     statLabel: 'Total Points',
     statLabelShort: 'Points'
+  },
+  
+  'team-rounds': {
+    id: 'team-rounds',
+    name: 'Team Rounds',
+    description: 'Team-based round game (e.g., CS 5v5) with player K/D tracking',
+    scoreLabel: 'Rounds Won',
+    tiesPossible: true,
+    loserHasScore: true,
+    higherIsBetter: true,
+    requiresMaxScore: true,
+    defaultMaxScore: 16,
+    statLabel: 'Total Rounds Won',
+    statLabelShort: 'Rounds',
+    isTeamBased: true,
+    trackPlayerStats: true
+  },
+  
+  'team-kills': {
+    id: 'team-kills',
+    name: 'Team Kills/Frags',
+    description: 'Team deathmatch style with player K/D tracking',
+    scoreLabel: 'Team Score',
+    tiesPossible: true,
+    loserHasScore: true,
+    higherIsBetter: true,
+    requiresMaxScore: false,
+    statLabel: 'Total Team Score',
+    statLabelShort: 'Score',
+    isTeamBased: true,
+    trackPlayerStats: true
   }
 };
 
