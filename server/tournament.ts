@@ -103,6 +103,9 @@ export class TournamentManager {
     }
 
     addPlayer(name: string): Player {
+        if (this.state !== 'registration') {
+            throw new Error("Cannot add players after the group stage has started");
+        }
         const player: Player = {
             id: uuidv4(),
             name,
@@ -747,6 +750,21 @@ export class TournamentManager {
     }
 
     // Reset group data (clear all match results for players in this group)
+    // Reset the whole tournament back to registration, clearing BOTH solo and
+    // team data. The /reset route used to clear only the solo arrays, leaving a
+    // team tournament in an inconsistent, half-wiped state.
+    reset(): void {
+        this.players = [];
+        this.pods = [];
+        this.matches = [];
+        this.bracketMatches = [];
+        this.teams = [];
+        this.teamPods = [];
+        this.teamMatches = [];
+        this.teamBracketMatches = [];
+        this.state = 'registration';
+    }
+
     resetGroupData(podId: string) {
         // Check if it's a team tournament
         if (this.isTeamBased) {

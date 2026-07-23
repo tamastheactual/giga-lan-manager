@@ -298,3 +298,26 @@ describe('playoff qualification (top-K per group)', () => {
     }
   });
 });
+
+// ---------- reset & registration guard (fixes) ----------
+describe('reset & registration guard (fixes)', () => {
+  it('reset() clears BOTH solo and team data and returns to registration', () => {
+    const t = new TournamentManager('r', 'R', 'cs16', [], undefined, undefined, undefined, true);
+    const pids: string[] = [];
+    for (let i = 1; i <= 12; i++) pids.push(t.addPlayer(`P${i}`).id);
+    for (let k = 0; k < 4; k++) t.addTeam(`Team ${k + 1}`, pids.slice(k * 3, k * 3 + 3));
+    t.startGroupStage();
+    for (const m of t.teamMatches) t.submitTeamMatchResult(m.id, 16, 10);
+    t.generateTeamBrackets();
+
+    t.reset();
+    expect(t.state).toBe('registration');
+    const allArrays = [t.players, t.teams, t.teamMatches, t.teamBracketMatches, t.teamPods, t.pods, t.matches, t.bracketMatches];
+    expect(allArrays.every((arr) => arr.length === 0)).toBe(true);
+  });
+
+  it('addPlayer is rejected once the group stage has started', () => {
+    const t = soloTournament(4); // already started
+    expect(() => t.addPlayer('Latecomer')).toThrow();
+  });
+});

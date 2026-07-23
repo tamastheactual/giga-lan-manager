@@ -299,11 +299,7 @@ app.post('/api/tournament/:tournamentId/reset', async (req, res) => {
     const { tournamentId } = req.params;
     const tournament = tournaments.get(tournamentId);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    tournament.players = [];
-    tournament.pods = [];
-    tournament.matches = [];
-    tournament.bracketMatches = [];
-    tournament.state = 'registration';
+    tournament.reset();
     await saveState(tournamentId);
     res.json({ success: true });
 });
