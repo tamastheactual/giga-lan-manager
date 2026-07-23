@@ -656,7 +656,18 @@ export class TournamentManager {
         // Ensure we don't exceed available players
         numQualified = Math.min(numQualified, rankings.length);
         
-        let qualifiedPlayers = rankings.slice(0, numQualified);
+        // Qualify the top-K from EACH group (K = the per-group count the sizing
+        // above intends) rather than a global top-N. A global slice could let a
+        // strong group's lower seed displace a weak group's higher seed and, worse,
+        // hand the bracket seeder a lop-sided qualifier set (e.g. 3 from one group,
+        // 1 from another) that dereferences an undefined seed and throws.
+        const perGroup = Math.max(1, Math.round(numQualified / numGroups));
+        const qualifiedIds = new Set<string>();
+        for (const pod of this.pods) {
+            const podRanked = rankings.filter(p => pod.players.includes(p.id));
+            for (const p of podRanked.slice(0, perGroup)) qualifiedIds.add(p.id);
+        }
+        let qualifiedPlayers = rankings.filter(p => qualifiedIds.has(p.id));
         
         // Reorder to ensure cross-group matchups in first round
         qualifiedPlayers = reorderForCrossGroupMatchups(qualifiedPlayers, numGroups, (playerId) => this.getPlayerGroup(playerId));
@@ -1169,7 +1180,14 @@ export class TournamentManager {
         if (rankings.length >= 8) numQualified = 8;
         else if (rankings.length >= 6) numQualified = 6;
 
-        const qualifiedTeams = rankings.slice(0, numQualified);
+        // Top-K from EACH group, not a global top-N (mirrors generateBrackets).
+        const perGroup = Math.max(1, Math.round(numQualified / this.teamPods.length));
+        const qualifiedTeamIds = new Set<string>();
+        for (const pod of this.teamPods) {
+            const podRanked = rankings.filter(t => pod.teams.includes(t.id));
+            for (const t of podRanked.slice(0, perGroup)) qualifiedTeamIds.add(t.id);
+        }
+        const qualifiedTeams = rankings.filter(t => qualifiedTeamIds.has(t.id));
         this.teamBracketMatches = buildTeamPlayoffBracket(qualifiedTeams, this.teams.length, this.teamPods.length);
         this.state = 'playoffs';
     }

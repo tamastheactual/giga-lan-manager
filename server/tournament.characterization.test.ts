@@ -281,3 +281,20 @@ describe('phase guards & idempotency (fixes)', () => {
     expect(() => t.startGroupStage()).toThrow();
   });
 });
+
+// ---------- qualification is per-group, not a global top-N ----------
+describe('playoff qualification (top-K per group)', () => {
+  it('advances exactly the per-group count from each pod (12 players -> 2 per pod)', () => {
+    const t = soloTournament(12); // 3 pods of 4
+    playGroups(t);
+    t.generateBrackets();
+    const qualified = new Set<string>();
+    for (const m of t.bracketMatches) {
+      if (m.player1Id) qualified.add(m.player1Id);
+      if (m.player2Id) qualified.add(m.player2Id);
+    }
+    for (const pod of t.pods) {
+      expect(pod.players.filter((pid) => qualified.has(pid)).length).toBe(2);
+    }
+  });
+});
