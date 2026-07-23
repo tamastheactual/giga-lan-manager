@@ -321,3 +321,16 @@ describe('reset & registration guard (fixes)', () => {
     expect(() => t.addPlayer('Latecomer')).toThrow();
   });
 });
+
+// ---------- image upload validation (fix #10) ----------
+describe('image upload validation', () => {
+  it('accepts asset paths and small data URLs, rejects oversized/non-image blobs', () => {
+    const t = soloTournament(4);
+    const pid = t.players[0].id;
+    expect(() => t.updatePlayerPhoto(pid, '/players/Cat.jpg')).not.toThrow();
+    expect(() => t.updatePlayerPhoto(pid, 'data:image/png;base64,AAAA')).not.toThrow();
+    expect(() => t.updatePlayerPhoto(pid, 'data:text/html;base64,AAAA')).toThrow();
+    const huge = 'data:image/png;base64,' + 'A'.repeat(3 * 1024 * 1024); // ~3 MB > 2 MB cap
+    expect(() => t.updatePlayerPhoto(pid, huge)).toThrow();
+  });
+});

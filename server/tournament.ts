@@ -6,6 +6,25 @@ import { build3PlayerFinalsBracket, buildPlayoffBracket, reorderForCrossGroupMat
 // Schema version for data migrations
 const SCHEMA_VERSION = 2;
 
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB decoded
+
+// Accept a bundled-asset path (e.g. /players/Cat.jpg) or a bounded data:image
+// URL. Rejects oversized or non-image blobs so a client cannot inflate a stored
+// record — every save serializes the whole tournament into one Redis value.
+function validateImage(value: string | undefined, field: string): void {
+    if (!value) return; // undefined/empty clears the image
+    if (value.startsWith('/')) {
+        if (value.length > 512) throw new Error(`Invalid ${field} path`);
+        return;
+    }
+    if (!/^data:image\/(png|jpe?g|webp|gif);base64,/.test(value)) {
+        throw new Error(`${field} must be a PNG, JPEG, WebP, or GIF data URL`);
+    }
+    if (value.length > Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 64) {
+        throw new Error(`${field} exceeds the ${MAX_IMAGE_BYTES / (1024 * 1024)}MB limit`);
+    }
+}
+
 export class TournamentManager {
     id: string;
     name: string;
@@ -139,6 +158,7 @@ export class TournamentManager {
         }
         
         // Check for duplicate team name
+        validateImage(logo, 'logo');
         const normalizedName = name.trim().toLowerCase();
         if (this.teams.some(t => t.name.trim().toLowerCase() === normalizedName)) {
             throw new Error(`Team name "${name}" already exists`);
@@ -206,7 +226,7 @@ export class TournamentManager {
             }
             team.name = updates.name;
         }
-        if (updates.logo !== undefined) team.logo = updates.logo;
+        if (updates.logo !== undefined) { validateImage(updates.logo, 'logo'); team.logo = updates.logo; }
         if (updates.playerIds) {
             // Validate all players exist
             for (const playerId of updates.playerIds) {
@@ -838,6 +858,7 @@ export class TournamentManager {
     updatePlayerPhoto(playerId: string, photo: string) {
         const p = this.players.find(pl => pl.id === playerId);
         if (!p) throw new Error('Player not found');
+        validateImage(photo, 'photo');
         p.profilePhoto = photo;
     }
 

@@ -118,32 +118,47 @@ app.post('/api/tournaments/import', async (req, res) => {
     try {
         const importData = req.body;
         
-        if (!importData || !importData.id || !importData.name) {
+        if (!importData || typeof importData.name !== 'string' || !importData.name.trim()) {
             return res.status(400).json({ error: 'Invalid tournament data' });
         }
         
         // Use the original ID or generate a new one if it conflicts
+        // Never trust a client-supplied Redis key: require a UUID, else mint one.
+        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         let id = importData.tournamentId || importData.id;
-        if (tournaments.has(id)) {
-            // Generate new ID if tournament with this ID already exists
+        if (typeof id !== 'string' || !UUID_RE.test(id) || tournaments.has(id)) {
             id = uuidv4();
         }
         
         // Create a new tournament manager and restore state
         const gameType = (importData.gameType || 'cs16') as GameType;
-        const tournament = new TournamentManager(id, importData.name, gameType);
-        
-        // Restore all data
-        tournament.players = importData.players || [];
-        tournament.pods = importData.pods || [];
-        tournament.matches = importData.matches || [];
-        tournament.bracketMatches = importData.bracketMatches || [];
-        tournament.state = importData.state || 'setup';
-        tournament.isTeamBased = importData.isTeamBased || false;
-        tournament.teams = importData.teams || [];
-        tournament.teamPods = importData.teamPods || [];
-        tournament.teamMatches = importData.teamMatches || [];
-        tournament.teamBracketMatches = importData.teamBracketMatches || [];
+        const tournament = new TournamentManager(
+            id,
+            importData.name,
+            gameType,
+            Array.isArray(importData.mapPool) ? importData.mapPool : [],
+            typeof importData.groupStageRoundLimit === 'number' ? importData.groupStageRoundLimit : undefined,
+            typeof importData.playoffsRoundLimit === 'number' ? importData.playoffsRoundLimit : undefined,
+            importData.useCustomPoints === true,
+            importData.isTeamBased === true,
+        );
+
+        // Restore state (validated against the allowed set) and timestamps.
+        const VALID_STATES = ['registration', 'group', 'playoffs', 'completed'];
+        tournament.state = VALID_STATES.includes(importData.state) ? importData.state : 'registration';
+        if (typeof importData.createdAt === 'string') tournament.createdAt = importData.createdAt;
+        if (typeof importData.startedAt === 'string') tournament.startedAt = importData.startedAt;
+
+        // Restore collections, guarding each against a non-array payload.
+        const asArray = (v: any) => (Array.isArray(v) ? v : []);
+        tournament.players = asArray(importData.players);
+        tournament.pods = asArray(importData.pods);
+        tournament.matches = asArray(importData.matches);
+        tournament.bracketMatches = asArray(importData.bracketMatches);
+        tournament.teams = asArray(importData.teams);
+        tournament.teamPods = asArray(importData.teamPods);
+        tournament.teamMatches = asArray(importData.teamMatches);
+        tournament.teamBracketMatches = asArray(importData.teamBracketMatches);
         
         tournaments.set(id, tournament);
         await redisClient.sAdd('tournaments:list', id);
