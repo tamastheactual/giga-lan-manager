@@ -5,10 +5,18 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import session from 'express-session';
+import crypto from 'crypto';
 
 import { TournamentManager } from './tournament.js';
 import type { Team, TeamGameResult, PlayerGameStats } from '../shared/types.js';
 import { type GameType, GAME_CONFIGS, getAllGames, supportsTeamMode, getTeamModeGames } from '../shared/gameTypes.js';
+
+declare module 'express-session' {
+    interface SessionData {
+        isAdmin?: boolean;
+    }
+}
 
 const app = express();
 const port = 3000;
@@ -51,6 +59,49 @@ const saveState = async (tournamentId: string) => {
 
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' })); 
+
+// --- Admin auth (Option A): one shared password via the ADMIN_PASSWORD env var.
+// When set, mutating requests (POST/PUT/DELETE/PATCH) require an admin login;
+// viewing (GET) stays open so players can watch. When unset, auth is disabled
+// (with a warning) so dev and existing deployments keep working unchanged.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+    console.warn('[auth] ADMIN_PASSWORD is not set — the API is OPEN (anyone on the network can modify tournaments). Set ADMIN_PASSWORD to require an admin login.');
+}
+
+app.use(session({
+    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 12 * 60 * 60 * 1000 }, // 12h
+}));
+
+app.post('/api/login', (req, res) => {
+    if (!ADMIN_PASSWORD) return res.json({ success: true }); // auth disabled
+    const { password } = req.body ?? {};
+    if (typeof password === 'string' && password === ADMIN_PASSWORD) {
+        req.session.isAdmin = true;
+        return res.json({ success: true });
+    }
+    return res.status(401).json({ error: 'Incorrect password' });
+});
+
+app.post('/api/logout', (req, res) => {
+    req.session.destroy(() => res.json({ success: true }));
+});
+
+app.get('/api/admin/status', (req, res) => {
+    res.json({ authRequired: !!ADMIN_PASSWORD, isAdmin: !ADMIN_PASSWORD || !!req.session.isAdmin });
+});
+
+// Gate every mutating API route; GET stays public.
+app.use('/api', (req, res, next) => {
+    if (!ADMIN_PASSWORD) return next();
+    if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return next();
+    if (req.path === '/login' || req.path === '/logout') return next();
+    if (req.session.isAdmin) return next();
+    return res.status(401).json({ error: 'Admin login required' });
+});
 
 // API Routes
 app.get('/api/health', (req, res) => {

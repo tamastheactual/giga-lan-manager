@@ -147,6 +147,24 @@ giga-lan-manager/
    - Navigate to [http://localhost:3000](http://localhost:3000)
    - Start creating tournaments!
 
+### Authentication (optional)
+
+By default the API is **open** — anyone who can reach it on the network can modify
+tournaments. To require an admin login for any change (viewing standings stays open
+so players can watch), set an `ADMIN_PASSWORD`:
+
+```bash
+# docker-compose (via your shell env or a .env file next to docker-compose.yml):
+ADMIN_PASSWORD='your-secret' docker-compose up --build
+
+# local dev:
+ADMIN_PASSWORD='your-secret' npm run start:server
+```
+
+Then log in at [http://localhost:3000/login](http://localhost:3000/login) (or the
+**🔒 ADMIN** link in the nav bar). Optionally set `SESSION_SECRET` to keep admin
+sessions valid across server restarts.
+
 ### Local Development Setup
 
 1. **Start Redis**:

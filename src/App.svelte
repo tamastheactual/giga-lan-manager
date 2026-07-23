@@ -5,6 +5,7 @@
   import Groups from './pages/Groups.svelte';
   import Brackets from './pages/Brackets.svelte';
   import Statistics from './pages/Statistics.svelte';
+  import Login from './pages/Login.svelte';
 
   const path = window.location.pathname;
   const pathParts = path.split('/').filter(p => p);
@@ -31,6 +32,8 @@
     <Brackets tournamentId={tournamentId!} />
   {:else if path.startsWith('/tournament/') && page === 'statistics' && tournamentId}
     <Statistics tournamentId={tournamentId!} />
+  {:else if path === '/login'}
+    <Login />
   {:else}
     <div class="text-center mt-10">
       <h1 class="text-2xl font-bold">404 Not Found</h1>

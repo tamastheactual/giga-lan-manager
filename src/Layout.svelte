@@ -1,7 +1,20 @@
 <script>
   import './app.css';
   import logoImg from './assets/logo.png';
+  import { onMount } from 'svelte';
   let { children, tournamentId } = $props();
+
+  let auth = $state({ authRequired: false, isAdmin: false });
+  onMount(async () => {
+    try {
+      const res = await fetch('/api/admin/status');
+      if (res.ok) auth = await res.json();
+    } catch (e) { /* status unavailable — leave auth hidden */ }
+  });
+  async function logout() {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.reload();
+  }
 </script>
 
 <!-- Professional Gaming Navbar -->
@@ -23,6 +36,13 @@
           <a href={`/tournament/${tournamentId}/groups`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">GROUPS</a>
           <a href={`/tournament/${tournamentId}/brackets`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">BRACKETS</a>
           <a href={`/tournament/${tournamentId}/statistics`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">STATISTICS</a>
+        {/if}
+        {#if auth.authRequired}
+          {#if auth.isAdmin}
+            <button onclick={logout} class="text-sm font-bold text-brand-orange hover:text-cyber-green transition-colors">LOGOUT</button>
+          {:else}
+            <a href="/login" class="text-sm font-bold text-brand-orange hover:text-cyber-green transition-colors">🔒 ADMIN</a>
+          {/if}
         {/if}
       </div>
     </div>
