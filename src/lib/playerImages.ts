@@ -9,7 +9,6 @@ import Benedek from '../assets/players/Benedek.jpg';
 import Balint from '../assets/players/Bálint.jpg';
 import Cat from '../assets/players/Cat.jpg';
 import Csenge from '../assets/players/Csenge.jpg';
-import Hunor from '../assets/players/Hunor.jpg';
 import Imi from '../assets/players/Imi.jpg';
 import Kaan from '../assets/players/Kaan.jpg';
 import Kristof from '../assets/players/Kristóf.jpg';
@@ -22,7 +21,6 @@ import Thausif from '../assets/players/Thausif.jpg';
 import Viktor from '../assets/players/Viktor.png';
 import Zoli from '../assets/players/Zoli.jpg';
 import Zsolt from '../assets/players/Zsolt.png';
-import Adam from '../assets/players/Ádám.jpg';
 import Aron from '../assets/players/Áron.jpg';
 import MateBorsy from '../assets/players/MateBorsy.png';
 import MateBado from '../assets/players/MateBado.png';
@@ -32,31 +30,29 @@ import IstvanCsibi from '../assets/players/IstvanCsibi.png';
 import EszterGabor from '../assets/players/EszterGabor.png';
 import CsongorErdei from '../assets/players/CsongorErdei.png';
 
-// Build a map of lowercase name -> image URL
+// Map of lowercase player name -> image URL. Keyed by the exact name the player
+// is entered as (accents included). Most are full names; Kaan is single-name.
 const playerImageMap: Record<string, string> = {
-    'arpan': Arpan,
-    'arron': Arron,
-    'balázs': Balazs,
-    'benedek': Benedek,
-    'bálint': Balint,
     'cat': Cat,
-    'csenge': Csenge,
-    'hunor': Hunor,
-    'imi': Imi,
     'kaan': Kaan,
-    'kristóf': Kristof,
-    'milán': Milan,
-    'márk': Mark,
-    'natabara': Natabara,
-    'szilárd': Szilard,
-    'tamás': Tamas,
-    'thausif': Thausif,
-    'viktor': Viktor,
-    'zoli': Zoli,
-    'zsolt': Zsolt,
-    'ádám': Adam,
-    'áron': Aron,
-    // Roster entered by full name (two Mátés can't share a name)
+    'arpan ekka': Arpan,
+    'arron pirku': Arron,
+    'nagy balázs': Balazs,
+    'janik bálint': Balint,
+    'fegyó benedek': Benedek,
+    'hubay csenge': Csenge,
+    'molnár imre': Imi,
+    'makó kristóf': Kristof,
+    'szász milán': Milan,
+    'domonkos márk': Mark,
+    'gyöngyössy natabara': Natabara,
+    'fecht szilárd': Szilard,
+    'takács tamás': Tamas,
+    'thausif rehman': Thausif,
+    'varga viktor': Viktor,
+    'barta zoltán': Zoli,
+    'csibi zsolt': Zsolt,
+    'fóthi áron': Aron,
     'máté borsy': MateBorsy,
     'máté badó': MateBado,
     'martin sallai': MartinSallai,
