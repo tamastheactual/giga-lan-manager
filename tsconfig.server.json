@@ -14,8 +14,9 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noEmit": false,
-    "allowImportingTsExtensions": false
+    "allowImportingTsExtensions": false,
+    "rootDir": "."
   },
-  "include": ["server/**/*"],
+  "include": ["server/**/*", "shared/**/*"],
   "exclude": ["server/**/*.test.ts"]
 }

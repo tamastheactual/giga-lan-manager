@@ -1,4 +1,9 @@
-// Score Archetypes - defines how scoring works for different game types
+// Score Archetypes - defines how scoring works for different game types.
+//
+// Single source of truth shared by the client (src/**, via the `$shared` Vite
+// alias) and the server (server/**, via a relative `../shared/*.js` import).
+// Do not fork this file — the two former copies (src/lib/gameArchetypes.ts and
+// server/gameArchetypes.ts) had already drifted apart.
 
 export type ScoreArchetype = 'rounds' | 'kills' | 'health' | 'winonly' | 'points' | 'team-rounds' | 'team-kills';
 
@@ -7,20 +12,20 @@ export interface ArchetypeConfig {
   name: string;
   description: string;
   scoreLabel: string;
-  
+
   // Scoring behavior
   tiesPossible: boolean;      // Can matches end in a tie?
   loserHasScore: boolean;     // Does the loser have a meaningful score? (false for winonly/health)
   higherIsBetter: boolean;    // Is higher score better? (always true for our cases)
-  
+
   // Input constraints
   requiresMaxScore: boolean;  // Does this archetype need a max score limit?
   defaultMaxScore?: number;   // Default max if required
-  
+
   // Statistics
   statLabel: string;          // Label for cumulative stats (e.g., "Total Kills")
   statLabelShort: string;     // Short label (e.g., "Kills")
-  
+
   // Team game properties
   isTeamBased?: boolean;      // Whether this archetype requires team mode
   trackPlayerStats?: boolean; // Whether to track individual K/D
@@ -40,7 +45,7 @@ export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
     statLabel: 'Total Rounds Won',
     statLabelShort: 'Rounds'
   },
-  
+
   kills: {
     id: 'kills',
     name: 'Kills/Frags',
@@ -53,7 +58,7 @@ export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
     statLabel: 'Total Kills',
     statLabelShort: 'Kills'
   },
-  
+
   health: {
     id: 'health',
     name: 'HP Remaining',
@@ -66,7 +71,7 @@ export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
     statLabel: 'Total HP Remaining',
     statLabelShort: 'HP'
   },
-  
+
   winonly: {
     id: 'winonly',
     name: 'Win/Loss Only',
@@ -79,7 +84,7 @@ export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
     statLabel: 'Total Wins',
     statLabelShort: 'Wins'
   },
-  
+
   points: {
     id: 'points',
     name: 'Custom Points',
@@ -92,7 +97,7 @@ export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
     statLabel: 'Total Points',
     statLabelShort: 'Points'
   },
-  
+
   'team-rounds': {
     id: 'team-rounds',
     name: 'Team Rounds',
@@ -108,7 +113,7 @@ export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
     isTeamBased: true,
     trackPlayerStats: true
   },
-  
+
   'team-kills': {
     id: 'team-kills',
     name: 'Team Kills/Frags',
@@ -128,46 +133,4 @@ export const SCORE_ARCHETYPES: Record<ScoreArchetype, ArchetypeConfig> = {
 // Helper to get archetype config
 export function getArchetypeConfig(archetype: ScoreArchetype): ArchetypeConfig {
   return SCORE_ARCHETYPES[archetype];
-}
-
-// Helper to check if a score is valid for the archetype
-export function isValidScore(
-  archetype: ScoreArchetype, 
-  score: number, 
-  isWinner: boolean,
-  maxScore?: number
-): boolean {
-  const config = SCORE_ARCHETYPES[archetype];
-  
-  // Score must be non-negative
-  if (score < 0) return false;
-  
-  // For winonly, we don't use scores
-  if (archetype === 'winonly') return true;
-  
-  // For health, loser must be 0 (except for 0-0 ties)
-  if (archetype === 'health' && !isWinner && score !== 0) return false;
-  
-  // Check max score if specified
-  if (maxScore !== undefined && score > maxScore) return false;
-  
-  return true;
-}
-
-// Helper to determine match result
-export function getMatchResult(
-  archetype: ScoreArchetype,
-  score1: number,
-  score2: number
-): 'player1' | 'player2' | 'tie' {
-  if (archetype === 'winonly') {
-    // For winonly, one player must be marked as winner (score 1) and loser (score 0)
-    if (score1 === 1 && score2 === 0) return 'player1';
-    if (score2 === 1 && score1 === 0) return 'player2';
-    return 'tie'; // Shouldn't happen in winonly
-  }
-  
-  if (score1 > score2) return 'player1';
-  if (score2 > score1) return 'player2';
-  return 'tie';
 }

@@ -1,6 +1,73 @@
-// Game type definitions for the tournament system
-import { SCORE_ARCHETYPES } from './gameArchetypes.js';
-export const GAME_CONFIGS = {
+// Game type definitions and per-game tournament configuration.
+//
+// Single source of truth shared by the client (src/**, via the $shared alias)
+// and the server (server/**, via a relative ../shared/*.js import). Previously
+// duplicated in server/gameTypes.ts and inlined in src/lib/api.ts; the two had
+// drifted at the interface level (the data was identical). Do not fork this file.
+
+import type { ScoreArchetype } from "./gameArchetypes.js";
+
+export type GameType = 
+  | 'cs16' 
+  | 'ut2004' 
+  | 'ut99'
+  | 'worms' 
+  | 'quake3'
+  | 'halo'
+  | 'mohaa'
+  | 'rtcw'
+  | 'wolfet'
+  | 'bf1942'
+  | 'bfvietnam'
+  | 'swbf1'
+  | 'swbf2'
+  | 'deltaforce'
+  | 'aoe2'
+  | 'warcraft3'
+  | 'stronghold'
+  | 'cncra1'
+  | 'cncra2';
+
+export interface GameConfig {
+    id: GameType;
+    name: string;
+    shortName: string;
+    logo: string;
+    defaultArchetype: ScoreArchetype;
+    
+    // Team mode settings - can play in team mode if supportsTeamMode is true
+    supportsTeamMode?: boolean;   // Can this game be played in team mode?
+    isTeamGame?: boolean;         // Legacy: Whether this is always a team-based game
+    defaultTeamSize?: number;     // Default team size (e.g., 5 for CS)
+    minTeamSize?: number;         // Minimum team size
+    maxTeamSize?: number;         // Maximum team size
+    
+    groupStage: {
+        format: string;
+        description: string;
+        maxDuration: string;
+        maxScore?: number;
+        // Extended properties for team games
+        maxRounds?: number;
+        tieAllowed?: boolean;
+        scoreType?: 'rounds' | 'kills' | 'health' | 'time' | 'points';
+    };
+    playoffs: {
+        format: string;
+        mapsPerMatch: number;
+        description: string;
+        maxDuration: string;
+        maxScorePerMap?: number;
+        // Extended properties for team games
+        roundsPerMap?: number;
+        scoreType?: 'rounds' | 'kills' | 'health' | 'time' | 'points';
+    };
+    rules: string[];
+    maps: string[];
+}
+
+// Per-game tournament configuration (single source of truth)
+export const GAME_CONFIGS: Record<GameType, GameConfig> = {
     // ==================== ROUNDS-BASED GAMES ====================
     cs16: {
         id: 'cs16',
@@ -8,6 +75,11 @@ export const GAME_CONFIGS = {
         shortName: 'CS 1.6',
         logo: '/games/CounterStrike.png',
         defaultArchetype: 'rounds',
+        // Team mode support
+        supportsTeamMode: true,
+        defaultTeamSize: 5,
+        minTeamSize: 2,
+        maxTeamSize: 5,
         groupStage: {
             format: 'MR15 (30 rounds)',
             description: 'First to 16 wins, 15-15 tie possible',
@@ -30,6 +102,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['aim_sOt', 'aim_dust2', 'aim_deathmatch_2012']
     },
+    
     rtcw: {
         id: 'rtcw',
         name: 'Return to Castle Wolfenstein',
@@ -56,6 +129,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['mp_beach', 'mp_assault', 'mp_village']
     },
+    
     wolfet: {
         id: 'wolfet',
         name: 'Wolfenstein: Enemy Territory',
@@ -82,6 +156,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['goldrush', 'radar', 'oasis']
     },
+    
     // ==================== KILLS-BASED GAMES ====================
     ut2004: {
         id: 'ut2004',
@@ -108,6 +183,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['DM-1on1-Mixer', 'DM-1on1-Albatross', 'DM-1on1-Crash']
     },
+    
     ut99: {
         id: 'ut99',
         name: 'Unreal Tournament 99',
@@ -133,6 +209,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['DM-Morpheus', 'DM-Deck16][', 'DM-Turbine']
     },
+    
     quake3: {
         id: 'quake3',
         name: 'Quake III Arena',
@@ -158,6 +235,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['q3dm6', 'q3dm17', 'q3tourney2']
     },
+    
     halo: {
         id: 'halo',
         name: 'Halo: Combat Evolved',
@@ -182,6 +260,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Hang Em High', 'Battle Creek', 'Wizard']
     },
+    
     mohaa: {
         id: 'mohaa',
         name: 'Medal of Honor: Allied Assault',
@@ -206,6 +285,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['dm/mohdm1', 'dm/mohdm2', 'dm/mohdm6']
     },
+    
     bf1942: {
         id: 'bf1942',
         name: 'Battlefield 1942',
@@ -230,6 +310,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Wake Island', 'El Alamein', 'Stalingrad']
     },
+    
     bfvietnam: {
         id: 'bfvietnam',
         name: 'Battlefield Vietnam',
@@ -254,6 +335,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Hue', 'Ho Chi Minh Trail', 'Operation Flaming Dart']
     },
+    
     swbf1: {
         id: 'swbf1',
         name: 'Star Wars Battlefront',
@@ -278,6 +360,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Kashyyyk', 'Geonosis', 'Hoth']
     },
+    
     swbf2: {
         id: 'swbf2',
         name: 'Star Wars Battlefront 2',
@@ -302,6 +385,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Mos Eisley', 'Kashyyyk', 'Utapau']
     },
+    
     deltaforce: {
         id: 'deltaforce',
         name: 'Delta Force: Black Hawk Down',
@@ -326,6 +410,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Mogadishu Mile', 'Lost Village', 'Radio Tower']
     },
+    
     // ==================== HEALTH-BASED GAMES ====================
     worms: {
         id: 'worms',
@@ -353,6 +438,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Rocky', 'Witch', 'Kermit']
     },
+    
     // ==================== WIN-ONLY GAMES ====================
     aoe2: {
         id: 'aoe2',
@@ -378,6 +464,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Arabia', 'Arena', 'Black Forest']
     },
+    
     warcraft3: {
         id: 'warcraft3',
         name: 'Warcraft III',
@@ -402,6 +489,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Echo Isles', 'Twisted Meadows', 'Terenas Stand']
     },
+    
     stronghold: {
         id: 'stronghold',
         name: 'Stronghold Crusader HD',
@@ -426,6 +514,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Forgotten Valley', 'Desert Heat', 'The Crossing']
     },
+    
     cncra1: {
         id: 'cncra1',
         name: 'C&C: Red Alert',
@@ -450,6 +539,7 @@ export const GAME_CONFIGS = {
         ],
         maps: ['Tournament Arena', 'Jungle', 'Coastal Influence']
     },
+    
     cncra2: {
         id: 'cncra2',
         name: "C&C: Red Alert 2",
@@ -473,159 +563,32 @@ export const GAME_CONFIGS = {
             'Faction pick allowed (Soviet/Allied)'
         ],
         maps: ['Urban Rush', 'Dry Heat', 'Little Big Lake']
-    },
-    // ==================== TEAM-BASED GAMES ====================
-    cs16_team: {
-        id: 'cs16_team',
-        name: 'Counter-Strike 1.6 (Team)',
-        shortName: 'CS 1.6 Team',
-        logo: '/games/CounterStrike.png',
-        defaultArchetype: 'team-rounds',
-        isTeamGame: true,
-        defaultTeamSize: 5,
-        minTeamSize: 3,
-        maxTeamSize: 5,
-        groupStage: {
-            format: 'MR15 (30 rounds)',
-            description: 'First to 16 wins, 15-15 tie possible',
-            maxDuration: '~45 min',
-            maxScore: 16
-        },
-        playoffs: {
-            format: 'BO3',
-            mapsPerMatch: 3,
-            description: 'MR15 per map (first to 16)',
-            maxDuration: '~2.5 hours',
-            maxScorePerMap: 16
-        },
-        rules: [
-            'Team-based 5v5 (or 4v4/3v3)',
-            'MR15 format (first to 16 wins)',
-            'Track individual K/D per map',
-            'Tiebreaker: Round difference',
-            'Standard competitive configs'
-        ],
-        maps: ['de_dust2', 'de_inferno', 'de_nuke', 'de_train', 'de_mirage']
-    },
-    cs2_team: {
-        id: 'cs2_team',
-        name: 'Counter-Strike 2 (Team)',
-        shortName: 'CS2 Team',
-        logo: '/games/cs2.png',
-        defaultArchetype: 'team-rounds',
-        isTeamGame: true,
-        defaultTeamSize: 5,
-        minTeamSize: 3,
-        maxTeamSize: 5,
-        groupStage: {
-            format: 'MR12 (24 rounds)',
-            description: 'First to 13 wins, overtime if tied',
-            maxDuration: '~40 min',
-            maxScore: 13
-        },
-        playoffs: {
-            format: 'BO3',
-            mapsPerMatch: 3,
-            description: 'MR12 per map (first to 13)',
-            maxDuration: '~2 hours',
-            maxScorePerMap: 13
-        },
-        rules: [
-            'Team-based 5v5 (or smaller)',
-            'MR12 format (first to 13 wins)',
-            'Overtime: MR3 until winner',
-            'Track individual K/D per map',
-            'Premier/Competitive settings'
-        ],
-        maps: ['de_dust2', 'de_inferno', 'de_mirage', 'de_anubis', 'de_ancient', 'de_nuke', 'de_vertigo']
-    },
-    valorant_team: {
-        id: 'valorant_team',
-        name: 'Valorant (Team)',
-        shortName: 'Valorant',
-        logo: '/games/valorant.png',
-        defaultArchetype: 'team-rounds',
-        isTeamGame: true,
-        defaultTeamSize: 5,
-        minTeamSize: 3,
-        maxTeamSize: 5,
-        groupStage: {
-            format: 'First to 13',
-            description: '24 rounds max, overtime if tied',
-            maxDuration: '~40 min',
-            maxScore: 13
-        },
-        playoffs: {
-            format: 'BO3',
-            mapsPerMatch: 3,
-            description: 'First to 13 per map',
-            maxDuration: '~2 hours',
-            maxScorePerMap: 13
-        },
-        rules: [
-            'Team-based 5v5',
-            'First to 13 rounds wins',
-            'Overtime if 12-12',
-            'Track individual K/D per map',
-            'Agent selection allowed'
-        ],
-        maps: ['Bind', 'Haven', 'Split', 'Ascent', 'Icebox', 'Breeze', 'Lotus']
-    },
-    cod4_team: {
-        id: 'cod4_team',
-        name: 'Call of Duty 4 (Team)',
-        shortName: 'CoD4 Team',
-        logo: '/games/cod4.png',
-        defaultArchetype: 'team-rounds',
-        isTeamGame: true,
-        defaultTeamSize: 5,
-        minTeamSize: 3,
-        maxTeamSize: 5,
-        groupStage: {
-            format: 'Search & Destroy',
-            description: 'First to 6 or 10 rounds',
-            maxDuration: '~30 min',
-            maxScore: 6
-        },
-        playoffs: {
-            format: 'BO3',
-            mapsPerMatch: 3,
-            description: 'S&D - First to 6 per map',
-            maxDuration: '~1.5 hours',
-            maxScorePerMap: 6
-        },
-        rules: [
-            'Team-based S&D',
-            'Promod settings',
-            'Track individual K/D per map',
-            'Standard competitive configs'
-        ],
-        maps: ['mp_backlot', 'mp_crash', 'mp_crossfire', 'mp_citystreets', 'mp_strike']
     }
 };
-export function getGameConfig(gameType) {
+
+export function getGameConfig(gameType: GameType): GameConfig {
     return GAME_CONFIGS[gameType];
 }
-export function getAllGames() {
+
+export function getAllGames(): GameConfig[] {
     return Object.values(GAME_CONFIGS);
 }
-// Get only solo games (non-team)
-export function getSoloGames() {
-    return Object.values(GAME_CONFIGS).filter(g => !g.isTeamGame);
+
+// Games that support team mode
+export function getTeamModeGames(): GameConfig[] {
+    return Object.values(GAME_CONFIGS).filter(g => g.supportsTeamMode);
 }
-// Get only team games
-export function getTeamGames() {
-    return Object.values(GAME_CONFIGS).filter(g => g.isTeamGame);
+
+// Whether a game type supports team mode
+export function supportsTeamMode(gameType: GameType): boolean {
+    return GAME_CONFIGS[gameType]?.supportsTeamMode === true;
 }
-// Check if a game type is team-based
-export function isTeamGame(gameType) {
-    return GAME_CONFIGS[gameType]?.isTeamGame === true;
-}
-// Helper to get the effective archetype for a tournament
-// (allows custom points override)
-export function getEffectiveArchetype(gameType, useCustomPoints) {
-    if (useCustomPoints)
-        return 'points';
+
+// Effective scoring archetype for a tournament (custom-points override wins)
+export function getEffectiveArchetype(
+    gameType: GameType,
+    useCustomPoints?: boolean
+): ScoreArchetype {
+    if (useCustomPoints) return "points";
     return GAME_CONFIGS[gameType].defaultArchetype;
 }
-//# sourceMappingURL=gameTypes.js.map

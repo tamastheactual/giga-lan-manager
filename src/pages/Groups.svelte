@@ -3,7 +3,7 @@
   import { getState, submitMatch, submitTeamMatchResult, generateBrackets, updateGroupName, resetGroupData, resetTournament, type GameType, GAME_CONFIGS, getEffectiveArchetype, type TeamGameResult, type PlayerGameStats } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
   import { getTeamImageUrl } from '$lib/teamImages';
-  import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
+  import { getArchetypeConfig, type ScoreArchetype } from '$shared/gameArchetypes';
   import Footer from '../components/Footer.svelte';
 
   let { tournamentId } = $props<{ tournamentId: string }>();

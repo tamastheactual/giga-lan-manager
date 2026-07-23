@@ -5,6 +5,11 @@ services:
       - "3000:3000"
     environment:
       - REDIS_URL=redis://redis:6379
+      # Set ADMIN_PASSWORD to require an admin login for any change (viewing stays
+      # open). Provide it via your shell env or a .env file beside this compose file.
+      # Leave unset to run fully open (a warning is logged).
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - SESSION_SECRET=${SESSION_SECRET:-}
     depends_on:
       - redis
     restart: unless-stopped

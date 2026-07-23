@@ -5,9 +5,18 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import session from 'express-session';
+import crypto from 'crypto';
 
-import { TournamentManager, type Team, type TeamGameResult, type PlayerGameStats } from './tournament.js';
-import { type GameType, GAME_CONFIGS, getAllGames, supportsTeamMode, getTeamModeGames } from './gameTypes.js';
+import { TournamentManager } from './tournament.js';
+import type { Team, TeamGameResult, PlayerGameStats } from '../shared/types.js';
+import { type GameType, GAME_CONFIGS, getAllGames, supportsTeamMode, getTeamModeGames } from '../shared/gameTypes.js';
+
+declare module 'express-session' {
+    interface SessionData {
+        isAdmin?: boolean;
+    }
+}
 
 const app = express();
 const port = 3000;
@@ -50,6 +59,49 @@ const saveState = async (tournamentId: string) => {
 
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' })); 
+
+// --- Admin auth (Option A): one shared password via the ADMIN_PASSWORD env var.
+// When set, mutating requests (POST/PUT/DELETE/PATCH) require an admin login;
+// viewing (GET) stays open so players can watch. When unset, auth is disabled
+// (with a warning) so dev and existing deployments keep working unchanged.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+    console.warn('[auth] ADMIN_PASSWORD is not set — the API is OPEN (anyone on the network can modify tournaments). Set ADMIN_PASSWORD to require an admin login.');
+}
+
+app.use(session({
+    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 12 * 60 * 60 * 1000 }, // 12h
+}));
+
+app.post('/api/login', (req, res) => {
+    if (!ADMIN_PASSWORD) return res.json({ success: true }); // auth disabled
+    const { password } = req.body ?? {};
+    if (typeof password === 'string' && password === ADMIN_PASSWORD) {
+        req.session.isAdmin = true;
+        return res.json({ success: true });
+    }
+    return res.status(401).json({ error: 'Incorrect password' });
+});
+
+app.post('/api/logout', (req, res) => {
+    req.session.destroy(() => res.json({ success: true }));
+});
+
+app.get('/api/admin/status', (req, res) => {
+    res.json({ authRequired: !!ADMIN_PASSWORD, isAdmin: !ADMIN_PASSWORD || !!req.session.isAdmin });
+});
+
+// Gate every mutating API route; GET stays public.
+app.use('/api', (req, res, next) => {
+    if (!ADMIN_PASSWORD) return next();
+    if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return next();
+    if (req.path === '/login' || req.path === '/logout') return next();
+    if (req.session.isAdmin) return next();
+    return res.status(401).json({ error: 'Admin login required' });
+});
 
 // API Routes
 app.get('/api/health', (req, res) => {
@@ -117,32 +169,47 @@ app.post('/api/tournaments/import', async (req, res) => {
     try {
         const importData = req.body;
         
-        if (!importData || !importData.id || !importData.name) {
+        if (!importData || typeof importData.name !== 'string' || !importData.name.trim()) {
             return res.status(400).json({ error: 'Invalid tournament data' });
         }
         
         // Use the original ID or generate a new one if it conflicts
+        // Never trust a client-supplied Redis key: require a UUID, else mint one.
+        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         let id = importData.tournamentId || importData.id;
-        if (tournaments.has(id)) {
-            // Generate new ID if tournament with this ID already exists
+        if (typeof id !== 'string' || !UUID_RE.test(id) || tournaments.has(id)) {
             id = uuidv4();
         }
         
         // Create a new tournament manager and restore state
         const gameType = (importData.gameType || 'cs16') as GameType;
-        const tournament = new TournamentManager(id, importData.name, gameType);
-        
-        // Restore all data
-        tournament.players = importData.players || [];
-        tournament.pods = importData.pods || [];
-        tournament.matches = importData.matches || [];
-        tournament.bracketMatches = importData.bracketMatches || [];
-        tournament.state = importData.state || 'setup';
-        tournament.isTeamBased = importData.isTeamBased || false;
-        tournament.teams = importData.teams || [];
-        tournament.teamPods = importData.teamPods || [];
-        tournament.teamMatches = importData.teamMatches || [];
-        tournament.teamBracketMatches = importData.teamBracketMatches || [];
+        const tournament = new TournamentManager(
+            id,
+            importData.name,
+            gameType,
+            Array.isArray(importData.mapPool) ? importData.mapPool : [],
+            typeof importData.groupStageRoundLimit === 'number' ? importData.groupStageRoundLimit : undefined,
+            typeof importData.playoffsRoundLimit === 'number' ? importData.playoffsRoundLimit : undefined,
+            importData.useCustomPoints === true,
+            importData.isTeamBased === true,
+        );
+
+        // Restore state (validated against the allowed set) and timestamps.
+        const VALID_STATES = ['registration', 'group', 'playoffs', 'completed'];
+        tournament.state = VALID_STATES.includes(importData.state) ? importData.state : 'registration';
+        if (typeof importData.createdAt === 'string') tournament.createdAt = importData.createdAt;
+        if (typeof importData.startedAt === 'string') tournament.startedAt = importData.startedAt;
+
+        // Restore collections, guarding each against a non-array payload.
+        const asArray = (v: any) => (Array.isArray(v) ? v : []);
+        tournament.players = asArray(importData.players);
+        tournament.pods = asArray(importData.pods);
+        tournament.matches = asArray(importData.matches);
+        tournament.bracketMatches = asArray(importData.bracketMatches);
+        tournament.teams = asArray(importData.teams);
+        tournament.teamPods = asArray(importData.teamPods);
+        tournament.teamMatches = asArray(importData.teamMatches);
+        tournament.teamBracketMatches = asArray(importData.teamBracketMatches);
         
         tournaments.set(id, tournament);
         await redisClient.sAdd('tournaments:list', id);
@@ -298,11 +365,7 @@ app.post('/api/tournament/:tournamentId/reset', async (req, res) => {
     const { tournamentId } = req.params;
     const tournament = tournaments.get(tournamentId);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    tournament.players = [];
-    tournament.pods = [];
-    tournament.matches = [];
-    tournament.bracketMatches = [];
-    tournament.state = 'registration';
+    tournament.reset();
     await saveState(tournamentId);
     res.json({ success: true });
 });

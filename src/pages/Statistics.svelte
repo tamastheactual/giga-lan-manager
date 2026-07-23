@@ -3,7 +3,7 @@
   import { getState, getPlayerStats, type GameType, type Team, type PlayerStats, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
   import { Chart, registerables } from 'chart.js';
-  import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
+  import { getArchetypeConfig, type ScoreArchetype } from '$shared/gameArchetypes';
   import Footer from '../components/Footer.svelte';
   import logoImg from '../assets/logo.png';
 
@@ -447,7 +447,6 @@
   // Calculate advanced statistics
   function calculateAdvancedStats(players: any[], groupMatches: any[], bracketMatches: any[]) {
     const stats: any = {
-      biggestComeback: { player: '', opponent: '', deficit: 0, finalScore: '', stage: '', mapName: '' },
       mostDominant: { player: '', opponent: '', margin: 0, score: '', stage: '', mapName: '' },
       mostDominantList: [] as any[],
       closestMatches: [] as any[],
@@ -558,23 +557,6 @@
         }
       }
       
-      // Comeback detection (loser had more than 60% at some theoretical point)
-      // For now we approximate by checking if winner had significantly fewer points
-      if (winnerId && p1Score !== p2Score) {
-        const winnerScore = winnerId === match.player1Id ? p1Score : p2Score;
-        const loserScore = winnerId === match.player1Id ? p2Score : p1Score;
-        const deficit = loserScore - winnerScore;
-        if (deficit > stats.biggestComeback.deficit && deficit > 3) {
-          stats.biggestComeback = {
-            player: players.find(p => p.id === winnerId)?.name || 'Unknown',
-            opponent: players.find(p => p.id === (winnerId === match.player1Id ? match.player2Id : match.player1Id))?.name || 'Unknown',
-            deficit,
-            finalScore: `${winnerScore}-${loserScore}`,
-            stage: match.bracketType ? 'Playoffs' : 'Groups',
-            mapName
-          };
-        }
-      }
     });
     
     // Sort closest matches and dominant performances
@@ -676,6 +658,9 @@
       
       // Add each game in the series
       for (const game of match.games) {
+        // Skip unplayed maps (an empty BO-series slot is 0-0 with no winner) so
+        // they are not recorded as losses in the player's history.
+        if (!game.winnerId && (game.player1Score || 0) === 0 && (game.player2Score || 0) === 0) continue;
         const playerGameScore = isPlayer1 ? game.player1Score : game.player2Score;
         const opponentGameScore = isPlayer1 ? game.player2Score : game.player1Score;
         const gameResult = game.winnerId === playerId ? 'win' : 'loss';
@@ -3872,7 +3857,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.mvp.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.mvp.name)} 
                     alt={mvpHighlights.mvp.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-yellow-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.mvp?.name || '?')}&background=random`; }}
@@ -3909,7 +3894,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.topKiller.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.topKiller.name)} 
                     alt={mvpHighlights.topKiller.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-red-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.topKiller?.name || '?')}&background=random`; }}
@@ -3946,7 +3931,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.killsPerGame.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.killsPerGame.name)} 
                     alt={mvpHighlights.killsPerGame.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-orange-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.killsPerGame?.name || '?')}&background=random`; }}
@@ -3983,7 +3968,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.survivor.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.survivor.name)} 
                     alt={mvpHighlights.survivor.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-blue-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.survivor?.name || '?')}&background=random`; }}
@@ -4020,7 +4005,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.clutchPerformer.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.clutchPerformer.name)} 
                     alt={mvpHighlights.clutchPerformer.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-purple-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.clutchPerformer?.name || '?')}&background=random`; }}
@@ -4057,7 +4042,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.bestSingleGame.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.bestSingleGame.name)} 
                     alt={mvpHighlights.bestSingleGame.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-cyan-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.bestSingleGame?.name || '?')}&background=random`; }}
@@ -4094,7 +4079,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.mostConsistent.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.mostConsistent.name)} 
                     alt={mvpHighlights.mostConsistent.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-emerald-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.mostConsistent?.name || '?')}&background=random`; }}
@@ -4131,7 +4116,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.worstKD.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.worstKD.name)} 
                     alt={mvpHighlights.worstKD.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-gray-500/50 shadow-lg grayscale opacity-80"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.worstKD?.name || '?')}&background=random`; }}
@@ -4191,7 +4176,7 @@
                   <div class="bg-space-700/50 rounded-lg p-3 border border-space-600 hover:border-brand-cyan/30 transition-colors">
                     <div class="flex items-center gap-2 mb-2">
                       <img 
-                        src={getPlayerImageUrl(leader.playerId)} 
+                        src={getPlayerImageUrl(leader.playerName)} 
                         alt={leader.playerName}
                         class="w-8 h-8 rounded-full object-cover border border-brand-cyan/30"
                         onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(leader.playerName)}&background=random&size=32`; }}
@@ -4315,22 +4300,6 @@
           </h2>
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <!-- Biggest Comeback - not relevant for win-only games -->
-            {#if !isWinOnly && advancedStats.biggestComeback.deficit > 0}
-              <div class="bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg p-4 border border-green-500/20">
-                <div class="flex items-center gap-2 mb-2">
-                  <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-                  </svg>
-                  <div class="text-xs font-bold text-green-400 uppercase">Biggest Comeback</div>
-                </div>
-                <div class="text-white font-bold text-sm mb-1">{advancedStats.biggestComeback.player}</div>
-                <div class="text-xs text-gray-400">
-                  vs {advancedStats.biggestComeback.opponent} • {advancedStats.biggestComeback.finalScore}
-                </div>
-                <div class="text-xs text-green-400 mt-1">Down by {advancedStats.biggestComeback.deficit}</div>
-              </div>
-            {/if}
 
             <!-- Most Dominant Performances - not relevant for win-only games -->
             {#if !isWinOnly && advancedStats.mostDominantList && advancedStats.mostDominantList.length > 0}
@@ -5276,7 +5245,7 @@
                 <div class="relative">
                   <div class="absolute inset-0 bg-gradient-to-r {cardConfig.color} rounded-full blur-md opacity-50"></div>
                   <img 
-                    src={getPlayerImageUrl(isSoloShare ? (selectedShareCard === 'bestSingleGame' ? cardData.playerName : cardData.name) : cardData.playerId)} 
+                    src={getPlayerImageUrl(isSoloShare ? (selectedShareCard === 'bestSingleGame' ? cardData.playerName : cardData.name) : cardData.name)} 
                     alt={isSoloShare ? (selectedShareCard === 'bestSingleGame' ? cardData.playerName : cardData.name) : cardData.name}
                     class="relative w-20 h-20 rounded-full object-cover border-2 border-white/20 shadow-xl"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent((isSoloShare ? (selectedShareCard === 'bestSingleGame' ? cardData.playerName : cardData.name) : cardData.name) || '?')}&background=1a1a2e&color=23b7d1&bold=true&size=200`; }}

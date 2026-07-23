@@ -18,7 +18,9 @@ COPY package*.json ./
 RUN npm install --production
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/dist-server ./server
+# tsc emits with rootDir "." so server code lands under dist-server/server and
+# the shared module under dist-server/shared; copy both, preserving that layout.
+COPY --from=builder /app/dist-server ./
 
 EXPOSE 3000
 
