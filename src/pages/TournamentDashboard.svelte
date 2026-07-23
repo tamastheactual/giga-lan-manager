@@ -351,7 +351,17 @@
   }
 
   async function loadState() {
-    const data = await getState(tournamentId);
+    let data;
+    try {
+      data = await getState(tournamentId);
+    } catch (err) {
+      console.error('Failed to load tournament state:', err);
+      return; // keep the current state rather than blanking the page
+    }
+    if (!data || !data.state) {
+      console.error('Ignoring malformed tournament state response:', data);
+      return;
+    }
     players = data.players;
     tournamentState = data.state;
     tournamentName = data.name;

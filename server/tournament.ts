@@ -91,6 +91,17 @@ export class TournamentManager {
         });
     }
 
+    // Fisher-Yates shuffle. Unbiased, unlike `sort(() => Math.random() - 0.5)`,
+    // whose comparator is inconsistent and skews the distribution.
+    private shuffle<T>(arr: T[]): T[] {
+        const a = [...arr];
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+
     addPlayer(name: string): Player {
         const player: Player = {
             id: uuidv4(),
@@ -326,7 +337,7 @@ export class TournamentManager {
         }
         
         // Shuffle and divide players into groups
-        const shuffled = [...this.players].sort(() => Math.random() - 0.5);
+        const shuffled = this.shuffle(this.players);
         const groups: Player[][] = [];
         
         for (let g = 0; g < numGroups; g++) {
@@ -897,7 +908,7 @@ export class TournamentManager {
             numGroups = 4;
         }
 
-        const shuffledTeams = [...this.teams].sort(() => Math.random() - 0.5);
+        const shuffledTeams = this.shuffle(this.teams);
         
         // Distribute teams into groups
         const groups: string[][] = Array.from({ length: numGroups }, () => []);

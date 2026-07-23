@@ -20,6 +20,16 @@
   let map3 = $state('');
   let groupStageRoundLimit = $state<number>(16);
   let playoffsRoundLimit = $state<number>(10);
+
+  // Default the round limits to the selected game's configured limits
+  // (cs16 -> 16/10, rtcw/wolfet -> 5/5, etc.) whenever the game changes -- the
+  // old hardcoded 16/10 was wrong for every game but CS 1.6. The user can still
+  // override via the inputs afterward. Also resets when Cancel sets game=cs16.
+  $effect(() => {
+    const cfg = GAME_CONFIGS[selectedGameType];
+    groupStageRoundLimit = cfg.groupStage.maxScore ?? 16;
+    playoffsRoundLimit = cfg.playoffs.maxScorePerMap ?? 10;
+  });
   let useCustomPoints = $state(false);
   let teamMode = $state(false);
   let showCreateForm = $state(false);
