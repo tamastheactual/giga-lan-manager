@@ -3,7 +3,7 @@
   import { getState, getPlayerStats, type GameType, type Team, type PlayerStats, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
   import { Chart, registerables } from 'chart.js';
-  import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
+  import { getArchetypeConfig, type ScoreArchetype } from '$shared/gameArchetypes';
   import Footer from '../components/Footer.svelte';
   import logoImg from '../assets/logo.png';
 

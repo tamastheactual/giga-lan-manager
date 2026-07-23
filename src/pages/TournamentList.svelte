@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getTournaments, createTournament, deleteTournament, importTournament, type GameType, GAME_CONFIGS, getScoreLabel } from '$lib/api';
-  import { getArchetypeConfig } from '$lib/gameArchetypes';
+  import { getTournaments, createTournament, deleteTournament, importTournament, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getArchetypeConfig } from '$shared/gameArchetypes';
   import { getGameLogoUrl } from '$lib/gameLogos';
   import logoImg from '../assets/logo.png';
   import Footer from '../components/Footer.svelte';

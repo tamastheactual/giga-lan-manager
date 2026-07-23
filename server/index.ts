@@ -6,8 +6,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 
-import { TournamentManager, type Team, type TeamGameResult, type PlayerGameStats } from './tournament.js';
-import { type GameType, GAME_CONFIGS, getAllGames, supportsTeamMode, getTeamModeGames } from './gameTypes.js';
+import { TournamentManager } from './tournament.js';
+import type { Team, TeamGameResult, PlayerGameStats } from '../shared/types.js';
+import { type GameType, GAME_CONFIGS, getAllGames, supportsTeamMode, getTeamModeGames } from '../shared/gameTypes.js';
 
 const app = express();
 const port = 3000;

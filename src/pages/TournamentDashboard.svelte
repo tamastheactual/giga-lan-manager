@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, addPlayer, startGroupStage, startTeamGroupStage, resetTournament, updateTournamentName, updatePlayerName, updatePlayerPhoto, removePlayer, addTeam, removeTeam, updateTeam, isTeamGame, type GameType, type Team, GAME_CONFIGS } from '$lib/api';
+  import { getState, addPlayer, startGroupStage, startTeamGroupStage, resetTournament, updateTournamentName, updatePlayerName, updatePlayerPhoto, removePlayer, addTeam, removeTeam, updateTeam, type GameType, type Team, GAME_CONFIGS } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
   import { getTeamImageUrl, fileToBase64, validateImageFile } from '$lib/teamImages';
   import { getGameLogoUrl } from '$lib/gameLogos';

@@ -3,7 +3,7 @@
   import { getState, updateBracketMatch, submitBracketGameResult, submitTeamBracketWinner, submitTeamBracketGameResult, type GameType, type Team, type TeamBracketMatch, type PlayerGameStats, type TeamGameResult, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
   import { getTeamImageUrl } from '$lib/teamImages';
-  import { getArchetypeConfig, type ScoreArchetype } from '$lib/gameArchetypes';
+  import { getArchetypeConfig, type ScoreArchetype } from '$shared/gameArchetypes';
   import Confetti from '../components/Confetti.svelte';
   import Footer from '../components/Footer.svelte';
 
