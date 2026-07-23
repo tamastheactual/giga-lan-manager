@@ -1,4 +1,7 @@
-const API_URL = 'http://localhost:3000/api';
+// Relative base so every LAN client talks to the origin that served the app:
+// in dev, Vite proxies /api -> the API server; in prod, Express serves both the
+// SPA and /api from the same origin. (A hardcoded host broke all non-host clients.)
+const API_URL = '/api';
 
 import { getArchetypeConfig } from '$shared/gameArchetypes';
 import { getEffectiveArchetype, type GameType, type GameConfig } from '$shared/gameTypes';
@@ -164,7 +167,7 @@ export async function removePlayer(tournamentId: string, playerId: string) {
 
 // Submit a single game result for BO3 bracket match
 export async function submitBracketGameResult(tournamentId: string, matchId: string, gameResult: any) {
-    const response = await fetch(`/api/tournament/${tournamentId}/bracket-match/${matchId}/game`, {
+    const response = await fetch(`${API_URL}/tournament/${tournamentId}/bracket-match/${matchId}/game`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gameResult)
@@ -174,7 +177,7 @@ export async function submitBracketGameResult(tournamentId: string, matchId: str
 }
 
 export async function updateBracketMatch(tournamentId: string, matchId: string, winnerId: string, games: any) {
-    const response = await fetch(`/api/tournament/${tournamentId}/bracket-match/${matchId}`, {
+    const response = await fetch(`${API_URL}/tournament/${tournamentId}/bracket-match/${matchId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ winnerId, games })
