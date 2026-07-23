@@ -24,6 +24,13 @@ import Zoli from '../assets/players/Zoli.jpg';
 import Zsolt from '../assets/players/Zsolt.png';
 import Adam from '../assets/players/Ádám.jpg';
 import Aron from '../assets/players/Áron.jpg';
+import MateBorsy from '../assets/players/MateBorsy.png';
+import MateBado from '../assets/players/MateBado.png';
+import MartinSallai from '../assets/players/MartinSallai.png';
+import AaronSerebrenik from '../assets/players/AaronSerebrenik.png';
+import IstvanCsibi from '../assets/players/IstvanCsibi.png';
+import EszterGabor from '../assets/players/EszterGabor.png';
+import CsongorErdei from '../assets/players/CsongorErdei.png';
 
 // Build a map of lowercase name -> image URL
 const playerImageMap: Record<string, string> = {
@@ -49,6 +56,14 @@ const playerImageMap: Record<string, string> = {
     'zsolt': Zsolt,
     'ádám': Adam,
     'áron': Aron,
+    // Roster entered by full name (two Mátés can't share a name)
+    'máté borsy': MateBorsy,
+    'máté badó': MateBado,
+    'martin sallai': MartinSallai,
+    'aaron serebrenik': AaronSerebrenik,
+    'istván csibi': IstvanCsibi,
+    'eszter gábor': EszterGabor,
+    'csongor erdei': CsongorErdei,
 };
 
 // Default image (Cat.jpg)
