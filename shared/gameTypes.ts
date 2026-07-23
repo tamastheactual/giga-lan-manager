@@ -7,9 +7,10 @@
 
 import type { ScoreArchetype } from "./gameArchetypes.js";
 
-export type GameType = 
-  | 'cs16' 
-  | 'ut2004' 
+export type GameType =
+  | 'cs16'
+  | 'r6siege'
+  | 'ut2004'
   | 'ut99'
   | 'worms' 
   | 'quake3'
@@ -102,7 +103,41 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         ],
         maps: ['aim_sOt', 'aim_dust2', 'aim_deathmatch_2012']
     },
-    
+
+    r6siege: {
+        id: 'r6siege',
+        name: 'Rainbow Six Siege',
+        shortName: 'R6 Siege',
+        logo: '/games/r6siege.png',
+        defaultArchetype: 'rounds',
+        // 5v5 team game with per-player K/D tracking
+        supportsTeamMode: true,
+        defaultTeamSize: 5,
+        minTeamSize: 2,
+        maxTeamSize: 5,
+        groupStage: {
+            format: 'MR12',
+            description: 'First to 7 rounds (win by 2)',
+            maxDuration: '~35 min',
+            maxScore: 7
+        },
+        playoffs: {
+            format: 'BO3',
+            mapsPerMatch: 3,
+            description: 'MR12 per map — first to win 2 maps',
+            maxDuration: '~2 hours',
+            maxScorePerMap: 7
+        },
+        rules: [
+            'Bomb mode (defuse) — attack/defense sides swap at halftime',
+            'Group Stage: MR12 — first to 7 rounds, win by 2',
+            'Playoffs: Best of 3 maps',
+            'Standard operator bans + map veto',
+            'Tiebreaker: Total rounds won'
+        ],
+        maps: ['Bank', 'Clubhouse', 'Oregon', 'Coastline', 'Kafe Dostoyevsky', 'Border', 'Villa']
+    },
+
     rtcw: {
         id: 'rtcw',
         name: 'Return to Castle Wolfenstein',

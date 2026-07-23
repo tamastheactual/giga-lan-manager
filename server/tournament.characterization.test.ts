@@ -334,3 +334,20 @@ describe('image upload validation', () => {
     expect(() => t.updatePlayerPhoto(pid, huge)).toThrow();
   });
 });
+
+// ---------- Rainbow Six Siege (team game) ----------
+describe('Rainbow Six Siege', () => {
+  it('runs as a 5v5 team tournament to a champion', () => {
+    const t = new TournamentManager('r6', 'R6 Cup', 'r6siege', [], undefined, undefined, undefined, true);
+    expect(t.isTeamBased).toBe(true);
+    const pids: string[] = [];
+    for (let i = 1; i <= 12; i++) pids.push(t.addPlayer(`P${i}`).id);
+    for (let k = 0; k < 4; k++) t.addTeam(`Team ${k + 1}`, pids.slice(k * 3, k * 3 + 3));
+    t.startGroupStage();
+    expect(t.teamMatches.length).toBe(6); // 4-team round robin
+    for (const m of t.teamMatches) t.submitTeamMatchResult(m.id, 7, 5); // MR12: first to 7
+    t.generateTeamBrackets();
+    advance(() => t.teamBracketMatches, (m) => [m.team1Id, m.team2Id], (id, w) => t.submitTeamBracketWinner(id, w));
+    expect(t.getChampionTeam()).not.toBeNull();
+  });
+});
