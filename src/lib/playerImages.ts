@@ -9,7 +9,6 @@ import Benedek from '../assets/players/Benedek.jpg';
 import Balint from '../assets/players/Bálint.jpg';
 import Cat from '../assets/players/Cat.jpg';
 import Csenge from '../assets/players/Csenge.jpg';
-import Gabor from '../assets/players/Gábor.jpg';
 import Hunor from '../assets/players/Hunor.jpg';
 import Imi from '../assets/players/Imi.jpg';
 import Kaan from '../assets/players/Kaan.jpg';
@@ -35,7 +34,6 @@ const playerImageMap: Record<string, string> = {
     'bálint': Balint,
     'cat': Cat,
     'csenge': Csenge,
-    'gábor': Gabor,
     'hunor': Hunor,
     'imi': Imi,
     'kaan': Kaan,
