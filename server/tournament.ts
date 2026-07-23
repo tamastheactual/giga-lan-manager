@@ -224,6 +224,9 @@ export class TournamentManager {
     }
 
     startGroupStage() {
+        if (this.state !== 'registration') {
+            throw new Error("Group stage has already started");
+        }
         // Dispatch to team or solo start based on tournament type
         if (this.isTeamBased) {
             return this.startTeamGroupStage();
@@ -479,23 +482,42 @@ export class TournamentManager {
             match.gameResults = gameResults;
         }
 
-        // Update player stats
-        for (const [playerId, result] of Object.entries(results)) {
-            const player = this.players.find(p => p.id === playerId);
-            if (player) {
+        // Rebuild aggregates from every completed match so that re-submitting or
+        // editing a match is idempotent instead of double-counting (mirrors the
+        // team path's recalculateTeamStats).
+        this.recalculatePlayerStats();
+    }
+
+    // Recompute every player's group-stage aggregates from the completed matches.
+    // These fields are owned solely by the group stage (bracket play never
+    // touches them), so a full rebuild is safe, deterministic, and idempotent.
+    private recalculatePlayerStats() {
+        for (const player of this.players) {
+            player.points = 0;
+            player.matchesPlayed = 0;
+            player.wins = 0;
+            player.draws = 0;
+            player.losses = 0;
+            player.totalGameScore = 0;
+            player.scoreDifferential = 0;
+        }
+
+        for (const match of this.matches) {
+            if (!match.completed || !match.result) continue;
+            for (const [playerId, result] of Object.entries(match.result)) {
+                const player = this.players.find(p => p.id === playerId);
+                if (!player) continue;
                 player.matchesPlayed++;
                 player.points += result.points;
                 if (result.points >= 3) player.wins++; // 3 = win
                 else if (result.points === 1) player.draws++;
                 else player.losses++;
-                
+
                 // Track game-specific score (kills, rounds, etc.) for tiebreakers
                 if (result.score !== undefined) {
                     player.totalGameScore += result.score;
-                    
-                    // Calculate score differential against opponent
                     const opponentId = match.player1Id === playerId ? match.player2Id : match.player1Id;
-                    const opponentResult = results[opponentId];
+                    const opponentResult = match.result[opponentId];
                     if (opponentResult?.score !== undefined) {
                         player.scoreDifferential += (result.score - opponentResult.score);
                     }
@@ -593,6 +615,9 @@ export class TournamentManager {
     }
 
     generateBrackets() {
+        if (this.state !== 'group') {
+            throw new Error("Brackets can only be generated from the group stage");
+        }
         const rankings = this.getRankings();
         const numGroups = this.pods.length;
         const totalPlayers = this.players.length;
@@ -801,6 +826,9 @@ export class TournamentManager {
     startTeamGroupStage() {
         if (!this.isTeamBased) {
             throw new Error("Cannot start team group stage for solo tournament");
+        }
+        if (this.state !== 'registration') {
+            throw new Error("Group stage has already started");
         }
         if (this.teams.length < 2) {
             throw new Error("Need at least 2 teams");
@@ -1121,6 +1149,9 @@ export class TournamentManager {
     generateTeamBrackets() {
         if (!this.isTeamBased) {
             throw new Error("Cannot generate team brackets for solo tournament");
+        }
+        if (this.state !== 'group') {
+            throw new Error("Brackets can only be generated from the group stage");
         }
 
         const rankings = this.getTeamRankings();

@@ -229,3 +229,55 @@ describe('team mode', () => {
     expect(t.getChampionTeam()).not.toBeNull();
   });
 });
+
+// ---------- correctness fixes (behavior intentionally changed vs the old code) ----------
+describe('phase guards & idempotency (fixes)', () => {
+  it('re-submitting a match result is idempotent (no double-counting)', () => {
+    const t = soloTournament(4);
+    const m = t.matches[0];
+    const result = { [m.player1Id]: { points: 3 }, [m.player2Id]: { points: 0 } };
+    t.submitMatchResult(m.id, result);
+    t.submitMatchResult(m.id, result); // resubmit (double-click / retry)
+    t.submitMatchResult(m.id, result); // and again
+    const p1 = t.players.find((p) => p.id === m.player1Id)!;
+    expect(p1.points).toBe(3);
+    expect(p1.wins).toBe(1);
+    expect(p1.matchesPlayed).toBe(1);
+  });
+
+  it('editing a match result recomputes rather than accumulating', () => {
+    const t = soloTournament(4);
+    const m = t.matches[0];
+    t.submitMatchResult(m.id, { [m.player1Id]: { points: 3 }, [m.player2Id]: { points: 0 } });
+    // Correct a mistake: the other player actually won.
+    t.submitMatchResult(m.id, { [m.player1Id]: { points: 0 }, [m.player2Id]: { points: 3 } });
+    const p1 = t.players.find((p) => p.id === m.player1Id)!;
+    const p2 = t.players.find((p) => p.id === m.player2Id)!;
+    expect([p1.points, p1.wins, p1.losses]).toEqual([0, 0, 1]);
+    expect([p2.points, p2.wins, p2.losses]).toEqual([3, 1, 0]);
+  });
+
+  it('startGroupStage cannot run twice', () => {
+    const t = soloTournament(4); // already started
+    expect(() => t.startGroupStage()).toThrow();
+  });
+
+  it('generateBrackets cannot run outside the group stage', () => {
+    const t = soloTournament(8);
+    playGroups(t);
+    t.generateBrackets(); // ok: group -> playoffs
+    expect(() => t.generateBrackets()).toThrow(); // second call: state is 'playoffs'
+  });
+
+  it('team brackets cannot be generated twice, and the team stage cannot restart', () => {
+    const t = new TournamentManager('tg', 'TG', 'cs16', [], undefined, undefined, undefined, true);
+    const pids: string[] = [];
+    for (let i = 1; i <= 12; i++) pids.push(t.addPlayer(`P${i}`).id);
+    for (let k = 0; k < 4; k++) t.addTeam(`Team ${k + 1}`, pids.slice(k * 3, k * 3 + 3));
+    t.startGroupStage();
+    for (const m of t.teamMatches) t.submitTeamMatchResult(m.id, 16, 10);
+    t.generateTeamBrackets();
+    expect(() => t.generateTeamBrackets()).toThrow();
+    expect(() => t.startGroupStage()).toThrow();
+  });
+});
