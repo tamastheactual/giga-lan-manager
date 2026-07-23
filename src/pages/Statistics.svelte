@@ -3872,7 +3872,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.mvp.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.mvp.name)} 
                     alt={mvpHighlights.mvp.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-yellow-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.mvp?.name || '?')}&background=random`; }}
@@ -3909,7 +3909,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.topKiller.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.topKiller.name)} 
                     alt={mvpHighlights.topKiller.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-red-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.topKiller?.name || '?')}&background=random`; }}
@@ -3946,7 +3946,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.killsPerGame.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.killsPerGame.name)} 
                     alt={mvpHighlights.killsPerGame.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-orange-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.killsPerGame?.name || '?')}&background=random`; }}
@@ -3983,7 +3983,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.survivor.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.survivor.name)} 
                     alt={mvpHighlights.survivor.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-blue-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.survivor?.name || '?')}&background=random`; }}
@@ -4020,7 +4020,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.clutchPerformer.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.clutchPerformer.name)} 
                     alt={mvpHighlights.clutchPerformer.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-purple-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.clutchPerformer?.name || '?')}&background=random`; }}
@@ -4057,7 +4057,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.bestSingleGame.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.bestSingleGame.name)} 
                     alt={mvpHighlights.bestSingleGame.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-cyan-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.bestSingleGame?.name || '?')}&background=random`; }}
@@ -4094,7 +4094,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.mostConsistent.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.mostConsistent.name)} 
                     alt={mvpHighlights.mostConsistent.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-emerald-500/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.mostConsistent?.name || '?')}&background=random`; }}
@@ -4131,7 +4131,7 @@
                 </button>
                 <div class="flex items-start gap-3">
                   <img 
-                    src={getPlayerImageUrl(mvpHighlights.worstKD.playerId)} 
+                    src={getPlayerImageUrl(mvpHighlights.worstKD.name)} 
                     alt={mvpHighlights.worstKD.name}
                     class="w-14 h-14 rounded-full object-cover border-2 border-gray-500/50 shadow-lg grayscale opacity-80"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.worstKD?.name || '?')}&background=random`; }}
@@ -4191,7 +4191,7 @@
                   <div class="bg-space-700/50 rounded-lg p-3 border border-space-600 hover:border-brand-cyan/30 transition-colors">
                     <div class="flex items-center gap-2 mb-2">
                       <img 
-                        src={getPlayerImageUrl(leader.playerId)} 
+                        src={getPlayerImageUrl(leader.playerName)} 
                         alt={leader.playerName}
                         class="w-8 h-8 rounded-full object-cover border border-brand-cyan/30"
                         onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(leader.playerName)}&background=random&size=32`; }}
@@ -5276,7 +5276,7 @@
                 <div class="relative">
                   <div class="absolute inset-0 bg-gradient-to-r {cardConfig.color} rounded-full blur-md opacity-50"></div>
                   <img 
-                    src={getPlayerImageUrl(isSoloShare ? (selectedShareCard === 'bestSingleGame' ? cardData.playerName : cardData.name) : cardData.playerId)} 
+                    src={getPlayerImageUrl(isSoloShare ? (selectedShareCard === 'bestSingleGame' ? cardData.playerName : cardData.name) : cardData.name)} 
                     alt={isSoloShare ? (selectedShareCard === 'bestSingleGame' ? cardData.playerName : cardData.name) : cardData.name}
                     class="relative w-20 h-20 rounded-full object-cover border-2 border-white/20 shadow-xl"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent((isSoloShare ? (selectedShareCard === 'bestSingleGame' ? cardData.playerName : cardData.name) : cardData.name) || '?')}&background=1a1a2e&color=23b7d1&bold=true&size=200`; }}
