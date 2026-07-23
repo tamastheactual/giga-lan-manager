@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getState, updateBracketMatch, submitBracketGameResult, submitTeamBracketWinner, submitTeamBracketGameResult, type GameType, type Team, type TeamBracketMatch, type PlayerGameStats, type TeamGameResult, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
+  import { getState, submitBracketWinner, submitBracketGameResult, submitTeamBracketWinner, submitTeamBracketGameResult, type GameType, type Team, type TeamBracketMatch, type PlayerGameStats, type TeamGameResult, GAME_CONFIGS, getEffectiveArchetype } from '$lib/api';
   import { getPlayerImageUrl } from '$lib/playerImages';
   import { getTeamImageUrl } from '$lib/teamImages';
   import { getArchetypeConfig, type ScoreArchetype } from '$shared/gameArchetypes';
@@ -174,6 +174,16 @@
     const match = teamBracketMatches.find(m => m.id === matchId);
     if (!match || match.winnerId) return;
     
+    // Switching to a different match must not inherit the previous match's
+    // buffered scores/stats; reset before re-initializing. Reopening the SAME
+    // match keeps the in-progress data (that is the intended persistence).
+    if (modalMatchId !== matchId) {
+      modalGameScores = {};
+      modalGameWinners = {};
+      modalGameMaps = {};
+      modalGamePlayerStats = {};
+    }
+
     modalMatchId = matchId;
     showTeamMatchModal = true;
     
@@ -628,7 +638,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
   if (!confirm('Are you sure you want to declare this player as the winner?')) return;
   
   try {
-    await updateBracketMatch(tournamentId, matchId, winnerId, null);
+    await submitBracketWinner(tournamentId, matchId, winnerId);
     
     // Find winner name for confetti
     const match = bracketMatches.find(m => m.id === matchId); // Changed from allMatches

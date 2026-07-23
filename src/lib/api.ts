@@ -176,16 +176,6 @@ export async function submitBracketGameResult(tournamentId: string, matchId: str
     return response.json();
 }
 
-export async function updateBracketMatch(tournamentId: string, matchId: string, winnerId: string, games: any) {
-    const response = await fetch(`${API_URL}/tournament/${tournamentId}/bracket-match/${matchId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ winnerId, games })
-    });
-    if (!response.ok) throw new Error('Failed to update bracket match');
-    return response.json();
-}
-
 // ========================================
 // TEAM TOURNAMENT TYPES & API
 // ========================================
