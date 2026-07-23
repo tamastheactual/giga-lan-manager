@@ -676,6 +676,9 @@
       
       // Add each game in the series
       for (const game of match.games) {
+        // Skip unplayed maps (an empty BO-series slot is 0-0 with no winner) so
+        // they are not recorded as losses in the player's history.
+        if (!game.winnerId && (game.player1Score || 0) === 0 && (game.player2Score || 0) === 0) continue;
         const playerGameScore = isPlayer1 ? game.player1Score : game.player2Score;
         const opponentGameScore = isPlayer1 ? game.player2Score : game.player1Score;
         const gameResult = game.winnerId === playerId ? 'win' : 'loss';
