@@ -10,7 +10,10 @@ Built for the ELTE AI Department LAN series.
 
 ## Quick start
 
-### With Docker (recommended)
+### Self-hosted, with Docker (recommended for a LAN)
+
+Brings up the app and a Redis beside it - one box, no cloud project, which is
+what a tournament in one room actually needs.
 
 ```bash
 docker compose up --build
@@ -271,13 +274,15 @@ runs on either backend:
 
 | Backend | When | Notes |
 | --- | --- | --- |
-| **Supabase** | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set | Postgres over HTTP. The only backend that runs in production |
-| **Redis** | fallback when those are unset | Development and tests only. Needs no cloud project, and the Worker cannot reach it at all, since it speaks TCP rather than fetch |
+| **Supabase** | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set | Postgres over HTTP. The only backend the hosted Cloudflare instance can use |
+| **Redis** | fallback when those are unset | Development, tests, and the self-hosted `docker compose` install. Needs no cloud project. The Worker cannot reach it at all, since it speaks TCP rather than fetch |
 
 Redis is kept because the contract suite runs one set of tests against both
 stores, which is what holds the Supabase store to behaviour Redis already
-demonstrates rather than to a description of it. It is not a way to deploy
-this.
+demonstrates rather than to a description of it.
+
+What Redis is *not* is a way to run the **Cloudflare** deployment: a Worker
+cannot open a TCP socket, so the hosted instance is Supabase-only.
 
 Nothing is cached between requests. Every route loads the tournament it needs,
 mutates it and writes it back, so the process holds no authoritative state and

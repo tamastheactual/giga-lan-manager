@@ -32,8 +32,12 @@
 
 <nav class="w-full bg-space-900/95 backdrop-blur-xl border-b border-white/10 sticky top-0 z-50">
   <div class="max-w-7xl mx-auto px-6 py-2.5">
-    <div class="flex items-center justify-between gap-4">
-      <a href="/" class="flex items-center gap-3 hover:opacity-90 transition-opacity flex-shrink-0">
+    <!-- A three-column grid, not justify-between: the side groups have very
+         different widths, so space-between left the nav sitting wherever they
+         happened to leave it rather than in the middle. Equal 1fr sides put the
+         auto-width nav column exactly on centre whatever the sides contain. -->
+    <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+      <a href="/" class="flex items-center gap-3 hover:opacity-90 transition-opacity justify-self-start">
         <img src={logoImg} alt="" class="h-10 w-auto" />
         <div class="leading-tight">
           <span class="text-base font-black text-gaming-text block">AI DEPARTMENT</span>
@@ -41,7 +45,7 @@
         </div>
       </a>
 
-      <div class="flex items-center gap-1 overflow-x-auto">
+      <div class="flex items-center justify-center gap-1 min-w-0 overflow-x-auto">
         <a href="/" class="nav-link" class:nav-link-active={isCurrent('lobby')}>Lobby</a>
         {#if tournamentId}
           <span class="w-px h-4 bg-white/10 mx-1.5" aria-hidden="true"></span>
@@ -54,7 +58,7 @@
 
       <!-- Who you are, always visible, rather than inferred from whether a
            SIGN OUT link happens to be present. -->
-      <div class="flex items-center gap-2 flex-shrink-0">
+      <div class="flex items-center justify-end gap-2 justify-self-end">
         {#if auth.isOwner}
           <span class="chip chip-organiser" title="This browser holds the instance admin token">
             <span class="chip-dot"></span>Organiser

@@ -1,6 +1,7 @@
 // Relative base so every LAN client talks to the origin that served the app:
-// in dev, Vite proxies /api -> the API server; in prod, Express serves both the
-// SPA and /api from the same origin. (A hardcoded host broke all non-host clients.)
+// in dev, Vite proxies /api -> the API server; in prod the same origin serves both
+// the SPA and /api (Node via server/index.ts, or the Cloudflare Worker).
+// (A hardcoded host broke all non-host clients.)
 const API_URL = '/api';
 
 import { getArchetypeConfig } from '$shared/gameArchetypes';

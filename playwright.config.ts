@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
-// End-to-end tests against the REAL built app (browser + SPA + Express API).
+// End-to-end tests against the REAL built app (browser + SPA + Hono API).
 // Requires Redis on localhost:6379 (`docker compose up -d redis`). The webServer
 // builds the client and starts the server that serves the SPA + /api on :3000.
 export default defineConfig({
