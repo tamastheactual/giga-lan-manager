@@ -31,3 +31,6 @@ dist-server
 # Playwright
 test-results
 playwright-report
+
+# Local Worker secrets for `wrangler dev` — never commit
+.dev.vars

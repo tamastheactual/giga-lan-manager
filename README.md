@@ -320,6 +320,9 @@ publish every `admin_key_hash`.
 
 ## Deploying to Cloudflare Workers
 
+**Live:** <https://giga-lan-manager.ranuon-ai.workers.dev>
+
+
 The API is a Hono app (`server/app.ts`) with no Node built-ins, so the Worker
 mounts exactly the same routes the Node server does — `server/index.ts` and
 `server/worker.ts` differ only in how they read configuration and serve assets.
@@ -349,6 +352,11 @@ npm run build && npx wrangler deploy --dry-run
 > and Cloudflare runs many. Add a Cloudflare Rate Limiting rule for those two
 > paths; the built-in counter stays as the floor for a single-process
 > deployment, not as the ceiling for an edge one.
+
+> **Cloudflare's bot protection rejects scripted clients.** A request with a
+> default `Python-urllib` or similar user agent gets a Cloudflare `error code:
+> 1010` (403) before it reaches the Worker. Browsers and `curl` are fine, so
+> `backup.sh` works, but anything scripting the API needs a normal user agent.
 
 > **Do not import `server/store/index.js` from `app.ts` or `worker.ts`.** That
 > barrel re-exports the Redis store, and the bundler follows it — pulling the
