@@ -15,7 +15,6 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p tsconfig.server.json && tsc -p tsconfig.worker.json",
     "start:server": "tsx server/index.ts",
     "gen-token": "tsx scripts/gen-token.ts",
-    "migrate:supabase": "tsx scripts/migrate-to-supabase.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
