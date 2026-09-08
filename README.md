@@ -140,10 +140,12 @@ npm run dev:client     # Vite only
 npm run dev:server     # API only (tsx --watch)
 
 npm run build          # client -> dist/
-npm run build:server   # server -> dist-server/
+npm run build:server   # Node server -> dist-server/
+npm run deploy:cf      # build, then deploy the Worker
+npm run dev:cf         # run the Worker locally (workerd)
 npm run preview        # preview the built client
 
-npm run check          # svelte-check + tsc (no errors, no warnings)
+npm run check          # svelte-check + tsc for the Node, server and Worker targets
 npm test               # unit tests (Vitest)
 npm run test:watch     # unit tests in watch mode
 npm run test:e2e       # Playwright, drives the real built app
@@ -244,7 +246,9 @@ shared/           single source of truth, imported by BOTH sides
   access.ts         join codes and admin keys (Web Crypto, no Node built-ins)
 
 server/
-  index.ts          Express routes and admin auth
+  app.ts            the whole API as a Hono app — no Node built-ins
+  index.ts          Node entrypoint: env, static files, HTTP listener
+  worker.ts         Cloudflare entrypoint: bindings, Workers Assets
   store/            persistence: the interface, Redis and Supabase, locking
   tournament.ts     TournamentManager: all state and rules
   brackets.ts       pure bracket builders (seeded entrants -> matches)
@@ -313,6 +317,44 @@ Both tables have RLS enabled with **no permissive policy**, so the anon and
 publishable keys can read nothing. The API talks to Postgres as the service role
 and enforces access itself; without that lockdown, publishing the anon key would
 publish every `admin_key_hash`.
+
+## Deploying to Cloudflare Workers
+
+The API is a Hono app (`server/app.ts`) with no Node built-ins, so the Worker
+mounts exactly the same routes the Node server does — `server/index.ts` and
+`server/worker.ts` differ only in how they read configuration and serve assets.
+
+```bash
+# secrets (SUPABASE_URL is a plain var in wrangler.toml; these two are not)
+npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+npx wrangler secret put ADMIN_TOKEN
+
+npm run deploy:cf     # builds the client, then wrangler deploy
+npm run dev:cf        # local Worker runtime, against the real Supabase project
+```
+
+Static assets are served by Workers Assets from `dist/`, with
+`not_found_handling = "single-page-application"` so client-side routes such as
+`/t/<code>` return the shell. `run_worker_first = ["/api/*"]` keeps API paths on
+the Worker rather than being answered with that shell.
+
+Check the bundle without deploying:
+
+```bash
+npm run build && npx wrangler deploy --dry-run
+```
+
+> **Rate limiting is per-isolate on Workers.** The in-process counters that
+> throttle `/api/admin/verify` and `/api/join/*` live in one isolate's memory,
+> and Cloudflare runs many. Add a Cloudflare Rate Limiting rule for those two
+> paths; the built-in counter stays as the floor for a single-process
+> deployment, not as the ceiling for an edge one.
+
+> **Do not import `server/store/index.js` from `app.ts` or `worker.ts`.** That
+> barrel re-exports the Redis store, and the bundler follows it — pulling the
+> Redis client and its `node:dns` / `node:events` dependencies into the Worker,
+> which then fails to build. Import `./store/supabase.js`, `./store/types.js`
+> and `./store/withTournament.js` directly.
 
 ## API
 

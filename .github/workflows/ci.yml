@@ -23,6 +23,11 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Worker bundles for Cloudflare
+        # Catches a dependency that drags a Node built-in into the Worker --
+        # invisible to tsc, and only surfaces when the bundler follows imports.
+        run: npx wrangler deploy --dry-run
+
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest

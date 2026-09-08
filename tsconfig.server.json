@@ -25,6 +25,7 @@
   ],
   "exclude": [
     "server/**/*.test.ts",
-    "shared/**/*.test.ts"
+    "shared/**/*.test.ts",
+    "server/worker.ts"
   ]
 }

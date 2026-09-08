@@ -1,0 +1,25 @@
+name = "giga-lan-manager"
+main = "server/worker.ts"
+compatibility_date = "2025-09-01"
+
+# The Supabase client and shared/access.ts use Web Crypto and fetch only, so no
+# nodejs_compat flag is needed. If a future dependency pulls in a Node built-in,
+# that is the signal to reconsider the dependency rather than add the flag.
+
+[vars]
+# Not a secret: the project URL is public. The service role key and the admin
+# token are secrets, set with:
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   wrangler secret put ADMIN_TOKEN
+SUPABASE_URL = "https://phnowrlufrhoifztzuxz.supabase.co"
+
+[assets]
+directory = "./dist"
+# Client-side routes (/t/<code>, /tournament/<id>/groups) have no file on disk;
+# they are all the same shell.
+not_found_handling = "single-page-application"
+# ...but /api/* must reach the Worker rather than being answered with the shell.
+run_worker_first = ["/api/*"]
+
+[observability]
+enabled = true
