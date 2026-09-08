@@ -46,7 +46,7 @@
       <h1 class="text-xl font-bold text-white mb-2">Opening tournament…</h1>
       <p class="text-sm text-gray-400">Looking up code {normalizeCode(entered)}</p>
     {:else}
-      <h1 class="text-2xl font-black gradient-text mb-2">Join a tournament</h1>
+      <h1 class="text-2xl font-black gradient-text mb-2">Join a Tournament</h1>
       <p class="text-sm text-gray-400 mb-6">
         Enter the {JOIN_CODE_LENGTH}-character code from the organiser to follow the
         brackets, standings and stats live.
@@ -73,7 +73,7 @@
         onclick={go}
         class="w-full mt-5 bg-cyber-green text-black py-3 rounded-xl font-bold hover:brightness-110 transition"
       >
-        Open tournament
+        Open Tournament
       </button>
 
       <p class="text-xs text-gray-500 mt-5 text-center">

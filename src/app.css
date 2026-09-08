@@ -9,11 +9,11 @@
 }
 
 :root {
-  /* Archivo rather than Inter. Inter is the default every dashboard reaches
-     for, and it gave the app no voice of its own. Archivo is a sturdier
-     grotesque: it holds up in dense standings tables and has real weight
-     behind the uppercase labels this UI leans on. */
-  font-family: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Sora, chosen by rendering the real UI in five candidates side by side
+     rather than by description. Inter and Archivo were both tried and both
+     read as neutral dashboard defaults; Sora's wider geometric letterforms
+     give the headings presence and keep the standings tables airy. */
+  font-family: 'Sora', system-ui, -apple-system, 'Segoe UI', sans-serif;
   line-height: 1.6;
   font-weight: 400;
   color: #EDF0F4;

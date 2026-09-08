@@ -304,19 +304,19 @@
     <!-- Header. The logo and wordmark already sit in the nav on every page, so
          repeating them here just pushed the actual content below the fold. -->
     <div class="pt-6 pb-4">
-      <h1 class="text-2xl font-black text-ink leading-tight">Tournament lobby</h1>
+      <h1 class="text-2xl font-black text-ink leading-tight">Tournament Lobby</h1>
     </div>
 
     {#if !canListTournaments}
       <!-- Not the instance owner: the only way in is a join code. -->
       <div class="glass rounded-2xl p-8 shadow-xl border border-cyber-green/30 text-center">
-        <h2 class="text-2xl font-black gradient-text mb-2">Got a join code?</h2>
+        <h2 class="text-2xl font-black gradient-text mb-2">Got a Join Code?</h2>
         <p class="text-gray-400 text-sm mb-6 max-w-md mx-auto">
           Enter the code from the organiser to follow a tournament's brackets, standings and
           statistics live.
         </p>
         <a href="/join" class="inline-block bg-cyber-green text-black font-bold px-8 py-3 rounded-xl hover:brightness-110 transition">
-          Join a tournament
+          Join a Tournament
         </a>
         <p class="text-xs text-gray-500 mt-6">
           Running the tournament yourself? <a href="/login" class="text-brand-orange hover:text-cyber-green underline">Sign in as organiser</a>.
@@ -334,7 +334,7 @@
           </button>
           <a href="/join" class="btn btn-secondary">
             <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7h3a5 5 0 010 10h-3m-6 0H6a5 5 0 010-10h3m-1 5h8"/></svg>
-            Open by code
+            Open by Code
           </a>
           <button onclick={handleImportClick} disabled={importing} class="btn btn-secondary">
             {#if importing}
@@ -428,12 +428,12 @@
           <div class="space-y-2">
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <span class="text-sm text-ink-muted">
-                Map pool
+                Map Pool
                 <span class="text-ink-faint">({filledMaps.length} {filledMaps.length === 1 ? 'map' : 'maps'})</span>
               </span>
               <div class="flex items-center gap-2">
                 <button type="button" onclick={useGameDefaultMaps} class="btn btn-ghost !px-2.5 !py-1.5 !text-xs">
-                  Use {GAME_CONFIGS[selectedGameType]?.shortName ?? 'game'} defaults
+                  Use {GAME_CONFIGS[selectedGameType]?.shortName ?? 'Game'} Defaults
                 </button>
                 <button type="button" onclick={resetMapPool} class="btn btn-ghost !px-2.5 !py-1.5 !text-xs">Clear</button>
               </div>

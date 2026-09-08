@@ -33,7 +33,7 @@
 
 <div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 flex flex-col items-center justify-center px-6">
   <div class="glass rounded-2xl p-8 w-full max-w-md">
-    <h1 class="text-2xl font-black gradient-text mb-2">Organiser access</h1>
+    <h1 class="text-2xl font-black gradient-text mb-2">Organiser Access</h1>
     <p class="text-sm text-gray-400 mb-6">
       Paste the admin token for this server to create tournaments. Generate one with
       <code class="text-brand-cyan">npm run gen-token</code>.
