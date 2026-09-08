@@ -1,681 +1,99 @@
-import express from 'express';
-import { createClient } from 'redis';
-import cors from 'cors';
-import bodyParser from 'body-parser';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { v4 as uuidv4 } from 'uuid';
-import session from 'express-session';
-import crypto from 'crypto';
+// Node entrypoint.
+//
+// Everything platform-specific lives here: reading the environment, choosing a
+// store, serving the built SPA off disk, and starting an HTTP listener. The API
+// itself is in server/app.ts and knows none of that, which is what lets the
+// Cloudflare Worker mount exactly the same routes.
 
-import { TournamentManager } from './tournament.js';
-import type { Team, TeamGameResult, PlayerGameStats } from '../shared/types.js';
-import { type GameType, GAME_CONFIGS, getAllGames, supportsTeamMode, getTeamModeGames } from '../shared/gameTypes.js';
+import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { Hono } from 'hono';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
-declare module 'express-session' {
-    interface SessionData {
-        isAdmin?: boolean;
+import { createApiApp, reportTokenHealth } from './app.js';
+import { createStore, RedisTournamentStore, type TournamentStore } from './store/index.js';
+
+const port = Number(process.env.PORT || 3000);
+
+// ADMIN_PASSWORD is still honoured so existing deployments keep working.
+const adminToken = process.env.ADMIN_TOKEN || process.env.ADMIN_PASSWORD || '';
+if (adminToken && process.env.ADMIN_TOKEN === undefined) {
+    console.warn('[auth] ADMIN_PASSWORD is deprecated; rename it to ADMIN_TOKEN.');
+}
+reportTokenHealth(adminToken);
+
+const store: TournamentStore = createStore();
+
+/**
+ * Bring records written before per-tournament access up to date.
+ *
+ * Only the Redis store can hold those -- the Supabase schema requires both
+ * credential columns -- so this runs once, on the way out of the old world.
+ */
+async function migrateLegacyRecords(s: TournamentStore): Promise<void> {
+    if (!(s instanceof RedisTournamentStore)) return;
+
+    for (const tournament of await s.allTournaments()) {
+        let dirty = tournament.fillMissingMaps();
+
+        if (!tournament.joinCode || !tournament.adminKeyHash) {
+            // Printed once, because nobody else has it. A holder of the
+            // instance admin token can manage the tournament regardless.
+            const adminKey = await tournament.issueAccess(await freshLegacyCode(s));
+            console.log(
+                `[migrate] "${tournament.name}" -> join code ${tournament.joinCode}, admin key ${adminKey}`,
+            );
+            dirty = true;
+        }
+        await s.claimCode(tournament.joinCode, tournament.id);
+
+        if (dirty) {
+            const current = await s.load(tournament.id);
+            if (current) await s.update(tournament, current.version);
+        }
     }
 }
 
-const app = express();
-const port = 3000;
+async function freshLegacyCode(s: TournamentStore): Promise<string> {
+    const { generateJoinCode } = await import('../shared/access.js');
+    for (let i = 0; i < 100; i++) {
+        const code = generateJoinCode();
+        if (!(await s.isJoinCodeTaken(code))) return code;
+    }
+    throw new Error('Could not allocate a unique join code');
+}
 
-// Redis Client
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const redisClient = createClient({ url: redisUrl });
+const app = new Hono();
+app.route('/', createApiApp({ store, adminToken }));
 
-redisClient.on('error', (err) => console.log('Redis Client Error', err));
+// Serve the built SPA. In Docker the server runs from /app with dist/ beside
+// it; locally `npm run start:server` runs from the repo root. Both are cwd.
+const distDir = path.join(process.cwd(), 'dist');
+app.use('/*', serveStatic({ root: path.relative(process.cwd(), distDir) || 'dist' }));
 
-const tournaments: Map<string, TournamentManager> = new Map();
+// Client-side routes (/t/<code>, /tournament/<id>/groups, ...) have no file on
+// disk; they are all the same shell. /api/* never reaches here -- the API app
+// answers unmatched API paths with JSON above.
+let indexHtml: string | null = null;
+app.get('*', async (c) => {
+    try {
+        indexHtml ??= await readFile(path.join(distDir, 'index.html'), 'utf8');
+        return c.html(indexHtml);
+    } catch {
+        return c.text('The client has not been built yet. Run `npm run build`.', 503);
+    }
+});
 
 (async () => {
-  await redisClient.connect();
-  console.log('Connected to Redis');
+    await store.init();
+    await migrateLegacyRecords(store);
+    console.log('[store] ready');
 
-  // Load tournament list from Redis
-  const tournamentIds = await redisClient.sMembers('tournaments:list');
-  for (const id of tournamentIds) {
-    const state = await redisClient.get(`tournament:${id}`);
-    if (state) {
-      const data = JSON.parse(state);
-      const tournament = new TournamentManager(data.id, data.name, data.gameType, data.mapPool);
-      // Copy all properties from persisted data, including createdAt
-      Object.assign(tournament, data);
-      // Fill in any missing maps for completed matches
-      tournament.fillMissingMaps();
-      tournaments.set(id, tournament);
-      console.log(`Loaded tournament: ${data.name} (${id}) - createdAt: ${tournament.createdAt}`);
-    }
-  }
-})();
-
-const saveState = async (tournamentId: string) => {
-    const tournament = tournaments.get(tournamentId);
-    if (tournament) {
-        await redisClient.set(`tournament:${tournamentId}`, JSON.stringify(tournament));
-    }
-};
-
-app.use(cors());
-app.use(bodyParser.json({ limit: '10mb' })); 
-
-// --- Admin auth (Option A): one shared password via the ADMIN_PASSWORD env var.
-// When set, mutating requests (POST/PUT/DELETE/PATCH) require an admin login;
-// viewing (GET) stays open so players can watch. When unset, auth is disabled
-// (with a warning) so dev and existing deployments keep working unchanged.
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-if (!ADMIN_PASSWORD) {
-    console.warn('[auth] ADMIN_PASSWORD is not set — the API is OPEN (anyone on the network can modify tournaments). Set ADMIN_PASSWORD to require an admin login.');
-}
-
-app.use(session({
-    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
-    resave: false,
-    saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 12 * 60 * 60 * 1000 }, // 12h
-}));
-
-app.post('/api/login', (req, res) => {
-    if (!ADMIN_PASSWORD) return res.json({ success: true }); // auth disabled
-    const { password } = req.body ?? {};
-    if (typeof password === 'string' && password === ADMIN_PASSWORD) {
-        req.session.isAdmin = true;
-        return res.json({ success: true });
-    }
-    return res.status(401).json({ error: 'Incorrect password' });
-});
-
-app.post('/api/logout', (req, res) => {
-    req.session.destroy(() => res.json({ success: true }));
-});
-
-app.get('/api/admin/status', (req, res) => {
-    res.json({ authRequired: !!ADMIN_PASSWORD, isAdmin: !ADMIN_PASSWORD || !!req.session.isAdmin });
-});
-
-// Gate every mutating API route; GET stays public.
-app.use('/api', (req, res, next) => {
-    if (!ADMIN_PASSWORD) return next();
-    if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return next();
-    if (req.path === '/login' || req.path === '/logout') return next();
-    if (req.session.isAdmin) return next();
-    return res.status(401).json({ error: 'Admin login required' });
-});
-
-// API Routes
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
-// Tournament management
-app.get('/api/tournaments', (req, res) => {
-  const tournamentList = Array.from(tournaments.values()).map(t => ({
-    id: t.id,
-    name: t.name,
-    state: t.state,
-    playerCount: t.players.length,
-    gameType: t.gameType,
-    createdAt: t.createdAt,
-    startedAt: t.startedAt,
-    isTeamBased: t.isTeamBased
-  }));
-  res.json(tournamentList);
-});
-
-// Get available games
-app.get('/api/games', (req, res) => {
-  res.json(getAllGames());
-});
-
-app.post('/api/tournaments', async (req, res) => {
-  const { name, gameType, mapPool = [], groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode } = req.body;
-  if (!name) return res.status(400).json({ error: 'Name is required' });
-  if (!gameType || !GAME_CONFIGS[gameType as GameType]) {
-    return res.status(400).json({ error: 'Valid game type is required' });
-  }
-  // Check for unique tournament name
-  const existingNames = Array.from(tournaments.values()).map(t => t.name.toLowerCase());
-  if (existingNames.includes(name.trim().toLowerCase())) {
-    return res.status(400).json({ error: 'A tournament with this name already exists' });
-  }
-  const id = uuidv4();
-  const tournament = new TournamentManager(id, name, gameType as GameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode);
-  tournaments.set(id, tournament);
-  await redisClient.sAdd('tournaments:list', id);
-  await saveState(id);
-  res.json({ id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, isTeamBased: tournament.isTeamBased });
-});
-
-// Delete a tournament
-app.delete('/api/tournament/:tournamentId', async (req, res) => {
-    const { tournamentId } = req.params;
-    if (!tournaments.has(tournamentId)) {
-        return res.status(404).json({ error: 'Tournament not found' });
-    }
-
-    try {
-        tournaments.delete(tournamentId);
-        await redisClient.sRem('tournaments:list', tournamentId);
-        await redisClient.del(`tournament:${tournamentId}`);
-        res.json({ success: true, message: `Tournament ${tournamentId} deleted.` });
-    } catch (e: any) {
-        res.status(500).json({ error: 'Failed to delete tournament', details: e.message });
-    }
-});
-
-// Import a tournament from JSON
-app.post('/api/tournaments/import', async (req, res) => {
-    try {
-        const importData = req.body;
-        
-        if (!importData || typeof importData.name !== 'string' || !importData.name.trim()) {
-            return res.status(400).json({ error: 'Invalid tournament data' });
-        }
-        
-        // Use the original ID or generate a new one if it conflicts
-        // Never trust a client-supplied Redis key: require a UUID, else mint one.
-        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        let id = importData.tournamentId || importData.id;
-        if (typeof id !== 'string' || !UUID_RE.test(id) || tournaments.has(id)) {
-            id = uuidv4();
-        }
-        
-        // Create a new tournament manager and restore state
-        const gameType = (importData.gameType || 'cs16') as GameType;
-        const tournament = new TournamentManager(
-            id,
-            importData.name,
-            gameType,
-            Array.isArray(importData.mapPool) ? importData.mapPool : [],
-            typeof importData.groupStageRoundLimit === 'number' ? importData.groupStageRoundLimit : undefined,
-            typeof importData.playoffsRoundLimit === 'number' ? importData.playoffsRoundLimit : undefined,
-            importData.useCustomPoints === true,
-            importData.isTeamBased === true,
-        );
-
-        // Restore state (validated against the allowed set) and timestamps.
-        const VALID_STATES = ['registration', 'group', 'playoffs', 'completed'];
-        tournament.state = VALID_STATES.includes(importData.state) ? importData.state : 'registration';
-        if (typeof importData.createdAt === 'string') tournament.createdAt = importData.createdAt;
-        if (typeof importData.startedAt === 'string') tournament.startedAt = importData.startedAt;
-
-        // Restore collections, guarding each against a non-array payload.
-        const asArray = (v: any) => (Array.isArray(v) ? v : []);
-        tournament.players = asArray(importData.players);
-        tournament.pods = asArray(importData.pods);
-        tournament.matches = asArray(importData.matches);
-        tournament.bracketMatches = asArray(importData.bracketMatches);
-        tournament.teams = asArray(importData.teams);
-        tournament.teamPods = asArray(importData.teamPods);
-        tournament.teamMatches = asArray(importData.teamMatches);
-        tournament.teamBracketMatches = asArray(importData.teamBracketMatches);
-        
-        tournaments.set(id, tournament);
-        await redisClient.sAdd('tournaments:list', id);
-        await saveState(id);
-        
-        res.json({ 
-            success: true, 
-            id, 
-            name: tournament.name,
-            message: `Tournament "${tournament.name}" imported successfully`
-        });
-    } catch (e: any) {
-        res.status(500).json({ error: 'Failed to import tournament', details: e.message });
-    }
-});
-
-// Get tournament state
-app.get('/api/tournament/:tournamentId/state', (req, res) => {
-  const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-
-  res.json({
-    id: tournament.id,
-    name: tournament.name,
-    gameType: tournament.gameType,
-    gameConfig: tournament.getGameConfig(),
-    players: tournament.players,
-    pods: tournament.pods,
-    matches: tournament.matches,
-    bracketMatches: tournament.bracketMatches,
-    state: tournament.state,
-    champion: tournament.getChampion(),
-    createdAt: tournament.createdAt,
-    startedAt: tournament.startedAt,
-    mapPool: tournament.mapPool,
-    groupStageRoundLimit: tournament.groupStageRoundLimit,
-    playoffsRoundLimit: tournament.playoffsRoundLimit,
-    useCustomPoints: tournament.useCustomPoints,
-    // Team tournament data
-    isTeamBased: tournament.isTeamBased,
-    teams: tournament.teams.map(t => ({
-      ...t,
-      roundDiff: t.roundsWon - t.roundsLost,
-      members: t.playerIds // Alias for frontend compatibility
-    })),
-    teamPods: tournament.teamPods,
-    teamMatches: tournament.teamMatches,
-    teamBracketMatches: tournament.teamBracketMatches,
-    championTeam: tournament.getChampionTeam(),
-    // Player statistics (for team tournaments with K/D tracking)
-    playerStatistics: tournament.isTeamBased ? Object.fromEntries(tournament.getPlayerStatistics()) : {}
-  });
-});
-
-
-
-app.post('/api/tournament/:tournamentId/players', async (req, res) => {
-    const { tournamentId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
-    const player = tournament.addPlayer(name);
-    await saveState(tournamentId);
-    res.json(player);
-});
-
-app.post('/api/tournament/:tournamentId/start', async (req, res) => {
-    const { tournamentId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    try {
-        tournament.startGroupStage();
-        await saveState(tournamentId);
-        res.json({ success: true });
-    } catch (e: any) {
-        res.status(400).json({ error: e.message });
-    }
-});
-
-app.post('/api/tournament/:tournamentId/match/:id', async (req, res) => {
-    const { tournamentId, id } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    const { results, mapName } = req.body;
-    console.log(`[API] POST /api/tournament/${tournamentId}/match/${id} - Received:`, { id, results, mapName });
-    try {
-        tournament.submitMatchResult(id, results, mapName);
-        await saveState(tournamentId);
-        console.log(`[API] POST /api/tournament/${tournamentId}/match/${id} - Success, state saved`);
-        res.json({ success: true });
-    } catch (e: any) {
-        console.error(`[API] POST /api/tournament/${tournamentId}/match/${id} - Error:`, e.message);
-        res.status(400).json({ error: e.message });
-    }
-});
-
-app.post('/api/tournament/:tournamentId/brackets', async (req, res) => {
-    const { tournamentId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    try {
-        // Automatically detect team vs solo tournament and call appropriate method
-        if (tournament.isTeamBased) {
-            tournament.generateTeamBrackets();
-        } else {
-            tournament.generateBrackets();
-        }
-        await saveState(tournamentId);
-        res.json({ success: true });
-    } catch (e: any) {
-        res.status(400).json({ error: e.message });
-    }
-});
-
-app.post('/api/tournament/:tournamentId/bracket-match/:id', async (req, res) => {
-    const { tournamentId, id } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    const { winnerId } = req.body;
-    try {
-        tournament.submitBracketWinner(id, winnerId);
-        await saveState(tournamentId);
-        res.json({ success: true });
-    } catch (e: any) {
-        res.status(400).json({ error: e.message });
-    }
-});
-
-// Submit a single game result for BO3 bracket match
-app.post('/api/tournament/:tournamentId/bracket-match/:id/game', async (req, res) => {
-    const { tournamentId, id } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    const { gameNumber, mapName, player1Score, player2Score, winnerId } = req.body;
-    try {
-        tournament.submitBracketGameResult(id, {
-            gameNumber,
-            mapName,
-            player1Score,
-            player2Score,
-            winnerId
-        });
-        await saveState(tournamentId);
-        res.json({ success: true });
-    } catch (e: any) {
-        res.status(400).json({ error: e.message });
-    }
-});
-
-app.post('/api/tournament/:tournamentId/reset', async (req, res) => {
-    const { tournamentId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    tournament.reset();
-    await saveState(tournamentId);
-    res.json({ success: true });
-});
-
-// Update tournament name
-app.put('/api/tournament/:tournamentId/name', async (req, res) => {
-    const { tournamentId } = req.params;
-    const { name } = req.body;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-
-    try {
-        tournament.updateTournamentName(name);
-        await saveState(tournamentId);
-        res.json({ success: true });
-    } catch (e: any) {
-        res.status(400).json({ error: e.message });
-    }
-});
-
-// Update group name
-app.put('/api/tournament/:tournamentId/group/:podId/name', async (req, res) => {
-    const { tournamentId, podId } = req.params;
-    const { name } = req.body;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-
-    try {
-        tournament.updateGroupName(podId, name);
-        await saveState(tournamentId);
-        res.json({ success: true });
-    } catch (e: any) {
-        res.status(400).json({ error: e.message });
-    }
-});
-
-// Reset group data
-app.post('/api/tournament/:tournamentId/group/:podId/reset', async (req, res) => {
-    const { tournamentId, podId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-
-    try {
-        tournament.resetGroupData(podId);
-        await saveState(tournamentId);
-        res.json({ success: true });
-    } catch (e: any) {
-        res.status(400).json({ error: e.message });
-    }
-});
-
-// Update a player's name
-app.put('/api/tournament/:tournamentId/player/:playerId', async (req, res) => {
-  const { tournamentId, playerId } = req.params;
-  const { name } = req.body;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  try {
-    tournament.updatePlayerName(playerId, name);
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Update player photo
-app.put('/api/tournament/:tournamentId/player/:playerId/photo', async (req, res) => {
-  const { tournamentId, playerId } = req.params;
-  const { photo } = req.body;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  try {
-    tournament.updatePlayerPhoto(playerId, photo);
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Remove player
-app.delete('/api/tournament/:tournamentId/player/:playerId', async (req, res) => {
-  const { tournamentId, playerId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  try {
-    tournament.removePlayer(playerId);
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// ========================================
-// TEAM TOURNAMENT API ENDPOINTS
-// ========================================
-
-// Get available team games
-app.get('/api/team-games', (req, res) => {
-  res.json(getTeamModeGames());
-});
-
-// Add a team to a tournament
-app.post('/api/tournament/:tournamentId/teams', async (req, res) => {
-  const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  const { name, playerIds, logo } = req.body;
-  if (!name) return res.status(400).json({ error: 'Team name is required' });
-  if (!playerIds || !Array.isArray(playerIds) || playerIds.length === 0) {
-    return res.status(400).json({ error: 'At least one player is required' });
-  }
-  
-  try {
-    const team = tournament.addTeam(name, playerIds, logo);
-    await saveState(tournamentId);
-    res.json(team);
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Update a team
-app.put('/api/tournament/:tournamentId/team/:teamId', async (req, res) => {
-  const { tournamentId, teamId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  const { name, playerIds, logo } = req.body;
-  
-  try {
-    const team = tournament.updateTeam(teamId, { name, playerIds, logo });
-    await saveState(tournamentId);
-    res.json(team);
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Remove a team
-app.delete('/api/tournament/:tournamentId/team/:teamId', async (req, res) => {
-  const { tournamentId, teamId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  try {
-    tournament.removeTeam(teamId);
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Update team logo
-app.put('/api/tournament/:tournamentId/team/:teamId/logo', async (req, res) => {
-  const { tournamentId, teamId } = req.params;
-  const { logo } = req.body;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  try {
-    tournament.updateTeam(teamId, { logo });
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Start team group stage
-app.post('/api/tournament/:tournamentId/start-team', async (req, res) => {
-  const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  try {
-    tournament.startTeamGroupStage();
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Submit team match result (group stage)
-app.post('/api/tournament/:tournamentId/team-match/:id', async (req, res) => {
-  const { tournamentId, id } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  const { team1Score, team2Score, games } = req.body;
-  
-  try {
-    tournament.submitTeamMatchResult(id, team1Score, team2Score, games);
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Generate team brackets
-app.post('/api/tournament/:tournamentId/team-brackets', async (req, res) => {
-  const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  try {
-    tournament.generateTeamBrackets();
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Submit team bracket winner
-app.post('/api/tournament/:tournamentId/team-bracket-match/:id', async (req, res) => {
-  const { tournamentId, id } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  const { winnerId } = req.body;
-  
-  try {
-    tournament.submitTeamBracketWinner(id, winnerId);
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Submit a single game result for team bracket match (BO3/BO5)
-app.post('/api/tournament/:tournamentId/team-bracket-match/:id/game', async (req, res) => {
-  const { tournamentId, id } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  const { gameNumber, mapName, team1Score, team2Score, winnerTeamId, playerStats } = req.body;
-  
-  try {
-    const gameResult: TeamGameResult = {
-      gameNumber,
-      mapName,
-      team1Score,
-      team2Score,
-      winnerTeamId,
-      playerStats: playerStats || []
-    };
-    tournament.submitTeamBracketGameResult(id, gameResult);
-    await saveState(tournamentId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-// Get player statistics for team tournament
-app.get('/api/tournament/:tournamentId/player-stats', (req, res) => {
-  const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  if (!tournament.isTeamBased) {
-    return res.status(400).json({ error: 'Player stats only available for team tournaments' });
-  }
-  
-  const stats = tournament.getPlayerStatistics();
-  // Convert Map to array of objects for JSON
-  const statsArray = Array.from(stats.entries()).map(([playerId, data]) => ({
-    playerId,
-    ...data
-  }));
-  
-  res.json(statsArray);
-});
-
-// Get team rankings
-app.get('/api/tournament/:tournamentId/team-rankings', (req, res) => {
-  const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-  
-  if (!tournament.isTeamBased) {
-    return res.status(400).json({ error: 'Team rankings only available for team tournaments' });
-  }
-  
-  res.json(tournament.getTeamRankings());
-});
-
-// Serve static files from the Svelte app build
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-// In production (docker), dist is at /app/dist. In dev, it might be different.
-// We'll assume the server is run from the root or we adjust the path.
-// If running with ts-node from root:
-app.use(express.static(path.join(process.cwd(), 'dist')));
-
-app.get(/.*/, (req, res) => {
-    if (req.path.startsWith('/api')) {
-        return res.status(404).json({ error: 'API endpoint not found' });
-    }
-    res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
-});
-
-app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+    serve({ fetch: app.fetch, port }, (info) => {
+        console.log(`Server running at http://localhost:${info.port}`);
+    });
+})().catch((err) => {
+    console.error('[startup] failed:', err.message);
+    process.exit(1);
 });

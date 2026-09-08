@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getState, addPlayer, startGroupStage, startTeamGroupStage, resetTournament, updateTournamentName, updatePlayerName, updatePlayerPhoto, removePlayer, addTeam, removeTeam, updateTeam, type GameType, type Team, GAME_CONFIGS } from '$lib/api';
-  import { getPlayerImageUrl } from '$lib/playerImages';
+  import { resolvePlayerAvatar } from '$lib/playerImages';
   import { getTeamImageUrl, fileToBase64, validateImageFile } from '$lib/teamImages';
   import { getGameLogoUrl } from '$lib/gameLogos';
   import Footer from '../components/Footer.svelte';
@@ -25,6 +25,11 @@
   let createdAt = $state<string | null>(null);
   let startedAt = $state<string | null>(null);
   let mapPool = $state<string[]>([]);
+
+  // Does this browser hold this tournament's admin key? Comes from /state, which
+  // checks the X-Admin-Key header. Viewers who arrived via a join code get false
+  // and are shown the tournament read-only.
+  let canEdit = $state(false);
 
   // Tournament settings (set when created)
   let groupStageRoundLimit = $state<number | undefined>(undefined);
@@ -371,6 +376,7 @@
     createdAt = data.createdAt || null;
     startedAt = data.startedAt || null;
     mapPool = data.mapPool || [];
+    canEdit = data.isAdmin === true;
     // Tournament settings
     groupStageRoundLimit = data.groupStageRoundLimit;
     playoffsRoundLimit = data.playoffsRoundLimit;
@@ -394,14 +400,18 @@
       return;
     }
 
-    const newPlayer = await addPlayer(tournamentId, trimmedName);
-    
-    // Set profile photo based on name match (or default to Cat)
-    const photoUrl = getPlayerImageUrl(trimmedName);
-    if (photoUrl && newPlayer?.id) {
-      await updatePlayerPhoto(tournamentId, newPlayer.id, photoUrl);
+    try {
+      await addPlayer(tournamentId, trimmedName);
+    } catch (e: any) {
+      errorMessage = e.message || 'Failed to add player.';
+      showErrorPopup = true;
+      return;
     }
-    
+
+    // No photo is persisted here on purpose. The bundled avatar used to be
+    // written to Redis as a build-hashed URL, which 404s after the next build;
+    // resolvePlayerAvatar() looks it up by name at render time instead.
+
     newPlayerName = '';
     await loadState();
 
@@ -428,7 +438,13 @@
           return;
         }
       }
-      await startTeamGroupStage(tournamentId);
+      try {
+        await startTeamGroupStage(tournamentId);
+      } catch (e: any) {
+        errorMessage = e.message || 'Failed to start the tournament.';
+        showErrorPopup = true;
+        return;
+      }
     } else {
       // Solo tournament
       if (players.length === 11 || players.length === 13) {
@@ -436,7 +452,13 @@
         showErrorPopup = true;
         return;
       }
-      await startGroupStage(tournamentId);
+      try {
+        await startGroupStage(tournamentId);
+      } catch (e: any) {
+        errorMessage = e.message || 'Failed to start the tournament.';
+        showErrorPopup = true;
+        return;
+      }
     }
     await loadState();
     window.location.href = `/tournament/${tournamentId}/groups`;
@@ -590,9 +612,7 @@
     confirmButtonText = 'Reset';
     pendingAction = async () => {
       try {
-        console.log('[Home] Resetting tournament...');
         await resetTournament(tournamentId);
-        console.log('[Home] Tournament reset, redirecting...');
         window.location.href = '/';
       } catch (error) {
         console.error('[Home] Error resetting tournament:', error);
@@ -643,7 +663,6 @@
   }
 
   function startEditingPlayer(playerId: string) {
-    console.log('[Dashboard] startEditingPlayer called for', playerId);
     const p = players.find(x => x.id === playerId);
     if (!p) {
       console.warn('[Dashboard] player not found', playerId);
@@ -678,16 +697,10 @@
     }
   }
 
-  function getPlayerGradient(index: number) {
-    const gradients = [
-      'from-cyan-500 to-blue-500',
-      'from-purple-500 to-pink-500',
-      'from-green-500 to-emerald-500',
-      'from-orange-500 to-red-500',
-      'from-yellow-500 to-orange-500',
-      'from-indigo-500 to-purple-500',
-    ];
-    return gradients[index % gradients.length];
+  // Positions outside the podium carry no colour. A rotating palette gave
+  // 4th a red wash and 5th a gold one, implying a distinction that is not there.
+  function getPlayerGradient(_index: number) {
+    return 'bg-white/[0.03]';
   }
 
   // Simple Photo Editing Functions
@@ -761,12 +774,22 @@
   });
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 py-8 px-4 flex flex-col">
+{#if !canEdit}
+  <div class="max-w-7xl mx-auto px-4 pt-4">
+    <div class="flex items-center gap-3 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-4 py-2.5">
+      <svg class="w-4 h-4 text-brand-cyan flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+      <span class="text-sm text-brand-cyan font-semibold">Viewing live - only the organiser can enter results.</span>
+    </div>
+  </div>
+{/if}
+
+
+<div class="min-h-screen bg-space-600 py-8 px-4 flex flex-col">
   <div class="w-full max-w-6xl mx-auto space-y-8">
 
     <!-- Header with Animated Title -->
     <div class="text-center py-3 space-y-2">
-      <div class="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-1 flex items-center gap-2 justify-center">
+      <div class="text-sm font-bold text-accent uppercase tracking-wider mb-1 flex items-center gap-2 justify-center">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
         </svg>
@@ -789,14 +812,14 @@
       {:else}
         <h1 class="text-2xl md:text-3xl font-black gradient-text leading-tight inline-flex items-center gap-2">
           {tournamentName}
-          {#if tournamentState === 'registration'}
+          {#if canEdit && tournamentState === 'registration'}
             <button type="button" onclick={startEditingName} class="cursor-pointer hover:opacity-80 p-1" title="Edit Name" aria-label="Edit tournament name">
               <svg class="w-5 h-5 opacity-60" fill="currentColor" viewBox="0 0 20 20"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path></svg>
             </button>
           {/if}
         </h1>
       {/if}
-      <p class="text-gray-400 text-sm">TOURNAMENT COMMAND CENTER</p>
+
     </div>
 
     <!-- Game Info Banner -->
@@ -812,16 +835,16 @@
             <div>
               <h3 class="text-lg font-bold text-white">{currentGameConfig.name}</h3>
               <p class="text-sm text-gray-400">
-                Group: {groupStageFormatText} • Playoffs: {playoffsFormatText}
+                Group: {groupStageFormatText}<span class="sep" aria-hidden="true"></span>Playoffs: {playoffsFormatText}
               </p>
             </div>
           </div>
           <button
             onclick={() => showRulesModal = true}
-            class="bg-brand-purple/20 border border-brand-purple text-brand-purple hover:bg-brand-purple hover:text-white font-bold px-4 py-2 rounded-lg transition-all duration-300"
+            class="btn btn-secondary"
           >
-            <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-            VIEW RULES
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+            View Rules
           </button>
         </div>
         <div class="flex items-center gap-6 text-xs text-gray-400 border-t border-space-600 pt-2 mt-2">
@@ -864,7 +887,7 @@
               </div>
               <div class="w-full h-1.5 bg-space-700 rounded-full overflow-hidden shadow-inner">
                 <div
-                  class="h-full bg-gradient-to-r from-brand-purple to-brand-cyan transition-all duration-500 ease-out shadow-lg"
+                  class="h-full bg-space-600 transition-all duration-500 ease-out shadow-lg"
                   style="width: {Math.min((players.length / 16) * 100, 100)}%"
                 ></div>
               </div>
@@ -874,7 +897,7 @@
 
         <!-- Add Player Input -->
         <div class="glass rounded-lg p-4 shadow-xl border border-cyber-blue/20">
-          <h3 class="text-base font-bold mb-3 text-cyber-blue">Add Player</h3>
+          <h3 class="text-base font-bold mb-3 text-ink">Add Player</h3>
           <div class="flex gap-2">
             <input
               type="text"
@@ -884,13 +907,15 @@
               onkeydown={(e) => e.key === 'Enter' && handleAddPlayer()}
               maxlength="20"
             />
+            {#if canEdit}
             <button
               onclick={handleAddPlayer}
-              class="bg-gradient-to-r from-brand-purple to-brand-cyan hover:from-brand-cyan hover:to-brand-purple text-white font-bold px-4 py-2 text-sm rounded-lg shadow-glow-cyan transition-all duration-300 hover:scale-105 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              class="bg-space-600  text-white font-bold px-4 py-2 text-sm rounded-lg shadow-glow-cyan transition-all duration-300 hover:scale-105 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
               disabled={!newPlayerName.trim()}
             >
               Add
             </button>
+            {/if}
           </div>
         </div>
       </div>
@@ -903,15 +928,17 @@
               <h3 class="text-base font-bold text-brand-orange">Teams</h3>
               <span class="text-xs text-gray-400">({teams.length} teams, {minTeamSize}-{maxTeamSize} players each)</span>
             </div>
+            {#if canEdit}
             <button
               onclick={() => openTeamModal()}
-              class="bg-gradient-to-r from-brand-orange to-brand-purple hover:from-brand-purple hover:to-brand-orange text-white font-bold px-3 py-1.5 text-sm rounded-lg shadow-glow-orange transition-all duration-300 hover:scale-105 inline-flex items-center gap-1.5"
+              class="bg-space-600  text-white font-bold px-3 py-1.5 text-sm rounded-lg shadow-glow-orange transition-all duration-300 hover:scale-105 inline-flex items-center gap-1.5"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
               </svg>
               Create Team
             </button>
+            {/if}
           </div>
 
           {#if teams.length === 0}
@@ -936,6 +963,7 @@
                       <h4 class="font-bold text-white text-base">{team.name}</h4>
                     </div>
                     <div class="flex gap-1">
+                      {#if canEdit}
                       <button
                         onclick={() => openTeamModal(team.id)}
                         class="text-gray-400 hover:text-brand-cyan p-1 rounded transition-colors"
@@ -945,22 +973,25 @@
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                         </svg>
                       </button>
+                      {/if}
+                      {#if canEdit}
                       <button
                         onclick={() => handleRemoveTeam(team.id)}
-                        class="text-gray-400 hover:text-red-500 p-1 rounded transition-colors"
+                        class="text-gray-400 hover:text-loss p-1 rounded transition-colors"
                         title="Remove team"
                       >
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                         </svg>
                       </button>
+                      {/if}
                     </div>
                   </div>
                   <div class="flex flex-wrap gap-1.5">
                     {#each getTeamPlayers(team) as player}
                       <div class="flex items-center gap-1 bg-space-600 rounded px-2 py-0.5">
                         <img 
-                          src={player.profilePhoto || getPlayerImageUrl(player.name)} 
+                          src={resolvePlayerAvatar(player)} 
                           alt={player.name} 
                           class="w-4 h-4 rounded-full object-cover"
                         />
@@ -968,7 +999,7 @@
                       </div>
                     {/each}
                     {#if team.playerIds.length < minTeamSize}
-                      <span class="text-xs text-red-400 italic">Need {minTeamSize - team.playerIds.length} more</span>
+                      <span class="text-xs text-loss italic">Need {minTeamSize - team.playerIds.length} more</span>
                     {/if}
                   </div>
                 </div>
@@ -979,7 +1010,7 @@
           {#if unassignedPlayers.length > 0 && teams.length > 0}
             <div class="mt-3 pt-3 border-t border-space-600">
               <p class="text-xs text-gray-400 mb-2">
-                <span class="text-yellow-400">⚠</span> {unassignedPlayers.length} unassigned {unassignedPlayers.length === 1 ? 'player' : 'players'}:
+                <span class="inline-flex items-center gap-1.5 text-gold align-middle"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></span> {unassignedPlayers.length} unassigned {unassignedPlayers.length === 1 ? 'player' : 'players'}:
                 <span class="text-gray-300">{unassignedPlayers.map(p => p.name).join(', ')}</span>
               </p>
             </div>
@@ -988,14 +1019,14 @@
       {/if}
 
       <!-- Start Button -->
-      {#if tournamentState === 'registration'}
+      {#if canEdit && tournamentState === 'registration'}
         {#if isTeamBased}
           <!-- Team tournament start conditions -->
           {#if teams.length >= 2 && teams.every(t => t.playerIds.length >= minTeamSize)}
             <div class="text-center space-y-2 py-3">
               <button
                 onclick={handleStart}
-                class="bg-gradient-to-r from-brand-purple via-brand-blue to-brand-cyan text-white font-black text-lg px-8 py-3 rounded-xl shadow-xl shadow-brand-purple/30 hover:shadow-brand-cyan/40 hover:scale-105 transition-all duration-500 animate-pulse-slow"
+                class="bg-space-600 text-white font-black text-lg px-8 py-3 rounded-xl shadow-xl shadow-brand-purple/30 hover:shadow-brand-cyan/40 hover:scale-105 transition-all duration-500 animate-pulse-slow"
               >
                 <svg class="w-5 h-5 inline-block mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
                 START TEAM TOURNAMENT
@@ -1020,7 +1051,7 @@
             <div class="text-center space-y-2 py-3">
               <button
                 onclick={handleStart}
-                class="bg-gradient-to-r from-brand-purple via-brand-blue to-brand-cyan text-white font-black text-lg px-8 py-3 rounded-xl shadow-xl shadow-brand-purple/30 hover:shadow-brand-cyan/40 hover:scale-105 transition-all duration-500 animate-pulse-slow"
+                class="bg-space-600 text-white font-black text-lg px-8 py-3 rounded-xl shadow-xl shadow-brand-purple/30 hover:shadow-brand-cyan/40 hover:scale-105 transition-all duration-500 animate-pulse-slow"
               >
                 <svg class="w-5 h-5 inline-block mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
                 START TOURNAMENT
@@ -1043,16 +1074,16 @@
       {#if tournamentState === 'completed' && (champion || championTeam)}
         <!-- Tournament Completed -->
         <div class="glass rounded-xl p-6 mb-6 border border-brand-purple/30 relative overflow-hidden">
-          <div class="absolute inset-0 bg-gradient-to-r from-brand-purple/10 via-brand-blue/10 to-brand-cyan/10"></div>
+          <div class="absolute inset-0 bg-white/5"></div>
           <div class="relative z-10">
             <div class="flex items-center justify-between mb-4">
               <div>
-                <h2 class="text-2xl font-black mb-1 bg-gradient-to-r from-brand-purple via-brand-blue to-brand-cyan bg-clip-text text-transparent">
+                <h2 class="text-2xl font-black mb-1 text-ink">
                   TOURNAMENT COMPLETED
                 </h2>
                 <p class="text-gray-400 text-sm">Final results and rankings</p>
               </div>
-              <div class="w-16 h-16 rounded-full bg-gradient-to-br from-brand-purple to-brand-cyan flex items-center justify-center shadow-xl shadow-brand-purple/50">
+              <div class="w-16 h-16 rounded-full bg-space-600 flex items-center justify-center shadow-xl shadow-brand-purple/50">
                 <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
                 </svg>
@@ -1063,22 +1094,22 @@
               <!-- Team Champion Display -->
               {@const teamLogoSrc = championTeam.logo || getTeamImageUrl(championTeam.name)}
               {@const championStats = getFullTeamStats(championTeam.id)}
-              <div class="flex items-center gap-6 mb-6 p-4 bg-gradient-to-r from-yellow-500/20 via-yellow-400/10 to-yellow-500/20 rounded-xl border border-yellow-500/30">
+              <div class="flex items-center gap-6 mb-6 p-4 bg-gold/[0.08] rounded-xl border border-gold/30">
                 <!-- Team Logo -->
                 <div class="relative">
                   <img 
                     src={teamLogoSrc} 
                     alt={championTeam.name} 
-                    class="w-20 h-20 rounded-xl object-cover ring-4 ring-yellow-400 shadow-lg shadow-yellow-500/50"
+                    class="w-20 h-20 rounded-xl object-cover ring-4 ring-gold shadow-lg shadow-gold/50"
                   />
-                  <div class="absolute -top-2 -right-2 w-8 h-8 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center shadow-lg">
-                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/></svg>
+                  <div class="absolute -top-2 -right-2 w-8 h-8 bg-gold rounded-full flex items-center justify-center shadow-lg">
+                    <svg class="w-5 h-5 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/></svg>
                   </div>
                 </div>
                 
                 <!-- Team Info -->
                 <div class="flex-1">
-                  <p class="text-sm text-yellow-400 font-bold uppercase tracking-wider mb-1">Team Champions</p>
+                  <p class="text-sm text-gold font-bold uppercase tracking-wider mb-1">Team Champions</p>
                   <h3 class="text-2xl font-black text-white mb-2">{championTeam.name}</h3>
                   
                   <!-- Team Members -->
@@ -1086,7 +1117,7 @@
                     {#each championTeam.playerIds as playerId}
                       {@const teamPlayer = players.find(p => p.id === playerId)}
                       {#if teamPlayer}
-                        <span class="px-2 py-1 bg-yellow-500/20 text-yellow-300 text-xs font-medium rounded-full border border-yellow-500/30">
+                        <span class="px-2 py-1 bg-space-900/50 text-ink text-xs font-medium rounded-full border border-gold/30">
                           {teamPlayer.name}
                         </span>
                       {/if}
@@ -1105,24 +1136,23 @@
               </div>
             {:else if champion}
               <!-- Solo Champion Display -->
-              {@const isBase64Photo = champion.profilePhoto && champion.profilePhoto.startsWith('data:')}
-              {@const photoSrc = isBase64Photo ? champion.profilePhoto : getPlayerImageUrl(champion.name)}
-              <div class="flex items-center gap-6 mb-6 p-4 bg-gradient-to-r from-yellow-500/20 via-yellow-400/10 to-yellow-500/20 rounded-xl border border-yellow-500/30">
+              {@const photoSrc = resolvePlayerAvatar(champion)}
+              <div class="flex items-center gap-6 mb-6 p-4 bg-gold/[0.08] rounded-xl border border-gold/30">
                 <!-- Player Photo -->
                 <div class="relative">
                   <img 
                     src={photoSrc} 
                     alt={champion.name} 
-                    class="w-20 h-20 rounded-full object-cover ring-4 ring-yellow-400 shadow-lg shadow-yellow-500/50"
+                    class="w-20 h-20 rounded-full object-cover ring-4 ring-gold shadow-lg shadow-gold/50"
                   />
-                  <div class="absolute -top-2 -right-2 w-8 h-8 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center shadow-lg">
-                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/></svg>
+                  <div class="absolute -top-2 -right-2 w-8 h-8 bg-gold rounded-full flex items-center justify-center shadow-lg">
+                    <svg class="w-5 h-5 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/></svg>
                   </div>
                 </div>
                 
                 <!-- Player Info -->
                 <div class="flex-1">
-                  <p class="text-sm text-yellow-400 font-bold uppercase tracking-wider mb-1">Tournament Champion</p>
+                  <p class="text-sm text-gold font-bold uppercase tracking-wider mb-1">Tournament Champion</p>
                   <h3 class="text-2xl font-black text-white">{champion.name}</h3>
                 </div>
                 
@@ -1137,7 +1167,7 @@
             <!-- View Statistics Button -->
             <a 
               href={`/tournament/${tournamentId}/statistics`}
-              class="bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-orange hover:scale-105 transition-transform inline-flex items-center gap-2"
+              class="bg-space-600 text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-orange hover:scale-105 transition-transform inline-flex items-center gap-2"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
@@ -1149,18 +1179,18 @@
       {:else}
         <!-- Tournament In Progress -->
         <div class="glass rounded-xl p-6 mb-6 border border-brand-purple/30 relative overflow-hidden">
-          <div class="absolute inset-0 bg-gradient-to-r from-brand-purple/10 via-brand-blue/10 to-brand-cyan/10"></div>
+          <div class="absolute inset-0 bg-white/5"></div>
           <div class="relative z-10">
             <div class="flex items-center justify-between mb-4">
               <div>
-                <h2 class="text-2xl font-black mb-1 bg-gradient-to-r from-brand-purple via-brand-blue to-brand-cyan bg-clip-text text-transparent">
+                <h2 class="text-2xl font-black mb-1 text-ink">
                   TOURNAMENT IN PROGRESS
                 </h2>
                 <p class="text-gray-400 text-sm">
                   Current Stage: <span class="text-brand-cyan font-bold uppercase">{tournamentState === 'group' ? 'Group Stage' : tournamentState === 'playoffs' ? 'Playoffs' : tournamentState}</span>
                 </p>
               </div>
-              <div class="w-16 h-16 rounded-full bg-gradient-to-br from-brand-purple to-brand-cyan flex items-center justify-center shadow-xl shadow-brand-purple/50">
+              <div class="w-16 h-16 rounded-full bg-space-600 flex items-center justify-center shadow-xl shadow-brand-purple/50">
                 {#if tournamentState === 'playoffs'}
                   <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
@@ -1177,7 +1207,7 @@
             {#if tournamentState === 'group'}
               <a
                 href={`/tournament/${tournamentId}/groups`}
-                class="bg-gradient-to-r from-cyber-blue to-blue-500 text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-blue hover:scale-105 transition-transform inline-flex items-center gap-2"
+                class="bg-deep text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-blue hover:scale-105 transition-transform inline-flex items-center gap-2"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
@@ -1187,7 +1217,7 @@
             {:else if tournamentState === 'playoffs'}
               <a
                 href={`/tournament/${tournamentId}/brackets`}
-                class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-purple hover:scale-105 transition-transform inline-flex items-center gap-2"
+                class="bg-space-600 text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-purple hover:scale-105 transition-transform inline-flex items-center gap-2"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
@@ -1197,7 +1227,7 @@
             {:else}
               <a
                 href={`/tournament/${tournamentId}/groups`}
-                class="bg-gradient-to-r from-cyber-blue to-blue-500 text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-blue hover:scale-105 transition-transform inline-flex items-center gap-2"
+                class="bg-deep text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-blue hover:scale-105 transition-transform inline-flex items-center gap-2"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -1215,11 +1245,11 @@
     {#if isTeamBased && tournamentState !== 'registration' && teams.length > 0}
       <div class="space-y-6 mb-8">
         {#if tournamentState === 'completed' && championTeam}
-          <h3 class="text-xl font-black text-center bg-gradient-to-r from-brand-orange via-brand-purple to-brand-blue bg-clip-text text-transparent">
+          <h3 class="text-xl font-black text-center text-ink">
             TEAM FINAL STANDINGS
           </h3>
         {:else}
-          <h3 class="text-xl font-black text-center bg-gradient-to-r from-brand-orange via-brand-purple to-brand-blue bg-clip-text text-transparent">
+          <h3 class="text-xl font-black text-center text-ink">
             PARTICIPATING TEAMS
           </h3>
         {/if}
@@ -1235,27 +1265,27 @@
             {@const teamStats = getFullTeamStats(team.id)}
             
             <div class="glass rounded-xl p-4 shadow-xl hover:scale-102 transition-all duration-300 card-entrance relative overflow-hidden group
-              {isChampion ? 'ring-4 ring-yellow-400 shadow-2xl shadow-yellow-500/50' : ''}
+              {isChampion ? 'ring-4 ring-gold shadow-2xl shadow-gold/50' : ''}
               {isSecond ? 'ring-4 ring-gray-400 shadow-2xl shadow-gray-400/50' : ''}
-              {isThird ? 'ring-4 ring-orange-400 shadow-2xl shadow-orange-500/50' : ''}
+              {isThird ? 'ring-4 ring-bronze shadow-2xl shadow-bronze/50' : ''}
             " style="animation-delay: {index * 50}ms">
               <!-- Background Gradient -->
               {#if isChampion}
-                <div class="absolute inset-0 bg-gradient-to-br from-yellow-500/30 via-yellow-400/20 to-yellow-600/30 opacity-100 transition-opacity"></div>
+                <div class="absolute inset-0 bg-gold/[0.08] transition-opacity"></div>
               {:else if isSecond}
-                <div class="absolute inset-0 bg-gradient-to-br from-gray-400/30 via-gray-300/20 to-gray-500/30 opacity-100 transition-opacity"></div>
+                <div class="absolute inset-0 bg-white/5 opacity-100 transition-opacity"></div>
               {:else if isThird}
-                <div class="absolute inset-0 bg-gradient-to-br from-orange-500/30 via-orange-400/20 to-orange-600/30 opacity-100 transition-opacity"></div>
+                <div class="absolute inset-0 bg-ember/20 transition-opacity"></div>
               {:else}
-                <div class="absolute inset-0 bg-gradient-to-br {getPlayerGradient(index)} opacity-10 group-hover:opacity-20 transition-opacity"></div>
+                <div class="absolute inset-0 {getPlayerGradient(index)}"></div>
               {/if}
               
               <!-- Rank/Number Badge -->
               <div class="absolute top-2 right-2 w-10 h-10 rounded-full flex items-center justify-center text-base font-black border-2
-                {isChampion ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900 border-yellow-300' : ''}
-                {isSecond ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900 border-gray-200' : ''}
-                {isThird ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-white border-orange-300' : ''}
-                {!isChampion && !isSecond && !isThird ? 'bg-space-700 text-cyber-blue border-space-600' : ''}
+                {isChampion ? 'bg-gold text-space-900 border-gold' : ''}
+                {isSecond ? 'bg-silver text-space-900 border-silver' : ''}
+                {isThird ? 'bg-bronze text-space-900 border-bronze' : ''}
+                {!isChampion && !isSecond && !isThird ? 'bg-space-700 text-ink-muted border-space-600' : ''}
               ">
                 {isCompleted ? team.rank : index + 1}
               </div>
@@ -1263,7 +1293,7 @@
               <!-- Status Badge -->
               {#if isCompleted}
                 {#if isChampion}
-                  <div class="absolute top-2 left-2 px-2 py-0.5 bg-yellow-500/90 backdrop-blur-sm text-yellow-900 text-xs font-black rounded-full border border-yellow-300">
+                  <div class="absolute top-2 left-2 px-2 py-0.5 bg-gold text-space-900 text-xs font-black rounded-full border border-gold">
                     CHAMPIONS
                   </div>
                 {:else if isSecond}
@@ -1271,7 +1301,7 @@
                     RUNNER-UP
                   </div>
                 {:else if isThird}
-                  <div class="absolute top-2 left-2 px-2 py-0.5 bg-orange-500/90 backdrop-blur-sm text-orange-900 text-xs font-black rounded-full border border-orange-300">
+                  <div class="absolute top-2 left-2 px-2 py-0.5 bg-ember/90 backdrop-blur-sm text-ember text-xs font-black rounded-full border border-ember">
                     3RD PLACE
                   </div>
                 {:else if isFourth}
@@ -1289,9 +1319,9 @@
                     src={teamLogoSrc} 
                     alt={team.name} 
                     class="w-16 h-16 rounded-xl object-cover flex-shrink-0
-                      {isChampion ? 'ring-4 ring-yellow-400 shadow-lg shadow-yellow-500/50' : ''}
+                      {isChampion ? 'ring-4 ring-gold shadow-lg shadow-gold/50' : ''}
                       {isSecond ? 'ring-4 ring-gray-400 shadow-lg shadow-gray-400/50' : ''}
-                      {isThird ? 'ring-4 ring-orange-400 shadow-lg shadow-orange-500/50' : ''}
+                      {isThird ? 'ring-4 ring-bronze shadow-lg shadow-bronze/50' : ''}
                     "
                   />
                   
@@ -1301,11 +1331,11 @@
                     
                     <!-- Stats -->
                     <div class="flex items-center gap-3 text-sm">
-                      <span class="text-green-400 font-bold">{teamStats.wins}W</span>
-                      <span class="text-red-400 font-bold">{teamStats.losses}L</span>
+                      <span class="text-win font-bold">{teamStats.wins}W</span>
+                      <span class="text-loss font-bold">{teamStats.losses}L</span>
                       <span class="text-gray-400">
                         Rounds: {teamStats.roundsWon}-{teamStats.roundsLost} 
-                        <span class="{teamStats.roundsWon - teamStats.roundsLost >= 0 ? 'text-green-400' : 'text-red-400'}">
+                        <span class="{teamStats.roundsWon - teamStats.roundsLost >= 0 ? 'text-win' : 'text-loss'}">
                           ({teamStats.roundsWon - teamStats.roundsLost >= 0 ? '+' : ''}{teamStats.roundsWon - teamStats.roundsLost})
                         </span>
                       </span>
@@ -1315,13 +1345,12 @@
                 
                 <!-- Team Members with Photos -->
                 <div class="border-t border-space-600/50 pt-3">
-                  <p class="text-xs text-gray-500 uppercase tracking-wider mb-2">Team Members</p>
+                  <p class="text-xs text-ink-faint uppercase tracking-wider mb-2">Team Members</p>
                   <div class="flex flex-wrap gap-2">
                     {#each team.playerIds as playerId}
                       {@const teamPlayer = players.find(p => p.id === playerId)}
                       {#if teamPlayer}
-                        {@const isBase64 = teamPlayer.profilePhoto && teamPlayer.profilePhoto.startsWith('data:')}
-                        {@const playerImg = isBase64 ? teamPlayer.profilePhoto : getPlayerImageUrl(teamPlayer.name)}
+                        {@const playerImg = resolvePlayerAvatar(teamPlayer)}
                         <div class="flex items-center gap-2 px-2 py-1 bg-space-700/50 rounded-lg border border-space-600/50">
                           <img 
                             src={playerImg} 
@@ -1349,11 +1378,11 @@
             Registered Players
           </h3>
         {:else if tournamentState === 'completed'}
-          <h3 class="text-xl font-black text-center bg-gradient-to-r from-brand-orange via-brand-purple to-brand-blue bg-clip-text text-transparent">
+          <h3 class="text-xl font-black text-center text-ink">
             FINAL RANKINGS
           </h3>
         {:else}
-          <h3 class="text-xl font-black text-center bg-gradient-to-r from-brand-orange via-brand-purple to-brand-blue bg-clip-text text-transparent">
+          <h3 class="text-xl font-black text-center text-ink">
             TOURNAMENT PLAYERS
           </h3>
         {/if}
@@ -1367,34 +1396,34 @@
             {@const displayIndex = isCompleted ? player.rank : (index + 1)}
             
             <div class="glass rounded-lg p-3 shadow-xl hover:scale-105 transition-all duration-300 card-entrance relative overflow-hidden group
-              {isFirst ? 'ring-4 ring-yellow-400 shadow-2xl shadow-yellow-500/50' : ''}
+              {isFirst ? 'ring-4 ring-gold shadow-2xl shadow-gold/50' : ''}
               {isSecond ? 'ring-4 ring-gray-400 shadow-2xl shadow-gray-400/50' : ''}
-              {isThird ? 'ring-4 ring-orange-400 shadow-2xl shadow-orange-500/50' : ''}
+              {isThird ? 'ring-4 ring-bronze shadow-2xl shadow-bronze/50' : ''}
             " style="animation-delay: {index * 50}ms">
               <!-- Background Gradient -->
               {#if isFirst}
-                <div class="absolute inset-0 bg-gradient-to-br from-yellow-500/30 via-yellow-400/20 to-yellow-600/30 opacity-100 group-hover:opacity-100 transition-opacity"></div>
+                <div class="absolute inset-0 bg-gold/[0.08] group-hover:opacity-100 transition-opacity"></div>
               {:else if isSecond}
-                <div class="absolute inset-0 bg-gradient-to-br from-gray-400/30 via-gray-300/20 to-gray-500/30 opacity-100 group-hover:opacity-100 transition-opacity"></div>
+                <div class="absolute inset-0 bg-white/5 opacity-100 group-hover:opacity-100 transition-opacity"></div>
               {:else if isThird}
-                <div class="absolute inset-0 bg-gradient-to-br from-orange-500/30 via-orange-400/20 to-orange-600/30 opacity-100 group-hover:opacity-100 transition-opacity"></div>
+                <div class="absolute inset-0 bg-bronze/[0.08] group-hover:opacity-100 transition-opacity"></div>
               {:else}
-                <div class="absolute inset-0 bg-gradient-to-br {getPlayerGradient(index)} opacity-10 group-hover:opacity-20 transition-opacity"></div>
+                <div class="absolute inset-0 {getPlayerGradient(index)}"></div>
               {/if}
 
               <!-- Rank/Number Badge -->
               <div class="absolute top-1.5 right-1.5 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black border-2
-                {isFirst ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900 border-yellow-300' : ''}
-                {isSecond ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900 border-gray-200' : ''}
-                {isThird ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-white border-orange-300' : ''}
-                {!isFirst && !isSecond && !isThird ? 'bg-space-700 text-cyber-blue border-space-600' : ''}
+                {isFirst ? 'bg-gold text-space-900 border-gold' : ''}
+                {isSecond ? 'bg-silver text-space-900 border-silver' : ''}
+                {isThird ? 'bg-bronze text-space-900 border-bronze' : ''}
+                {!isFirst && !isSecond && !isThird ? 'bg-space-700 text-ink-muted border-space-600' : ''}
               ">
                 {displayIndex}
               </div>
 
               <!-- Champion Badge for 1st place -->
               {#if isFirst}
-                <div class="absolute top-1.5 left-1.5 px-2 py-0.5 bg-yellow-500/90 backdrop-blur-sm text-yellow-900 text-xs font-black rounded-full border border-yellow-300">
+                <div class="absolute top-1.5 left-1.5 px-2 py-0.5 bg-gold text-space-900 text-xs font-black rounded-full border border-gold">
                   CHAMPION
                 </div>
               {/if}
@@ -1402,20 +1431,19 @@
               <!-- Player Avatar -->
               <div class="mb-2 relative flex justify-center {isFirst || isSecond || isThird ? 'mt-6' : ''}">
                 {#if player}
-                  {@const isBase64Photo = player.profilePhoto && player.profilePhoto.startsWith('data:')}
-                  {@const imgSrc = isBase64Photo ? player.profilePhoto : getPlayerImageUrl(player.name)}
+                  {@const imgSrc = resolvePlayerAvatar(player)}
                   <img
                     src={imgSrc}
                     alt="Profile"
                     class="w-20 h-20 rounded-full object-cover
-                      {isFirst ? 'ring-4 ring-yellow-400 shadow-lg shadow-yellow-500/50' : ''}
+                      {isFirst ? 'ring-4 ring-gold shadow-lg shadow-gold/50' : ''}
                       {isSecond ? 'ring-4 ring-gray-400 shadow-lg shadow-gray-400/50' : ''}
-                      {isThird ? 'ring-4 ring-orange-400 shadow-lg shadow-orange-500/50' : ''}
+                      {isThird ? 'ring-4 ring-bronze shadow-lg shadow-bronze/50' : ''}
                     "
                   />
                 {/if}
 
-                {#if tournamentState === 'registration'}
+                {#if canEdit && tournamentState === 'registration'}
                   <button
                     onclick={() => startEditingPhoto(player.id)}
                     class="absolute -bottom-1 -right-1 w-6 h-6 bg-brand-cyan rounded-full flex items-center justify-center shadow-lg hover:bg-brand-cyan/80 transition-colors"
@@ -1428,7 +1456,7 @@
                   </button>
                   <button
                     onclick={(e) => { e.stopPropagation(); requestRemovePlayer(player.id); }}
-                    class="absolute -bottom-8 -right-1 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center shadow-lg hover:bg-red-400 transition-colors"
+                    class="absolute -bottom-8 -right-1 w-6 h-6 bg-loss rounded-full flex items-center justify-center shadow-lg hover:bg-loss transition-colors"
                     title="Remove player"
                   >
                     <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -1450,10 +1478,10 @@
                       if (e.key === 'Escape') cancelEditingPlayer();
                     }}
                   />
-                  <button onclick={() => savePlayerName(player.id)} class="p-0.5 bg-green-500 hover:bg-green-600 text-white rounded transition-colors" title="Save">
+                  <button onclick={() => savePlayerName(player.id)} class="p-0.5 bg-win hover:bg-win text-white rounded transition-colors" title="Save">
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                   </button>
-                  <button onclick={cancelEditingPlayer} class="p-0.5 bg-red-500 hover:bg-red-600 text-white rounded transition-colors" title="Cancel">
+                  <button onclick={cancelEditingPlayer} class="p-0.5 bg-loss hover:bg-loss text-white rounded transition-colors" title="Cancel">
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                   </button>
                 </div>
@@ -1462,12 +1490,12 @@
                   <div class="flex flex-col items-center">
                     <div class="flex items-center gap-1">
                       <h4 class="text-center text-sm font-bold relative z-10
-                        {isFirst ? 'text-yellow-400' : ''}
-                        {isSecond ? 'text-gray-300' : ''}
-                        {isThird ? 'text-orange-400' : ''}
+                        {isFirst ? 'text-gold' : ''}
+                        {isSecond ? 'text-silver' : ''}
+                        {isThird ? 'text-bronze' : ''}
                         {!isFirst && !isSecond && !isThird ? 'text-white' : ''}
                       ">{player.name}</h4>
-                      {#if tournamentState === 'registration'}
+                      {#if canEdit && tournamentState === 'registration'}
                         <button
                           type="button"
                           onclick={(e) => { e.stopPropagation(); startEditingPlayer(player.id); }}
@@ -1492,15 +1520,17 @@
 
     <!-- Reset Button -->
     <div class="text-center pt-8 border-t border-space-600">
+      {#if canEdit}
       <button
         onclick={requestReset}
-        class="bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-red-500/30 hover:shadow-red-500/50 hover:scale-105 transition-all duration-300 border border-red-400/30"
+        class="bg-loss/15 text-white font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-loss/30 hover:shadow-loss/50 hover:scale-105 transition-all duration-300 border border-loss/30"
       >
         <svg class="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
         </svg>
         Reset Tournament Data
       </button>
+      {/if}
     </div>
   </div>
 </div>
@@ -1519,7 +1549,7 @@
       <!-- Modal Header -->
       <div class="flex items-center justify-between p-6 border-b border-space-600 flex-shrink-0">
         <h2 class="text-xl font-bold text-white flex items-center gap-2">
-          <svg class="w-5 h-5 text-cyber-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
           </svg>
           Edit Profile Photo
@@ -1543,14 +1573,14 @@
             <p class="text-gray-400 mb-6">Select an image file to crop and use as profile photo</p>
             <input
               type="file"
-              accept="image/jpeg,image/png,image/gif,imagewebp"
+              accept="image/jpeg,image/png,image/gif,image/webp"
               onchange={handleFileSelect}
               class="hidden"
               id="photo-upload"
             />
             <label
               for="photo-upload"
-              class="inline-block bg-gradient-to-r from-cyber-blue to-blue-500 text-white font-bold px-6 py-3 rounded-lg shadow-glow-blue hover:scale-105 transition-all duration-300 cursor-pointer"
+              class="inline-block bg-deep text-white font-bold px-6 py-3 rounded-lg shadow-glow-blue hover:scale-105 transition-all duration-300 cursor-pointer"
             >
               Choose Image
             </label>
@@ -1576,7 +1606,7 @@
             <div class="flex justify-center gap-3">
               <button
                 onclick={savePlayerPhoto}
-                class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-3 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
+                class="bg-space-600 text-white font-bold px-6 py-3 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
               >
                 Save Profile Photo
               </button>
@@ -1603,11 +1633,11 @@
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
-    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-loss/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
-        <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
-          <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <div class="w-12 h-12 rounded-full bg-loss/20 flex items-center justify-center">
+          <svg class="w-6 h-6 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
           </svg>
         </div>
@@ -1623,7 +1653,7 @@
         <div class="flex justify-end">
           <button
             onclick={() => showErrorPopup = false}
-            class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
+            class="bg-space-600 text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
           >
             Got it
           </button>
@@ -1636,11 +1666,11 @@
 <!-- Confirmation Popup Modal -->
 {#if showConfirmPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && cancelConfirmation()} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && cancelConfirmation()}>
-    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-loss/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
-        <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
-          <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <div class="w-12 h-12 rounded-full bg-loss/20 flex items-center justify-center">
+          <svg class="w-6 h-6 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
           </svg>
         </div>
@@ -1662,7 +1692,7 @@
           </button>
           <button
             onclick={executeConfirmedAction}
-            class="bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:scale-105 transition-all duration-300"
+            class="bg-loss hover:bg-loss text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:scale-105 transition-all duration-300"
           >
             {confirmButtonText}
           </button>
@@ -1704,7 +1734,7 @@
         <div class="flex items-center gap-3 p-3 bg-space-700/50 rounded-lg border border-space-600">
           <div class="w-10 h-10 rounded-full flex items-center justify-center {isTeamBased ? 'bg-brand-purple/30' : 'bg-brand-cyan/30'}">
             {#if isTeamBased}
-              <svg class="w-5 h-5 text-brand-purple" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
+              <svg class="w-5 h-5 text-deep-soft" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
             {:else}
               <svg class="w-5 h-5 text-brand-cyan" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
             {/if}
@@ -1804,7 +1834,7 @@
           <ul class="space-y-2">
             {#each currentGameConfig.rules as rule}
               <li class="flex items-start gap-2 text-sm text-gray-300">
-                <span class="text-brand-cyan mt-0.5">•</span>
+                <span class="text-accent mt-0.5" aria-hidden="true">&rsaquo;</span>
                 <span>{rule}</span>
               </li>
             {/each}
@@ -1814,7 +1844,7 @@
         <!-- Map Pool -->
         {#if mapPool && mapPool.length > 0}
           <div class="space-y-3">
-            <h3 class="text-lg font-bold text-brand-purple flex items-center gap-2">
+            <h3 class="text-lg font-bold text-deep-soft flex items-center gap-2">
               <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
               Map Pool
             </h3>
@@ -1845,7 +1875,7 @@
       <div class="p-6 border-t border-space-600">
         <button
           onclick={() => showRulesModal = false}
-          class="w-full bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-3 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
+          class="w-full bg-space-600 text-white font-bold px-6 py-3 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
         >
           Got it!
         </button>
@@ -1879,19 +1909,20 @@
         <div class="flex gap-4">
           <!-- Team Logo Upload -->
           <div class="flex-shrink-0">
-            <label class="block text-sm font-bold text-gray-300 mb-1">Logo</label>
+            <label for="team-logo-input" class="block text-sm font-bold text-gray-300 mb-1">Logo</label>
             <div class="relative group">
               <div class="w-20 h-20 rounded-lg bg-space-700 border-2 border-dashed border-space-500 flex items-center justify-center overflow-hidden cursor-pointer hover:border-brand-orange transition-colors">
                 {#if teamLogoPreview}
                   <img src={teamLogoPreview} alt="Team logo" class="w-full h-full object-cover" />
                 {:else}
-                  <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-8 h-8 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                   </svg>
                 {/if}
                 <input
+                  id="team-logo-input"
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
                   class="absolute inset-0 opacity-0 cursor-pointer"
                   onchange={handleTeamLogoChange}
                 />
@@ -1900,13 +1931,13 @@
                 <button
                   type="button"
                   onclick={removeTeamLogo}
-                  class="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white text-xs hover:bg-red-600 transition-colors shadow-lg"
+                  class="absolute -top-2 -right-2 w-6 h-6 bg-loss rounded-full flex items-center justify-center text-white text-xs hover:bg-loss transition-colors shadow-lg"
                 >
                   ×
                 </button>
               {/if}
             </div>
-            <p class="text-xs text-gray-500 mt-1 text-center">Max 2MB</p>
+            <p class="text-xs text-ink-faint mt-1 text-center">Max 2MB</p>
           </div>
 
           <!-- Team Name -->
@@ -1949,14 +1980,14 @@
                     {isAssignedToOtherTeam ? 'opacity-40 cursor-not-allowed' : ''}"
                 >
                   <img 
-                    src={player.profilePhoto || getPlayerImageUrl(player.name)} 
+                    src={resolvePlayerAvatar(player)} 
                     alt={player.name} 
                     class="w-8 h-8 rounded-full object-cover border border-space-500"
                   />
                   <div class="flex-1 min-w-0">
                     <span class="text-sm text-white font-medium truncate block">{player.name}</span>
                     {#if isAssignedToOtherTeam}
-                      <span class="text-xs text-gray-500">In another team</span>
+                      <span class="text-xs text-ink-faint">In another team</span>
                     {/if}
                   </div>
                   {#if isSelected}
@@ -1971,7 +2002,7 @@
         </div>
 
         {#if editingTeamPlayerIds.length < minTeamSize}
-          <p class="text-xs text-yellow-400 flex items-center gap-1">
+          <p class="text-xs text-gold flex items-center gap-1">
             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
             Need {minTeamSize - editingTeamPlayerIds.length} more player(s)
           </p>
@@ -1989,7 +2020,7 @@
         <button
           onclick={handleSaveTeam}
           disabled={!editingTeamName.trim() || editingTeamPlayerIds.length < minTeamSize}
-          class="flex-1 bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold px-4 py-2 rounded-lg shadow-glow-orange hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+          class="flex-1 bg-space-600 text-white font-bold px-4 py-2 rounded-lg shadow-glow-orange hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
         >
           {editingTeamId ? 'Save Changes' : 'Create Team'}
         </button>

@@ -259,17 +259,18 @@ export function buildPlayoffBracket(players: Player[], totalTournamentPlayers: n
     }
 }
 
-// Reorder qualified players so the first round pits players from different groups
-// against each other. `groupOf` returns the pod id a player belongs to.
-export function reorderForCrossGroupMatchups(
-    players: Player[],
+// Reorder qualified entrants so the first round pits entrants from different
+// groups against each other. `groupOf` returns the pod id an entrant belongs to.
+// Generic over players and teams -- both are seeded the same way.
+export function reorderForCrossGroupMatchups<T extends { id: string }>(
+    players: T[],
     numGroups: number,
     groupOf: (playerId: string) => string | null,
-): Player[] {
+): T[] {
     // Only reorder for multi-group tournaments.
     if (numGroups <= 1) return players;
 
-    const playersByGroup = new Map<string, Player[]>();
+    const playersByGroup = new Map<string, T[]>();
     players.forEach((player) => {
         const groupId = groupOf(player.id);
         if (groupId) {
@@ -280,8 +281,8 @@ export function reorderForCrossGroupMatchups(
     const groups = Array.from(playersByGroup.values());
 
     // Round-robin interleave across groups (used for 2 groups and 3+ groups).
-    const interleave = (): Player[] => {
-        const reordered: Player[] = [];
+    const interleave = (): T[] => {
+        const reordered: T[] = [];
         const maxGroupSize = Math.max(...groups.map((g) => g.length));
         for (let i = 0; i < maxGroupSize; i++) {
             for (const group of groups) {
@@ -312,10 +313,9 @@ export function reorderForCrossGroupMatchups(
 }
 
 // ============================================================================
-// Team brackets — identical shapes to the solo builders, keyed by team1Id/
-// team2Id. NOTE: TournamentManager.generateTeamBrackets() does NOT run a
-// cross-group reorder before seeding (unlike the solo path); that asymmetry is
-// a known issue tracked in CODE_AUDIT.md, preserved here without change.
+// Team brackets - identical shapes to the solo builders, keyed by team1Id/
+// team2Id. generateTeamBrackets() runs the same cross-group reorder as the solo
+// path before seeding these, so the first round is not an intra-group rematch.
 // ============================================================================
 
 // Top 2 seeds contest a single final (3-team tournaments).

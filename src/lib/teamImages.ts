@@ -55,11 +55,13 @@ export async function fileToBase64(file: File): Promise<string> {
  * Validate image file
  */
 export function validateImageFile(file: File): { valid: boolean; error?: string } {
-    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+    // Must match validateImage() in server/tournament.ts. SVG is excluded there,
+    // so offering it here only produced a confusing server-side rejection.
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     const maxSize = 2 * 1024 * 1024; // 2MB
 
     if (!validTypes.includes(file.type)) {
-        return { valid: false, error: 'Invalid file type. Please use JPEG, PNG, GIF, WebP, or SVG.' };
+        return { valid: false, error: 'Invalid file type. Please use JPEG, PNG, GIF or WebP.' };
     }
 
     if (file.size > maxSize) {

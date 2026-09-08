@@ -11,9 +11,6 @@ for (const path in gameImages) {
   logoMap[filename.toLowerCase()] = gameImages[path];
 }
 
-// Debug: log all available logos
-console.log('Available game logos:', Object.keys(logoMap));
-
 // Get a game logo by filename (case-insensitive)
 export function getGameLogoUrl(filename: string): string {
   // Remove '/games/' prefix and '.png' suffix if present

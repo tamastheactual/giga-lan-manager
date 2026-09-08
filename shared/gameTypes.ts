@@ -34,6 +34,15 @@ export interface GameConfig {
     name: string;
     shortName: string;
     logo: string;
+    /**
+     * Is the artwork itself dark or light?
+     *
+     * Measured from the files, not guessed: twelve of the twenty logos are
+     * dark and two (CS 1.6, R6 Siege) are pure black, so they vanish against a
+     * dark card. A dark logo needs a light plate behind it and a light one does
+     * not, and no single plate colour serves both.
+     */
+    logoTone: 'dark' | 'light';
     defaultArchetype: ScoreArchetype;
     
     // Team mode settings - can play in team mode if supportsTeamMode is true
@@ -75,6 +84,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Counter-Strike 1.6',
         shortName: 'CS 1.6',
         logo: '/games/CounterStrike.png',
+        logoTone: 'dark',
         defaultArchetype: 'rounds',
         // Team mode support
         supportsTeamMode: true,
@@ -109,6 +119,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Rainbow Six Siege',
         shortName: 'R6 Siege',
         logo: '/games/r6siege.png',
+        logoTone: 'dark',
         defaultArchetype: 'rounds',
         // 5v5 team game with per-player K/D tracking
         supportsTeamMode: true,
@@ -124,13 +135,13 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         playoffs: {
             format: 'BO3',
             mapsPerMatch: 3,
-            description: 'MR12 per map — first to win 2 maps',
+            description: 'MR12 per map - first to win 2 maps',
             maxDuration: '~2 hours',
             maxScorePerMap: 7
         },
         rules: [
-            'Bomb mode (defuse) — attack/defense sides swap at halftime',
-            'Group Stage: MR12 — first to 7 rounds, win by 2',
+            'Bomb mode (defuse) - attack/defense sides swap at halftime',
+            'Group Stage: MR12 - first to 7 rounds, win by 2',
             'Playoffs: Best of 3 maps',
             'Standard operator bans + map veto',
             'Tiebreaker: Total rounds won'
@@ -143,6 +154,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Return to Castle Wolfenstein',
         shortName: 'RtCW',
         logo: '/games/wolfenstein.png',
+        logoTone: 'dark',
         defaultArchetype: 'rounds',
         groupStage: {
             format: 'Objective-based',
@@ -170,6 +182,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Wolfenstein: Enemy Territory',
         shortName: 'W:ET',
         logo: '/games/wolfenstein-enemy.png',
+        logoTone: 'dark',
         defaultArchetype: 'rounds',
         groupStage: {
             format: 'Objective-based',
@@ -198,6 +211,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Unreal Tournament 2004',
         shortName: 'UT2004',
         logo: '/games/UT2004.png',
+        logoTone: 'dark',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Deathmatch (8 min)',
@@ -224,6 +238,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Unreal Tournament 99',
         shortName: 'UT99',
         logo: '/games/ut1999.png',
+        logoTone: 'dark',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Deathmatch (10 min)',
@@ -250,6 +265,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Quake III Arena',
         shortName: 'Q3A',
         logo: '/games/quake3.png',
+        logoTone: 'dark',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Deathmatch (10 min)',
@@ -276,6 +292,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Halo: Combat Evolved',
         shortName: 'Halo CE',
         logo: '/games/halo.png',
+        logoTone: 'dark',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Slayer (10 min)',
@@ -301,6 +318,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Medal of Honor: Allied Assault',
         shortName: 'MoH:AA',
         logo: '/games/mohaa.png',
+        logoTone: 'dark',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Deathmatch/TDM',
@@ -326,6 +344,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Battlefield 1942',
         shortName: 'BF1942',
         logo: '/games/battlefield1942.png',
+        logoTone: 'light',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Conquest/TDM',
@@ -351,6 +370,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Battlefield Vietnam',
         shortName: 'BF:V',
         logo: '/games/battlefieldvietnam.png',
+        logoTone: 'light',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Conquest/TDM',
@@ -376,6 +396,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Star Wars Battlefront',
         shortName: 'SWBF1',
         logo: '/games/battlefront.png',
+        logoTone: 'light',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Conquest',
@@ -401,6 +422,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Star Wars Battlefront 2',
         shortName: 'SWBF2',
         logo: '/games/battlefront2.png',
+        logoTone: 'light',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'Conquest',
@@ -426,6 +448,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Delta Force: Black Hawk Down',
         shortName: 'DF:BHD',
         logo: '/games/blackhawkdawn.png',
+        logoTone: 'light',
         defaultArchetype: 'kills',
         groupStage: {
             format: 'TDM/Deathmatch',
@@ -452,6 +475,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Worms Armageddon',
         shortName: 'Worms',
         logo: '/games/WormsArmageddon.png',
+        logoTone: 'dark',
         defaultArchetype: 'health',
         groupStage: {
             format: 'Single Round',
@@ -480,6 +504,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Age of Empires 2 HD',
         shortName: 'AoE2 HD',
         logo: '/games/aoe2.png',
+        logoTone: 'dark',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1 Random Map',
@@ -505,6 +530,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Warcraft III',
         shortName: 'WC3',
         logo: '/games/warcraft3.png',
+        logoTone: 'dark',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1',
@@ -530,6 +556,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'Stronghold Crusader HD',
         shortName: 'Stronghold',
         logo: '/games/stronghold.png',
+        logoTone: 'dark',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1 Skirmish',
@@ -555,6 +582,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: 'C&C: Red Alert',
         shortName: 'RA1',
         logo: '/games/cc1.png',
+        logoTone: 'dark',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1',
@@ -580,6 +608,7 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         name: "C&C: Red Alert 2",
         shortName: 'RA2',
         logo: '/games/cc2.png',
+        logoTone: 'dark',
         defaultArchetype: 'winonly',
         groupStage: {
             format: '1v1',

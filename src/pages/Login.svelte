@@ -1,46 +1,73 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { verifyOwnerToken, getAdminStatus } from '$lib/api';
   import Footer from '../components/Footer.svelte';
-  let password = '';
-  let error = '';
 
-  async function login() {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
-    });
-    if (res.ok) {
+  let token = $state('');
+  let error = $state('');
+  let busy = $state(false);
+
+  async function submit() {
+    if (!token.trim()) return;
+    busy = true;
+    error = '';
+    try {
+      await verifyOwnerToken(token.trim());
       window.location.href = '/';
-    } else {
-      error = 'Invalid password';
+    } catch (e: any) {
+      error = e.message || 'That admin token is not valid';
+      busy = false;
     }
   }
 
-  onMount(() => {
-    // Redirect if already logged in
-    fetch('/api/admin/status').then(res => res.json()).then(data => {
-      if (data.isAdmin) window.location.href = '/';
-    });
+  onMount(async () => {
+    // Already the organiser on this device, or no token configured at all.
+    try {
+      const status = await getAdminStatus();
+      if (status.isOwner) window.location.href = '/';
+    } catch {
+      /* leave the form up */
+    }
   });
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 flex flex-col items-center justify-center">
-  <div class="glass rounded-lg p-8 w-full max-w-md">
-    <h1 class="text-2xl font-bold text-white mb-4">Admin Login</h1>
+<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 flex flex-col items-center justify-center px-6">
+  <div class="glass rounded-2xl p-8 w-full max-w-md">
+    <h1 class="text-2xl font-black gradient-text mb-2">Organiser Access</h1>
+    <p class="text-sm text-gray-400 mb-6">
+      Paste the admin token for this server to create tournaments. Generate one with
+      <code class="text-brand-cyan">npm run gen-token</code>.
+    </p>
+
+    <label for="admin-token" class="block text-xs font-bold text-gray-300 tracking-wider mb-2">ADMIN TOKEN</label>
     <input
+      id="admin-token"
       type="password"
-      bind:value={password}
-      placeholder="Password"
-      class="w-full p-3 rounded bg-space-700 text-white mb-4"
+      bind:value={token}
+      onkeydown={(e) => e.key === 'Enter' && submit()}
+      placeholder="Paste your admin token"
+      autocomplete="off"
+      spellcheck="false"
+      class="w-full p-3 rounded-xl bg-space-700 text-white font-mono border border-space-600 focus:border-cyber-green outline-none"
     />
+
     {#if error}
-      <p class="text-red-400 mb-4">{error}</p>
+      <p class="text-loss text-sm mt-3">{error}</p>
     {/if}
-    <button onclick={login} class="w-full bg-cyber-green text-black py-3 rounded font-bold">
-      Login
+
+    <button
+      onclick={submit}
+      disabled={busy || !token.trim()}
+      class="w-full mt-5 bg-cyber-green text-black py-3 rounded-xl font-bold hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {busy ? 'Checking…' : 'Continue'}
     </button>
+
+    <p class="text-xs text-ink-faint mt-6">
+      Only looking to watch a tournament? You want a
+      <a href="/join" class="text-brand-cyan hover:text-cyber-green underline">join code</a> instead.
+    </p>
   </div>
-  
+
   <Footer />
 </div>

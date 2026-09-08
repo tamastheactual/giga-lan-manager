@@ -18,6 +18,7 @@
   let mapPool = $state([]) as string[];
   let groupStageRoundLimit = $state<number | undefined>(undefined);
   let useCustomPoints = $state(false);
+  let canEdit = $state(false);
 
   // Team tournament support
   let isTeamBased = $state(false);
@@ -85,7 +86,8 @@
   // Group name editing functions
   function startEditingGroup(groupId: string, currentName: string) {
     editingGroupId = groupId;
-    editingGroupName = currentName || `Group ${groupId}`;
+    // currentName already comes from getGroupDisplayName, so it is a letter.
+    editingGroupName = currentName || getGroupDisplayName(groupId);
   }
 
   function cancelEditingGroup() {
@@ -138,12 +140,14 @@
   }
 
   function getGroupDisplayName(groupId: string) {
-    if (isTeamBased) {
-      const pod = teamPods.find((p: any) => p.id === groupId);
-      return pod?.name || `Group ${groupId}`;
-    }
-    const pod = pods.find(p => p.id === groupId);
-    return pod?.name || `Group ${groupId}`;
+    // Falls back to the pod's POSITION, not its id. Solo pods are never given a
+    // name (only team pods are), so the old `Group ${groupId}` fallback printed
+    // a raw UUID as the heading of every group table in every solo tournament.
+    const list: { id: string; name?: string }[] = isTeamBased ? teamPods : pods;
+    const index = list.findIndex((p) => p.id === groupId);
+    const pod = index === -1 ? undefined : list[index];
+    if (pod?.name) return pod.name;
+    return index === -1 ? 'Group' : `Group ${String.fromCharCode(65 + index)}`;
   }
   
   // Reactive derived values using $derived.by for proper reactivity with state arrays
@@ -168,16 +172,6 @@
     return participantCount === 2 && podsEmpty;
   });
   
-  // Debug logging with $effect
-  $effect(() => {
-    console.log('[Groups] Reactive update - currentRound:', currentRound);
-    console.log('[Groups] Reactive update - matches count:', isTeamBased ? teamMatches.length : matches.length);
-    console.log('[Groups] Reactive update - currentRoundMatches count:', currentRoundMatches.length);
-    console.log('[Groups] Reactive update - matchScores:', matchScores);
-    console.log('[Groups] Reactive update - pods:', isTeamBased ? teamPods.length : pods.length);
-    console.log('[Groups] Reactive update - isTeamBased:', isTeamBased);
-  });
-
   // Track if we've done initial auto-advance
   let hasAutoAdvanced = $state(false);
 
@@ -191,7 +185,6 @@
         const roundComplete = isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round);
         if (!roundComplete) {
           if (round !== currentRound) {
-            console.log(`[Groups] Initial load: advancing to first incomplete round ${round}`);
             currentRound = round;
           }
           break;
@@ -202,23 +195,7 @@
   });
 
   async function loadState() {
-    console.log('[Groups] loadState() called');
     const data = await getState(tournamentId);
-    console.log('[Groups] loadState() received data:', {
-      podsCount: data.pods.length,
-      matchesCount: data.matches.length,
-      playersCount: data.players.length,
-      state: data.state,
-      mapPoolLength: data.mapPool?.length || 0,
-      useCustomPoints: data.useCustomPoints,
-      groupStageRoundLimit: data.groupStageRoundLimit,
-      gameType: data.gameType,
-      isTeamBased: data.isTeamBased,
-      teamsCount: data.teams?.length || 0,
-      teamPodsCount: data.teamPods?.length || 0,
-      teamMatchesCount: data.teamMatches?.length || 0,
-      playerStatisticsCount: Object.keys(data.playerStatistics || {}).length
-    });
 
     // With $state, direct assignment triggers reactivity
     pods = data.pods;
@@ -229,6 +206,7 @@
     mapPool = data.mapPool || [];
     groupStageRoundLimit = data.groupStageRoundLimit;
     useCustomPoints = data.useCustomPoints || false;
+    canEdit = data.isAdmin === true;
     
     // Team tournament data
     isTeamBased = data.isTeamBased || false;
@@ -296,8 +274,6 @@
         }
     });
 
-    console.log('[Groups] loadState() complete - matchScores:', matchScores);
-    console.log('[Groups] loadState() complete - mapPool:', mapPool);
     
     // Ensure currentRound is valid after loading
     const loadedMatches = isTeamBased ? teamMatches : matches;
@@ -527,7 +503,6 @@
   }
 
   async function submitMatchResult(matchId: string, match: any) {
-      console.log('[Groups] submitMatchResult called:', matchId);
       const scores = matchScores[matchId];
       if (!scores || !isValidScore(matchId)) return;
 
@@ -553,16 +528,17 @@
         payload.mapName = selectedMap;
       }
 
-      console.log('[Groups] submitMatchResult - submitting:', payload);
-      await submitMatch(tournamentId, matchId, results, selectedMap);
-      console.log('[Groups] submitMatchResult - match submitted, reloading state');
+      try {
+        await submitMatch(tournamentId, matchId, results, selectedMap);
+      } catch (error: any) {
+        showError(error.message || 'Failed to submit the match result');
+        return;
+      }
       await loadState();
-      console.log('[Groups] submitMatchResult complete');
   }
   
   // Submit team match result with player K/D stats
   async function submitTeamMatch(matchId: string, match: any) {
-    console.log('[Groups] submitTeamMatch called:', matchId);
     const scores = matchScores[matchId];
     if (!scores) return;
     
@@ -589,7 +565,6 @@
     
     try {
       await submitTeamMatchResult(tournamentId, matchId, team1Score, team2Score, [game]);
-      console.log('[Groups] submitTeamMatch - submitted, reloading state');
       expandedMatchId = null;
       await loadState();
     } catch (error: any) {
@@ -604,9 +579,7 @@
     confirmButtonText = 'Generate';
     pendingAction = async () => {
       try {
-        console.log('[Groups] Generating brackets...');
         await generateBrackets(tournamentId);
-        console.log('[Groups] Brackets generated, redirecting...');
         window.location.href = `/tournament/${tournamentId}/brackets`;
       } catch (error) {
         console.error('[Groups] Error generating brackets:', error);
@@ -665,7 +638,6 @@
     // For team tournaments, teamPods contain the groups
     const groups: Record<string, any[]> = {};
     
-    console.log('[Groups] getGroupsWithTeams - teamPods:', teamPods);
     
     teamPods.forEach((pod: any) => {
       const groupKey = pod.id;
@@ -680,7 +652,6 @@
       });
     });
     
-    console.log('[Groups] getGroupsWithTeams - groups:', groups);
     
     // Sort teams within each group by standings
     Object.keys(groups).forEach(key => {
@@ -699,7 +670,17 @@
   onMount(loadState);
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3 flex flex-col">
+{#if !canEdit}
+  <div class="max-w-7xl mx-auto px-4 pt-4">
+    <div class="flex items-center gap-3 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-4 py-2.5">
+      <svg class="w-4 h-4 text-brand-cyan flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+      <span class="text-sm text-brand-cyan font-semibold">Viewing live - only the organiser can enter results.</span>
+    </div>
+  </div>
+{/if}
+
+
+<div class="min-h-screen bg-space-600 text-gaming-text px-3 py-3 flex flex-col">
   <div class="max-w-6xl mx-auto w-full">
     
     <!-- Header -->
@@ -709,7 +690,7 @@
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
           Back
         </a>
-        <div class="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+        <div class="text-sm font-bold text-accent uppercase tracking-wider mb-1 flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
           </svg>
@@ -717,10 +698,10 @@
         </div>
       </div>
       
-      {#if tournamentState === 'group' && (isTeamBased ? teamMatches.every((m: any) => m.completed) : matches.every(m => m.completed))}
+      {#if canEdit && tournamentState === 'group' && (isTeamBased ? teamMatches.every((m: any) => m.completed) : matches.every(m => m.completed))}
         <button 
           onclick={handleGenerateBrackets}
-          class="bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold text-xs py-1.5 px-4 rounded-lg shadow-glow-orange hover:scale-105 transition-transform flex items-center gap-1.5"
+          class="bg-space-600 text-white font-bold text-xs py-1.5 px-4 rounded-lg shadow-glow-orange hover:scale-105 transition-transform flex items-center gap-1.5"
         >
           Playoffs
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
@@ -744,7 +725,7 @@
             </p>
             <a 
               href={`/tournament/${tournamentId}/brackets`}
-              class="inline-flex items-center gap-2 bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold py-2 px-6 rounded-lg hover:scale-105 transition-transform"
+              class="inline-flex items-center gap-2 bg-space-600 text-white font-bold py-2 px-6 rounded-lg hover:scale-105 transition-transform"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               Go to Playoffs
@@ -760,7 +741,7 @@
         {#each availableRounds as round}
           <button 
             onclick={() => currentRound = round}
-            class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded {currentRound === round ? 'bg-brand-cyan/20 text-brand-cyan' : 'text-gray-500 hover:bg-space-700'} transition-all"
+            class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded {currentRound === round ? 'bg-brand-cyan/20 text-brand-cyan' : 'text-ink-faint hover:bg-space-700'} transition-all"
           >
             <div class="w-6 h-6 rounded-full border {(isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round)) ? 'bg-brand-cyan border-brand-cyan text-space-900' : currentRound === round ? 'border-brand-cyan' : 'border-gray-600'} flex items-center justify-center font-bold text-xs">
               {#if isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round)}
@@ -778,7 +759,7 @@
     <!-- Group Tables Section -->
     <div class="mb-4">
       <h2 class="text-base font-bold mb-2 text-white flex items-center gap-1.5">
-        <svg class="w-4 h-4 text-cyber-blue" fill="currentColor" viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+        <svg class="w-4 h-4 text-accent" fill="currentColor" viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
         Group Tables
       </h2>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -801,40 +782,48 @@
                   <button
                     onclick={() => saveGroupName(groupId)}
                     class="px-2 py-1 text-xs bg-brand-purple text-white rounded font-bold hover:bg-brand-cyan transition-colors"
+                    aria-label="Save group name"
+                    title="Save"
                   >
-                    ✓
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                   </button>
                   <button
                     onclick={cancelEditingGroup}
                     class="px-2 py-1 text-xs bg-gray-600 text-white rounded font-bold hover:bg-gray-500"
+                    aria-label="Cancel renaming"
+                    title="Cancel"
                   >
-                    ✕
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
                   </button>
                 </div>
               {:else}
                 <div class="flex items-center gap-2 flex-1">
-                  <span class="text-xs font-bold text-cyber-blue hover:text-cyber-green transition-colors">
+                  <span class="text-xs font-bold text-ink-muted">
                     {getGroupDisplayName(groupId)}
                   </span>
                   {#if tournamentState === 'registration'}
+                    {#if canEdit}
                     <button
                       class="ml-2 px-2 py-1 text-xs bg-brand-purple text-white rounded hover:bg-brand-cyan transition-colors"
                       onclick={() => startEditingGroup(groupId, getGroupDisplayName(groupId))}
                     >
                       Edit
                     </button>
+                    {/if}
                   {/if}
                 </div>
               {/if}
+              {#if canEdit}
               <button
                 onclick={() => handleResetGroup(groupId)}
-                class="px-2 py-1 text-xs bg-gradient-to-r from-red-600 to-orange-500 text-white rounded-lg font-bold shadow-md shadow-red-500/20 hover:shadow-red-500/40 hover:scale-105 transition-all duration-300 border border-red-400/30"
+                class="px-2 py-1 text-xs bg-loss/15 text-white rounded-lg font-bold shadow-md shadow-loss/20 hover:shadow-loss/40 hover:scale-105 transition-all duration-300 border border-loss/30"
                 title="Reset group data"
               >
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
               </button>
+              {/if}
             </div>
             <table class="w-full {isTeamBased ? 'text-sm' : 'text-xs'}">
               <thead>
@@ -853,9 +842,9 @@
               </thead>
               <tbody>
                 {#each groupPlayers as entity, index (entity.id)}
-                  <tr class="{isTeamBased ? 'border-b border-space-500' : 'border-b border-space-700/50'} hover:bg-space-700/30 transition-colors {index === 0 && isTeamBased ? 'bg-gradient-to-r from-yellow-500/10 to-transparent' : index === 1 && isTeamBased ? 'bg-gradient-to-r from-gray-400/10 to-transparent' : ''}">
+                  <tr class="{isTeamBased ? 'border-b border-space-500' : 'border-b border-space-700/50'} hover:bg-space-700/30 transition-colors {index === 0 && isTeamBased ? 'bg-gold/[0.10]' : index === 1 && isTeamBased ? 'bg-silver/[0.08]' : ''}">
                     <td class="py-2 px-2">
-                      <div class="{isTeamBased ? 'w-6 h-6 text-sm' : 'w-4 h-4 text-xs'} rounded-full flex items-center justify-center font-bold {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900 shadow-lg shadow-yellow-500/30' : index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' : index === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-800 text-white' : 'bg-space-600 text-gray-400'}">
+                      <div class="{isTeamBased ? 'w-6 h-6 text-sm' : 'w-4 h-4 text-xs'} rounded-full flex items-center justify-center font-bold {index === 0 ? 'bg-gold text-space-900 shadow-lg shadow-gold/30' : index === 1 ? 'bg-silver text-space-900' : index === 2 ? 'bg-bronze text-space-900' : 'bg-space-600 text-ink-muted'}">
                         {index + 1}
                       </div>
                     </td>
@@ -869,14 +858,14 @@
                         <span class="{isTeamBased ? 'font-bold' : ''}">{entity.name}</span>
                       </div>
                     </td>                    
-                    <td class="text-center py-2 px-2 text-gray-400 {isTeamBased ? 'text-base' : ''}">{(entity.wins || 0) + (entity.draws || 0) + (entity.losses || 0)}</td>
-                    <td class="text-center py-2 px-2 text-cyber-green font-bold {isTeamBased ? 'text-base' : ''}">{entity.wins || 0}</td>
-                    <td class="text-center py-2 px-2 text-yellow-500 font-bold {isTeamBased ? 'text-base' : ''}">{entity.draws || 0}</td>
-                    <td class="text-center py-2 px-2 text-red-400 font-bold {isTeamBased ? 'text-base' : ''}">{entity.losses || 0}</td>
+                    <td class="text-center py-2 px-2 text-ink-faint tabular-nums {isTeamBased ? 'text-base' : ''}">{(entity.wins || 0) + (entity.draws || 0) + (entity.losses || 0)}</td>
+                    <td class="text-center py-2 px-2 text-win font-bold tabular-nums {isTeamBased ? 'text-base' : ''}">{entity.wins || 0}</td>
+                    <td class="text-center py-2 px-2 font-bold tabular-nums {(entity.draws || 0) === 0 ? 'text-ink-faint' : 'text-draw'} {isTeamBased ? 'text-base' : ''}">{entity.draws || 0}</td>
+                    <td class="text-center py-2 px-2 font-bold tabular-nums {(entity.losses || 0) === 0 ? 'text-ink-faint' : 'text-loss'} {isTeamBased ? 'text-base' : ''}">{entity.losses || 0}</td>
                     {#if !isWinOnly}
-                      <td class="text-center py-2 px-2 text-brand-cyan font-bold {isTeamBased ? 'text-base' : ''}" title="{scoreLabel}">{entity.totalGameScore || entity.roundDiff || 0}</td>
+                      <td class="text-center py-2 px-2 text-ink-muted font-medium tabular-nums {isTeamBased ? 'text-base' : ''}" title="{scoreLabel}">{entity.totalGameScore || entity.roundDiff || 0}</td>
                     {/if}
-                    <td class="text-center py-2 px-2 text-cyber-green font-black {isTeamBased ? 'text-lg' : ''}">{entity.points || 0}</td>
+                    <td class="text-center py-2 px-2 text-ink font-black tabular-nums {isTeamBased ? 'text-lg' : ''}">{entity.points || 0}</td>
                   </tr>
                   <!-- For team tournaments, show expanded player stats under each team -->
                   {#if isTeamBased && entity.members}
@@ -892,8 +881,8 @@
                                 <span class="text-gray-200 text-sm font-medium flex-1 truncate">{player.name}</span>
                                 <span class="text-gray-400 text-xs font-medium">K/D</span>
                                 <span class="text-cyber-green font-bold text-sm">{stats.kills}</span>
-                                <span class="text-gray-500">/</span>
-                                <span class="text-red-400 font-bold text-sm">{stats.deaths}</span>
+                                <span class="text-ink-faint">/</span>
+                                <span class="text-loss font-bold text-sm">{stats.deaths}</span>
                                 {#if stats.gamesPlayed > 0}
                                   <span class="text-brand-cyan text-xs font-semibold">({stats.kdRatio.toFixed(2)})</span>
                                 {/if}
@@ -939,7 +928,7 @@
               <!-- Header with status -->
               <div class="bg-space-700/80 px-3 py-1.5 flex items-center justify-between border-b border-space-600">
                 <span class="text-xs font-bold text-gray-400">{scoreLabel}</span>
-                <div class="flex items-center gap-1 text-xs font-bold {status === 'complete' ? 'text-brand-cyan' : status === 'live' ? 'text-yellow-500' : 'text-gray-500'}">
+                <div class="flex items-center gap-1 text-xs font-bold {status === 'complete' ? 'text-brand-cyan' : status === 'live' ? 'text-gold' : 'text-ink-faint'}">
                   {#if status === 'complete'}
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                   {:else if status === 'live'}
@@ -967,7 +956,7 @@
                   </div>
                 {:else if match.mapName}
                   <div class="mb-3 text-center">
-                    <span class="text-xs px-2 py-1 bg-brand-cyan/20 text-brand-cyan rounded-full">{match.mapName}</span>
+                    <span class="text-xs px-2 py-1 bg-white/5 text-ink-muted rounded-full font-medium">{match.mapName}</span>
                   </div>
                 {/if}
                 
@@ -985,12 +974,12 @@
                       {#if tieAllowed}
                         <button
                           onclick={() => setWinner(match.id, 'tie')}
-                          class="w-14 h-14 rounded-lg font-black text-xl transition-all {scores.player1Score === scores.player2Score && scores.player1Score > 0 ? 'bg-yellow-500 text-black' : 'bg-space-600 hover:bg-space-500 text-gray-400 border-2 border-space-500 hover:border-yellow-500'}"
+                          class="w-14 h-14 rounded-lg font-black text-xl transition-all {scores.player1Score === scores.player2Score && scores.player1Score > 0 ? 'bg-gold text-black' : 'bg-space-600 hover:bg-space-500 text-gray-400 border-2 border-space-500 hover:border-gold'}"
                         >
                           T
                         </button>
                       {:else}
-                        <span class="text-gray-500 font-bold">:</span>
+                        <span class="text-ink-faint font-bold">:</span>
                       {/if}
                       <button
                         onclick={() => setWinner(match.id, 'player2')}
@@ -1000,17 +989,17 @@
                       </button>
                     {:else}
                       <!-- Completed Win-Only Match -->
-                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player1' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-yellow-500/50 text-yellow-300' : 'bg-space-700 text-gray-500'}">
+                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player1' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-draw/15 text-draw' : 'bg-space-700 text-ink-faint'}">
                         {result === 'player1' ? 'W' : result === 'tie' ? 'T' : 'L'}
                       </div>
                       {#if tieAllowed}
-                        <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'tie' ? 'bg-yellow-500 text-black' : 'bg-space-700 text-gray-600'}">
+                        <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'tie' ? 'bg-draw text-space-900' : 'bg-space-700 text-ink-faint'}">
                           {result === 'tie' ? 'T' : 'vs'}
                         </div>
                       {:else}
-                        <span class="text-gray-500 font-bold">:</span>
+                        <span class="text-ink-faint font-bold">:</span>
                       {/if}
-                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player2' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-yellow-500/50 text-yellow-300' : 'bg-space-700 text-gray-500'}">
+                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player2' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-draw/15 text-draw' : 'bg-space-700 text-ink-faint'}">
                         {result === 'player2' ? 'W' : result === 'tie' ? 'T' : 'L'}
                       </div>
                     {/if}
@@ -1029,18 +1018,18 @@
                           class="w-full text-center text-3xl font-black bg-space-600 border-2 {result === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-2 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                         />
                       {:else}
-                        <div class="text-3xl font-black {result === 'player1' ? 'text-cyber-green' : result === 'player2' ? 'text-gray-500' : 'text-yellow-500'}">{scores.player1Score}</div>
+                        <div class="text-3xl font-black tabular-nums {result === 'player1' ? 'text-ink' : result === 'player2' ? 'text-ink-faint' : 'text-draw'}">{scores.player1Score}</div>
                       {/if}
                     </div>
                     
                     <!-- VS / Result -->
                     <div class="flex-shrink-0 w-12 text-center">
                       {#if result === 'tie'}
-                        <span class="text-yellow-500 font-black text-sm">TIE</span>
+                        <span class="text-gold font-black text-sm">TIE</span>
                       {:else if match.completed}
-                        <span class="text-gray-600 font-bold text-lg">:</span>
+                        <span class="text-ink-faint font-bold text-lg">:</span>
                       {:else}
-                        <span class="text-gray-500 font-bold text-sm">VS</span>
+                        <span class="text-ink-faint font-bold text-sm">VS</span>
                       {/if}
                     </div>
                     
@@ -1057,7 +1046,7 @@
                           class="w-full text-center text-3xl font-black bg-space-600 border-2 {result === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-2 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                         />
                       {:else}
-                        <div class="text-3xl font-black {result === 'player2' ? 'text-cyber-green' : result === 'player1' ? 'text-gray-500' : 'text-yellow-500'}">{scores.player2Score}</div>
+                        <div class="text-3xl font-black tabular-nums {result === 'player2' ? 'text-ink' : result === 'player1' ? 'text-ink-faint' : 'text-draw'}">{scores.player2Score}</div>
                       {/if}
                     </div>
                   {/if}
@@ -1103,7 +1092,7 @@
                     <div class="grid grid-cols-2 gap-3">
                       <!-- Team 1 Players -->
                       <div class="bg-brand-purple/10 rounded-lg p-2 border border-brand-purple/20">
-                        <div class="text-xs font-bold text-brand-purple mb-2 border-b border-brand-purple/20 pb-1">{entity1Name}</div>
+                        <div class="text-xs font-bold text-deep-soft mb-2 border-b border-brand-purple/20 pb-1">{entity1Name}</div>
                         {#each team1Players as player (player.id)}
                           <div class="flex items-center gap-2 mb-1.5">
                             <img src={getPlayerImageUrl(player.name)} alt="" class="w-5 h-5 rounded-full flex-shrink-0" />
@@ -1111,8 +1100,8 @@
                             <div class="flex items-center gap-0.5">
                               {#if match.completed}
                                 <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-cyber-green font-bold">{matchPlayerStats[match.id]?.[player.id]?.kills || 0}</span>
-                                <span class="text-gray-500 font-bold">/</span>
-                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-red-400 font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
+                                <span class="text-ink-faint font-bold">/</span>
+                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-loss font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
                               {:else}
                                 <input
                                   type="number"
@@ -1126,13 +1115,13 @@
                                     (e.target as HTMLInputElement).value = String(matchPlayerStats[match.id]?.[player.id]?.kills || 0);
                                   }}
                                 />
-                                <span class="text-gray-500 font-bold">/</span>
+                                <span class="text-ink-faint font-bold">/</span>
                                 <input
                                   type="number"
                                   min="0"
                                   max="999"
                                   placeholder="D"
-                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-loss/30 rounded text-center text-loss font-bold focus:border-loss focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                   value={matchPlayerStats[match.id]?.[player.id]?.deaths || 0}
                                   onchange={(e) => {
                                     updatePlayerKD(match.id, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value));
@@ -1155,8 +1144,8 @@
                             <div class="flex items-center gap-0.5">
                               {#if match.completed}
                                 <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-cyber-green font-bold">{matchPlayerStats[match.id]?.[player.id]?.kills || 0}</span>
-                                <span class="text-gray-500 font-bold">/</span>
-                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-red-400 font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
+                                <span class="text-ink-faint font-bold">/</span>
+                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-loss font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
                               {:else}
                                 <input
                                   type="number"
@@ -1170,13 +1159,13 @@
                                     (e.target as HTMLInputElement).value = String(matchPlayerStats[match.id]?.[player.id]?.kills || 0);
                                   }}
                                 />
-                                <span class="text-gray-500 font-bold">/</span>
+                                <span class="text-ink-faint font-bold">/</span>
                                 <input
                                   type="number"
                                   min="0"
                                   max="999"
                                   placeholder="D"
-                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-loss/30 rounded text-center text-loss font-bold focus:border-loss focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                   value={matchPlayerStats[match.id]?.[player.id]?.deaths || 0}
                                   onchange={(e) => {
                                     updatePlayerKD(match.id, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value));
@@ -1193,19 +1182,19 @@
                 {/if}
 
                 <!-- Submit Button -->
-                {#if !match.completed && isValidScore(match.id)}
+                {#if canEdit && !match.completed && isValidScore(match.id)}
                   <div class="mt-2 pt-2 border-t border-space-600">
                     {#if isTeamBased}
                       <button 
                         onclick={() => submitTeamMatch(match.id, match)}
-                        class="w-full bg-gradient-to-r from-brand-cyan to-cyber-blue text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
+                        class="w-full bg-space-600 text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
                       >
                         Submit Result ({scores.player1Score} - {scores.player2Score})
                       </button>
                     {:else}
                       <button 
                         onclick={() => submitMatchResult(match.id, match)}
-                        class="w-full bg-gradient-to-r from-brand-cyan to-cyber-blue text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
+                        class="w-full bg-space-600 text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
                       >
                         Submit Result ({scores.player1Score} - {scores.player2Score})
                       </button>
@@ -1214,7 +1203,7 @@
                 {:else if !match.completed && (scores.player1Score > 0 || scores.player2Score > 0)}
                   {@const validationError = getValidationError(match.id)}
                   {#if validationError}
-                    <div class="mt-3 pt-3 border-t border-space-600 text-center text-xs text-yellow-500">
+                    <div class="mt-3 pt-3 border-t border-space-600 text-center text-xs text-gold">
                       {validationError}
                     </div>
                   {/if}
@@ -1228,15 +1217,17 @@
 
     <!-- Full Tournament Reset Button -->
     <div class="text-center pt-8 border-t border-space-600 mt-8">
+      {#if canEdit}
       <button
         onclick={() => handleResetTournament()}
-        class="bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-red-500/30 hover:shadow-red-500/50 hover:scale-105 transition-all duration-300 border border-red-400/30"
+        class="bg-loss/15 text-white font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-loss/30 hover:shadow-loss/50 hover:scale-105 transition-all duration-300 border border-loss/30"
       >
         <svg class="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
         </svg>
         Reset Tournament Data
       </button>
+      {/if}
     </div>
     {/if}
   </div>
@@ -1247,10 +1238,10 @@
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
-    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-loss/30" onclick={(e) => e.stopPropagation()}>
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
-        <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
-          <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <div class="w-12 h-12 rounded-full bg-loss/20 flex items-center justify-center">
+          <svg class="w-6 h-6 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </div>
@@ -1264,7 +1255,7 @@
         <div class="flex justify-end">
           <button
             onclick={() => showErrorPopup = false}
-            class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
+            class="bg-space-600 text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
           >
             Got it
           </button>
@@ -1300,7 +1291,7 @@
           </button>
           <button
             onclick={executeConfirmedAction}
-            class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:scale-105 transition-all duration-300"
+            class="bg-space-600 text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:scale-105 transition-all duration-300"
           >
             {confirmButtonText}
           </button>

@@ -1,46 +1,56 @@
 #!/bin/bash
-# Backup script for Giga LAN Manager tournaments
-# Exports each tournament as a separate JSON file
+# Backup script for Giga LAN Manager tournaments.
+# Exports each tournament's full state as a separate JSON file, ready to feed
+# back through the "Import" button in the lobby.
+set -euo pipefail
 
-BACKUP_DIR="./backups"
+API="${API:-http://localhost:3000/api}"
+BACKUP_DIR="${BACKUP_DIR:-./backups}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 TOURNAMENT_DIR="$BACKUP_DIR/tournaments_$TIMESTAMP"
-
-mkdir -p "$TOURNAMENT_DIR"
 
 echo "🎮 Giga LAN Manager - Tournament Backup"
 echo "========================================"
 
-# Get list of tournaments
-TOURNAMENTS=$(curl -s http://localhost:3000/api/tournaments)
-
-if [ -z "$TOURNAMENTS" ] || [ "$TOURNAMENTS" = "[]" ]; then
-    echo "⚠️  No tournaments found or server not running"
+if ! command -v node >/dev/null 2>&1; then
+    echo "❌ node is required (it parses the JSON index)." >&2
     exit 1
 fi
 
-# Save the tournament list
-echo "$TOURNAMENTS" > "$TOURNAMENT_DIR/_tournament_list.json"
+TOURNAMENTS=$(curl -sf "$API/tournaments") || {
+    echo "⚠️  Could not reach the server at $API" >&2
+    exit 1
+}
 
-# Parse tournament IDs and names using bash (no jq needed)
-# Extract id and name pairs from JSON array
-echo "$TOURNAMENTS" | grep -oP '"id":"[^"]+"|"name":"[^"]+"' | paste - - | while read -r line; do
-    ID=$(echo "$line" | grep -oP '"id":"[^"]+' | cut -d'"' -f4)
-    NAME=$(echo "$line" | grep -oP '"name":"[^"]+' | cut -d'"' -f4)
-    
-    if [ -n "$ID" ] && [ -n "$NAME" ]; then
-        # Sanitize filename (remove special chars, replace spaces with underscores)
-        SAFE_NAME=$(echo "$NAME" | tr ' ' '_' | tr -cd '[:alnum:]_-')
-        FILENAME="${SAFE_NAME}.json"
-        
-        echo "📦 Backing up: $NAME → $FILENAME"
-        curl -s "http://localhost:3000/api/tournament/$ID/state" > "$TOURNAMENT_DIR/$FILENAME"
-    fi
-done
+if [ -z "$TOURNAMENTS" ] || [ "$TOURNAMENTS" = "[]" ]; then
+    echo "⚠️  No tournaments found"
+    exit 0
+fi
 
-# Count backed up tournaments
-COUNT=$(ls -1 "$TOURNAMENT_DIR"/*.json 2>/dev/null | grep -v "_tournament_list" | wc -l)
+mkdir -p "$TOURNAMENT_DIR"
+printf '%s' "$TOURNAMENTS" > "$TOURNAMENT_DIR/_tournament_list.json"
+
+# Parse the index with a real JSON parser. The previous version grepped "id" and
+# "name" out of the raw text and paired alternate lines with `paste`, which
+# silently desynchronised every subsequent file as soon as a tournament name
+# contained either substring.
+COUNT=0
+while IFS=$'\t' read -r ID NAME; do
+    [ -n "$ID" ] || continue
+    SAFE_NAME=$(printf '%s' "$NAME" | tr ' ' '_' | tr -cd '[:alnum:]_-')
+    [ -n "$SAFE_NAME" ] || SAFE_NAME="$ID"
+    echo "📦 Backing up: $NAME → ${SAFE_NAME}.json"
+    curl -sf "$API/tournament/$ID/state" > "$TOURNAMENT_DIR/${SAFE_NAME}.json"
+    COUNT=$((COUNT + 1))
+done < <(printf '%s' "$TOURNAMENTS" | node -e '
+    let raw = "";
+    process.stdin.on("data", (c) => (raw += c));
+    process.stdin.on("end", () => {
+        for (const t of JSON.parse(raw)) {
+            process.stdout.write(`${t.id}\t${String(t.name).replace(/[\t\n\r]/g, " ")}\n`);
+        }
+    });
+')
 
 echo "========================================"
 echo "✅ Backed up $COUNT tournaments to: $TOURNAMENT_DIR"
-ls -la "$TOURNAMENT_DIR"

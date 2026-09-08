@@ -60,6 +60,34 @@ const playerImageMap: Record<string, string> = {
     'istván csibi': IstvanCsibi,
     'eszter gábor': EszterGabor,
     'csongor erdei': CsongorErdei,
+
+    // Short-name aliases.
+    //
+    // The map above is keyed by full name, but tournaments recorded before that
+    // change stored players under a first name or nickname ("Tamás", "Zoli"),
+    // and those records are still browsable. Each alias is derived from the
+    // ASSET FILENAME, which is exactly the name the person was entered as then.
+    //
+    // Deliberately not derived by splitting the full-name keys: that would map
+    // "Gábor" to EszterGabor.png, where Gábor is a surname, not a first name.
+    'arpan': Arpan,
+    'arron': Arron,
+    'balázs': Balazs,
+    'benedek': Benedek,
+    'bálint': Balint,
+    'csenge': Csenge,
+    'imi': Imi,
+    'kristóf': Kristof,
+    'milán': Milan,
+    'márk': Mark,
+    'natabara': Natabara,
+    'szilárd': Szilard,
+    'tamás': Tamas,
+    'thausif': Thausif,
+    'viktor': Viktor,
+    'zoli': Zoli,
+    'zsolt': Zsolt,
+    'áron': Aron,
 };
 
 // Default image (Cat.jpg)
@@ -73,6 +101,21 @@ export function getPlayerImageUrl(playerName: string): string {
     const normalizedName = playerName.trim().toLowerCase();
     const result = playerImageMap[normalizedName] || defaultImage;
     return result;
+}
+
+/**
+ * Resolve the avatar to render for a player.
+ *
+ * An uploaded photo is stored as a data: URL and always wins. Anything else is
+ * ignored on purpose: older versions persisted the bundled asset URL at the
+ * moment the player was added, and that URL carries Vite's content hash, so it
+ * 404s after the next production build. Falling back to the name lookup always
+ * resolves against the current build.
+ */
+export function resolvePlayerAvatar(player: { name?: string; profilePhoto?: string } | null | undefined): string {
+    const stored = player?.profilePhoto;
+    if (typeof stored === 'string' && stored.startsWith('data:')) return stored;
+    return getPlayerImageUrl(player?.name ?? '');
 }
 
 /**

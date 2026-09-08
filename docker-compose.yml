@@ -5,11 +5,14 @@ services:
       - "3000:3000"
     environment:
       - REDIS_URL=redis://redis:6379
-      # Set ADMIN_PASSWORD to require an admin login for any change (viewing stays
-      # open). Provide it via your shell env or a .env file beside this compose file.
-      # Leave unset to run fully open (a warning is logged).
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
-      - SESSION_SECRET=${SESSION_SECRET:-}
+      # ADMIN_TOKEN decides who may CREATE tournaments on this instance.
+      # Generate one with `npm run gen-token` and put it in a .env file beside
+      # this compose file. Leave it unset and anyone who can reach the server can
+      # create tournaments (a warning is logged at boot).
+      #
+      # Writing to an EXISTING tournament always needs that tournament's own
+      # admin key, whether or not this is set.
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
     depends_on:
       - redis
     restart: unless-stopped

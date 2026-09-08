@@ -23,6 +23,7 @@
   let mapPool = $state([]) as string[];
   let playoffsRoundLimit = $state<number | undefined>(undefined);
   let useCustomPoints = $state(false);
+  let canEdit = $state(false);
 
   // Team tournament state
   let isTeamBased = $state(false);
@@ -420,7 +421,11 @@
       });
     }
     
-    // Submit final winner
+    // Backstop only. Submitting the games above already decides the series
+    // server-side, and submitTeamBracketWinner is a no-op when the winner is
+    // unchanged -- it used to re-run the semifinal branch and seed the SAME
+    // loser into both slots of the 3rd-place match. This call still matters when
+    // a map was tied and the per-game threshold was never reached.
     await submitTeamBracketWinner(tournamentId, modalMatchId, winnerId!);
     
     // Reset modal state for this match
@@ -572,6 +577,7 @@
       mapPool = tournamentData.mapPool || [];
       playoffsRoundLimit = tournamentData.playoffsRoundLimit;
       useCustomPoints = tournamentData.useCustomPoints || false;
+      canEdit = tournamentData.isAdmin === true;
       
       // Team tournament data
       isTeamBased = tournamentData.isTeamBased || false;
@@ -635,7 +641,8 @@
   }
 
 async function handleDeclareWinner(matchId: string, winnerId: string) {
-  if (!confirm('Are you sure you want to declare this player as the winner?')) return;
+  const label = isTeamBased ? 'team' : 'player';
+  if (!confirm(`Declare this ${label} the winner of the match?`)) return;
   
   try {
     await submitBracketWinner(tournamentId, matchId, winnerId);
@@ -762,7 +769,6 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
   function getMapWinner(mapIndex: number): 'player1' | 'player2' | null {
     const scores = mapScores[mapIndex];
     if (!scores) {
-      console.log(`[Brackets] Map ${mapIndex} - no scores`);
       return null;
     }
     
@@ -772,15 +778,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       const maxLoserScore = winScore - 1;
       
       if (scores.player1Score === winScore && scores.player2Score <= maxLoserScore) {
-        console.log(`[Brackets] Map ${mapIndex} - player1 wins with`, scores);
         return 'player1';
       }
       if (scores.player2Score === winScore && scores.player1Score <= maxLoserScore) {
-        console.log(`[Brackets] Map ${mapIndex} - player2 wins with`, scores);
         return 'player2';
       }
       // Invalid score or incomplete
-      console.log(`[Brackets] Map ${mapIndex} - invalid/incomplete`, scores);
       return null;
     }
     
@@ -812,7 +815,6 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
   function canSubmitSeries(): boolean {
     // Must have a series winner
     const winner = getSeriesWinner();
-    console.log('[Brackets] canSubmitSeries - winner:', winner, 'series score:', getSeriesScore());
     if (winner === null) return false;
     
     // Check for duplicate maps (no two games can have the same map)
@@ -826,7 +828,6 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       if (selectedMap) {
         // Check if this map was already selected for another game
         if (selectedMapsList.includes(selectedMap)) {
-          console.log(`[Brackets] Map ${selectedMap} selected more than once`);
           return false;
         }
         selectedMapsList.push(selectedMap);
@@ -848,12 +849,10 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           (scores.player1Score === winScore && scores.player2Score <= maxLoserScore) ||
           (scores.player2Score === winScore && scores.player1Score <= maxLoserScore);
         
-        console.log(`[Brackets] Map ${i} validation:`, scores, 'valid:', isValidMap);
         if (!isValidMap) return false;
       }
     }
     
-    console.log('[Brackets] canSubmitSeries - returning true');
     return true;
   }
 
@@ -1189,8 +1188,18 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
   });
 </script>
 
+{#if !canEdit}
+  <div class="max-w-7xl mx-auto px-4 pt-4">
+    <div class="flex items-center gap-3 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-4 py-2.5">
+      <svg class="w-4 h-4 text-brand-cyan flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+      <span class="text-sm text-brand-cyan font-semibold">Viewing live - only the organiser can enter results.</span>
+    </div>
+  </div>
+{/if}
+
+
 <!-- Update the template to include loading/error states -->
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3 flex flex-col">
+<div class="min-h-screen bg-space-600 text-gaming-text px-3 py-3 flex flex-col">
   <div class="max-w-6xl mx-auto w-full">
     
     <!-- Header -->
@@ -1200,7 +1209,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
           Back
         </a>
-        <div class="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+        <div class="text-sm font-bold text-accent uppercase tracking-wider mb-1 flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
           </svg>
@@ -1216,16 +1225,16 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       </div>
     {:else if error}
       <div class="glass rounded-lg p-8 text-center">
-        <svg class="w-12 h-12 mx-auto mb-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-12 h-12 mx-auto mb-3 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
-        <p class="text-red-400">{error}</p>
+        <p class="text-loss">{error}</p>
       </div>
     {:else if tournamentState !== 'playoffs' && tournamentState !== 'completed'}
       <div class="glass rounded-lg p-8 text-center">
-        <svg class="w-12 h-12 mx-auto mb-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <svg class="w-12 h-12 mx-auto mb-3 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         <p class="text-base text-gray-400 mb-1">Playoffs have not started yet</p>
-        <p class="text-gray-500 text-xs">Complete the group stage to generate brackets</p>
+        <p class="text-ink-faint text-xs">Complete the group stage to generate brackets</p>
       </div>
     {:else}
       
@@ -1237,11 +1246,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           <!-- Trophy Header -->
           <div class="text-center mb-0">
             <div class="relative inline-block">
-              <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-600 flex items-center justify-center shadow-xl ring-4 ring-yellow-400/30">
-                <span class="text-4xl">🏆</span>
+              <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-gold flex items-center justify-center shadow-xl ring-4 ring-gold/30">
+                <svg class="w-9 h-9 text-space-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 21h8M12 17v4M7 4h10v5a5 5 0 01-10 0V4zM7 6H5a2 2 0 00-2 2 3 3 0 003 3M17 6h2a2 2 0 012 2 3 3 0 01-3 3"/></svg>
               </div>
             </div>
-            <h2 class="text-2xl font-black mb-2 bg-gradient-to-r from-yellow-400 via-yellow-300 to-yellow-500 bg-clip-text text-transparent">
+            <h2 class="text-2xl font-black mb-2 text-ink">
               TOURNAMENT CHAMPION
             </h2>
           </div>
@@ -1259,11 +1268,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                     <div class="flex flex-col items-center">
                       <!-- Card -->
                       <div class="glass rounded-t-2xl p-6 text-center relative overflow-hidden w-56 mb-0">
-                        <div class="absolute inset-0 bg-gradient-to-br from-gray-400/15 via-gray-300/5 to-gray-500/15"></div>
+                        <div class="absolute inset-0 bg-white/5"></div>
                         <div class="relative z-10">
                           <!-- Medal Ring -->
                           <div class="mb-4">
-                            <div class="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center shadow-xl ring-4 ring-gray-400/40 border-2 border-gray-200">
+                            <div class="w-20 h-20 mx-auto rounded-full bg-space-600 flex items-center justify-center shadow-xl ring-4 ring-silver/40 border-2 border-silver">
                               {#if isTeamBased}
                                 <img src={getTeamImageUrl(runnerUp)} alt={runnerUp.name} class="w-20 h-20 rounded-full object-cover" />
                               {:else}
@@ -1272,12 +1281,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             </div>
                           </div>
                           <!-- Name -->
-                          <h4 class="text-lg font-black text-gray-200 mb-1">{runnerUp.name}</h4>
+                          <h4 class="text-lg font-black text-silver mb-1">{runnerUp.name}</h4>
                           <!-- Rank -->
-                          <p class="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">2nd Place</p>
+                          <p class="text-xs font-bold uppercase tracking-wider text-ink-muted mb-3">2nd Place</p>
                           <!-- Stats -->
                           {#if !isTeamBased}
-                            <div class="text-sm font-bold text-gray-400">
+                            <div class="text-sm font-bold text-ink-muted">
                               {#if isHealthBased}
                                 {getPlayerTotalScore(runnerUp.id)} HP
                               {:else if isKillBased}
@@ -1290,7 +1299,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                         </div>
                       </div>
                       <!-- Podium Base -->
-                      <div class="w-56 h-8 bg-gradient-to-b from-gray-400 via-gray-500 to-gray-600 rounded-b-lg shadow-lg flex items-center justify-center">
+                      <div class="w-56 h-8 bg-silver rounded-b-lg shadow-lg flex items-center justify-center">
                       </div>
                     </div>
                   </div>
@@ -1301,12 +1310,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                   <!-- Pillar -->
                   <div class="flex flex-col items-center">
                     <!-- Card -->
-                    <div class="glass rounded-t-2xl p-8 text-center relative overflow-hidden w-64 mb-0 shadow-2xl border-2 border-yellow-400/40">
-                      <div class="absolute inset-0 bg-gradient-to-br from-yellow-500/20 via-yellow-400/10 to-yellow-600/15"></div>
+                    <div class="glass rounded-t-2xl p-8 text-center relative overflow-hidden w-64 mb-0 shadow-2xl border-2 border-gold/40">
+                      <div class="absolute inset-0 bg-gold/[0.08]"></div>
                       <div class="relative z-10">
                         <!-- Medal Ring -->
                         <div class="mb-4">
-                          <div class="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-2xl ring-4 ring-yellow-400/50 border-3 border-yellow-300">
+                          <div class="w-24 h-24 mx-auto rounded-full bg-gold flex items-center justify-center shadow-2xl ring-4 ring-gold/50 border-3 border-gold">
                             {#if isTeamBased && teamChampion}
                               <img src={getTeamImageUrl(teamChampion)} alt={teamChampion.name} class="w-24 h-24 rounded-full object-cover" />
                             {:else if champion}
@@ -1315,12 +1324,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           </div>
                         </div>
                         <!-- Name -->
-                        <h4 class="text-2xl font-black text-yellow-300 mb-2">{displayName}</h4>
+                        <h4 class="text-2xl font-black text-gold mb-2">{displayName}</h4>
                         <!-- Rank -->
-                        <p class="text-xs font-bold uppercase tracking-wider text-yellow-400 mb-3">Champion</p>
+                        <p class="text-xs font-bold uppercase tracking-wider text-gold mb-3">Champion</p>
                         <!-- Stats -->
                         {#if !isTeamBased && champion}
-                          <div class="text-sm font-bold text-cyber-green">
+                          <div class="text-sm font-bold text-ink-muted">
                             {#if isHealthBased}
                               {getPlayerTotalScore(champion.id)} HP
                             {:else if isKillBased}
@@ -1333,7 +1342,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                       </div>
                     </div>
                     <!-- Podium Base -->
-                    <div class="w-64 h-12 bg-gradient-to-b from-yellow-300 via-yellow-400 to-yellow-500 rounded-b-lg shadow-2xl flex items-center justify-center">
+                    <div class="w-64 h-12 bg-gold rounded-b-lg shadow-2xl flex items-center justify-center">
                     </div>
                   </div>
                 </div>
@@ -1346,11 +1355,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                     <div class="flex flex-col items-center">
                       <!-- Card -->
                       <div class="glass rounded-t-2xl p-6 text-center relative overflow-hidden w-56 mb-0">
-                        <div class="absolute inset-0 bg-gradient-to-br from-orange-500/15 via-orange-400/5 to-orange-600/15"></div>
+                        <div class="absolute inset-0 bg-bronze/[0.08]"></div>
                         <div class="relative z-10">
                           <!-- Medal Ring -->
                           <div class="mb-4">
-                            <div class="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-xl ring-4 ring-orange-400/40 border-2 border-orange-300">
+                            <div class="w-20 h-20 mx-auto rounded-full bg-bronze flex items-center justify-center shadow-xl ring-4 ring-bronze/40 border-2 border-bronze">
                               {#if isTeamBased}
                                 <img src={getTeamImageUrl(thirdPlace)} alt={thirdPlace.name} class="w-20 h-20 rounded-full object-cover" />
                               {:else}
@@ -1359,12 +1368,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             </div>
                           </div>
                           <!-- Name -->
-                          <h4 class="text-lg font-black text-orange-300 mb-1">{thirdPlace.name}</h4>
+                          <h4 class="text-lg font-black text-bronze mb-1">{thirdPlace.name}</h4>
                           <!-- Rank -->
-                          <p class="text-xs font-bold uppercase tracking-wider text-orange-400 mb-3">3rd Place</p>
+                          <p class="text-xs font-bold uppercase tracking-wider text-bronze mb-3">3rd Place</p>
                           <!-- Stats -->
                           {#if !isTeamBased}
-                            <div class="text-sm font-bold text-orange-400">
+                            <div class="text-sm font-bold text-ink-muted">
                               {#if isHealthBased}
                                 {getPlayerTotalScore(thirdPlace.id)} HP
                               {:else if isKillBased}
@@ -1377,7 +1386,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                         </div>
                       </div>
                       <!-- Podium Base -->
-                      <div class="w-56 h-4 bg-gradient-to-b from-orange-400 via-orange-500 to-orange-600 rounded-b-lg shadow-lg flex items-center justify-center">
+                      <div class="w-56 h-4 bg-bronze rounded-b-lg shadow-lg flex items-center justify-center">
                       </div>
                     </div>
                   </div>
@@ -1390,7 +1399,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           <div class="text-center">
             <a 
               href={`/tournament/${tournamentId}/statistics`}
-              class="bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-orange hover:scale-105 transition-transform inline-flex items-center gap-2"
+              class="bg-space-600 text-white font-bold text-sm py-2 px-6 rounded-lg shadow-glow-orange hover:scale-105 transition-transform inline-flex items-center gap-2"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
@@ -1407,10 +1416,10 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
         <div class="glass rounded-lg p-4 md:p-6">
           <div class="flex items-center justify-between mb-6">
             <div class="flex items-center gap-3">
-              <div class="w-1 h-8 bg-gradient-to-b from-yellow-400 via-brand-orange to-brand-purple rounded-full"></div>
+              <div class="w-1 h-8 bg-gold rounded-full"></div>
               <div>
                 <h2 class="text-xl font-black text-white">PLAYOFF BRACKET</h2>
-                <p class="text-xs text-gray-400 mt-0.5">Single Elimination • Best of {mapsPerMatch}</p>
+                <p class="text-xs text-gray-400 mt-0.5">Single Elimination<span class="sep" aria-hidden="true"></span>Best of {mapsPerMatch}</p>
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -1420,8 +1429,8 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                   <span class="text-xs font-bold text-cyber-green">LIVE</span>
                 </div>
               {:else if champion}
-                <div class="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                  <span class="text-xs font-bold text-yellow-500">COMPLETED</span>
+                <div class="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-gold/10 border border-gold/30 rounded-lg">
+                  <span class="text-xs font-bold text-gold">COMPLETED</span>
                 </div>
               {/if}
             </div>
@@ -1456,9 +1465,9 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                 <div class="flex-shrink-0 w-72">
                   <!-- Round Header -->
                   <div class="text-center mb-4">
-                    <div class="inline-block px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 border border-cyan-400 shadow-lg">
-                      <h3 class="font-black text-base text-white">{roundLabel}</h3>
-                    </div>
+                    <!-- A column heading, not a control. Filled with the accent
+                         it read as the primary action on the page. -->
+                    <h3 class="section-title">{roundLabel}</h3>
                   </div>
                   
                   <div class="flex flex-col {totalRounds === 1 ? 'gap-4' : 'justify-center'}" style={totalRounds > 1 ? `height: ${maxColumnHeight}px;` : ''}>
@@ -1502,9 +1511,9 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                       <!-- NO CONNECTOR LINES FOR NOW - JUST SHOW THE BRACKETS -->
 
                       <!-- Match Card -->
-                      <div class="glass rounded-xl overflow-hidden relative z-10 transform transition-all duration-300 {isEditing ? 'ring-2 ring-brand-cyan scale-105 shadow-2xl' : hasWinner ? 'shadow-lg shadow-cyber-green/20' : 'hover:scale-102 hover:shadow-xl'} border {isFinals ? 'border-yellow-400 ring-4 ring-yellow-500/50' : 'border-space-600'}">
+                      <div class="glass rounded-xl overflow-hidden relative z-10 transform transition-all duration-300 {isEditing ? 'ring-2 ring-brand-cyan scale-105 shadow-2xl' : hasWinner ? 'shadow-lg shadow-cyber-green/20' : 'hover:scale-102 hover:shadow-xl'} border {isFinals ? 'border-gold ring-4 ring-gold/50' : 'border-space-600'}">
                         <!-- Match Header -->
-                        <div class="bg-gradient-to-r from-space-700 to-space-800 px-3 py-2 flex items-center justify-between border-b border-space-600">
+                        <div class="bg-space-600 px-3 py-2 flex items-center justify-between border-b border-space-600">
                           <div class="flex items-center gap-2">
                             <span class="text-xs font-bold text-gray-400">{match.matchLabel || `Match ${matchIndex + 1}`}</span>
                             {#if hasWinner}
@@ -1520,20 +1529,20 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                 {seriesScore.player1}-{seriesScore.player2}
                               </div>
                             {/if}
-                            <span class="text-xs font-bold {isFinals ? 'text-yellow-500' : isSemis ? 'text-brand-orange' : 'text-brand-cyan'}">BO{mapsPerMatch}</span>
+                            <span class="text-xs font-bold {isFinals ? 'text-gold' : isSemis ? 'text-brand-orange' : 'text-brand-cyan'}">BO{mapsPerMatch}</span>
                           </div>
                         </div>
 
                         {#if isEditing}
                           <!-- BO3 Editing Mode -->
-                          <div class="p-3 space-y-3 bg-gradient-to-br from-space-800 to-space-900">
+                          <div class="p-3 space-y-3 bg-space-600">
                             <!-- Player Names Header -->
                             <div class="flex items-center justify-between text-sm bg-space-700/50 rounded-lg p-2">
                               <div class="flex items-center gap-2 flex-1">
                                 <img src={entity1Image} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-cyber-blue" />
                                 <span class="font-bold text-white truncate">{entity1Name}</span>
                               </div>
-                              <div class="px-3 text-gray-500 font-bold">VS</div>
+                              <div class="px-3 text-ink-faint font-bold">VS</div>
                               <div class="flex items-center gap-2 flex-1 justify-end">
                                 <span class="font-bold text-white truncate">{entity2Name}</span>
                                 <img src={entity2Image} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-brand-purple" />
@@ -1541,12 +1550,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             </div>
 
                             <!-- Series Score Display -->
-                            <div class="flex justify-center items-center gap-4 py-2 bg-gradient-to-r from-space-700 to-space-800 rounded-lg">
+                            <div class="flex justify-center items-center gap-4 py-2 bg-space-600 rounded-lg">
                               <div class="text-center">
                                 <div class="text-3xl font-black {getSeriesScore().player1Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green animate-pulse' : 'text-white'}">{getSeriesScore().player1Wins}</div>
                                 <div class="text-xs text-gray-400 mt-1">Maps Won</div>
                               </div>
-                              <div class="w-px h-12 bg-gradient-to-b from-transparent via-gray-600 to-transparent"></div>
+                              <div class="w-px h-12 bg-space-600"></div>
                               <div class="text-center">
                                 <div class="text-3xl font-black {getSeriesScore().player2Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green animate-pulse' : 'text-white'}">{getSeriesScore().player2Wins}</div>
                                 <div class="text-xs text-gray-400 mt-1">Maps Won</div>
@@ -1574,11 +1583,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                 
                                 {#if isWinOnly}
                                   <!-- Win-Only Mode: W Buttons -->
-                                  <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : ''}">
+                                  <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-accent bg-accent/10' : 'ring-2 ring-deep bg-deep/10') : ''}">
                                     <div class="flex items-center gap-1.5 min-w-[60px]">
                                       <span class="text-xs text-gray-400 font-bold">
                                         {#if selectedMaps[mapIdx]}
-                                          <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                          <span class="text-accent">{selectedMaps[mapIdx]}</span>
                                         {:else}
                                           Game {mapIdx + 1}
                                         {/if}
@@ -1590,7 +1599,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                     >
                                       W
                                     </button>
-                                    <span class="text-gray-600 font-bold">:</span>
+                                    <span class="text-ink-faint font-bold">:</span>
                                     <button
                                       onclick={() => setMapWinner(mapIdx, 'player2')}
                                       class="w-10 h-10 rounded-lg font-black text-base transition-all {mapWinner === 'player2' ? 'bg-cyber-green text-black' : 'bg-space-600 hover:bg-space-500 text-white border-2 border-space-500 hover:border-cyber-green'}"
@@ -1600,18 +1609,18 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   </div>
                                   {@const duplicateMapError = getDuplicateMapError(mapIdx)}
                                   {#if duplicateMapError}
-                                    <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{duplicateMapError}</div>
+                                    <div class="text-xs text-loss text-center font-medium bg-loss/10 rounded px-2 py-1">{duplicateMapError}</div>
                                   {/if}
                                 {:else}
                                   <!-- Standard Score Inputs -->
-                                  <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : mapError ? 'ring-2 ring-red-500/50' : ''}">
+                                  <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-accent bg-accent/10' : 'ring-2 ring-deep bg-deep/10') : mapError ? 'ring-2 ring-loss/50' : ''}">
                                     <div class="flex items-center gap-1.5 min-w-[60px]">
                                       {#if mapWinner === 'player1'}
                                         <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                       {/if}
                                       <span class="text-xs text-gray-400 font-bold">
                                         {#if selectedMaps[mapIdx]}
-                                          <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                          <span class="text-accent">{selectedMaps[mapIdx]}</span>
                                         {:else}
                                           Map {mapIdx + 1}
                                         {/if}
@@ -1625,7 +1634,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                       oninput={(e) => updateMapScore(mapIdx, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
                                       class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                                     />
-                                    <span class="text-gray-500 font-bold">:</span>
+                                    <span class="text-ink-faint font-bold">:</span>
                                     <input
                                       type="number"
                                       min="0"
@@ -1639,7 +1648,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                     {/if}
                                   </div>
                                   {#if mapError}
-                                    <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{mapError}</div>
+                                    <div class="text-xs text-loss text-center font-medium bg-loss/10 rounded px-2 py-1">{mapError}</div>
                                   {/if}
                                 {/if}
                               </div>
@@ -1656,7 +1665,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                               <button
                                 onclick={submitResult}
                                 disabled={!canSubmitSeries()}
-                                class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-300 {canSubmitSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
+                                class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-300 {canSubmitSeries() ? 'bg-win text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-ink-faint cursor-not-allowed'}"
                               >
                                 {#if canSubmitSeries()}
                                   <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
@@ -1669,7 +1678,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           </div>
                         {:else}
                           <!-- Normal View / Click to Edit -->
-                          {#if !match.winnerId && entity1Id && entity2Id}
+                          {#if canEdit && !match.winnerId && entity1Id && entity2Id}
                             <button
                               type="button"
                               class="w-full p-3 text-center text-sm font-bold text-brand-cyan hover:bg-brand-cyan/10 transition-all duration-300 border-b border-space-600 hover:text-brand-cyan hover:shadow-inner"
@@ -1692,7 +1701,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   </div>
                                   <div class="flex items-center gap-2 font-bold">
                                     <span class="text-white">{getGameScore1(game)}</span>
-                                    <span class="text-gray-500">:</span>
+                                    <span class="text-ink-faint">:</span>
                                     <span class="text-white">{getGameScore2(game)}</span>
                                     {#if gameWinner === entity1Id}
                                       <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
@@ -1711,7 +1720,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             data-player-id={entity1Id}
                             data-is-winner={match.winnerId === entity1Id}
                             data-next-row-id={match.winnerId === entity1Id ? nextPlayerRowId : (match.winnerId === entity2Id && loserPlayerRowId ? loserPlayerRowId : null)}
-                            class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match.winnerId === entity1Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== entity1Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                            class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match.winnerId === entity1Id ? 'bg-space-600 ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== entity1Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
                           >
                             <div class="flex items-center justify-between">
                               <div class="flex items-center gap-2.5 flex-1 min-w-0">
@@ -1728,14 +1737,14 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   {#if hasWinner}
                                     <div class="text-xs text-gray-400 mt-0.5">
                                       <span class="font-bold {match.winnerId === entity1Id ? 'text-cyber-green' : ''}">{seriesScore.player1}</span>
-                                      <span class="text-gray-500 mx-1">maps</span>
+                                      <span class="text-ink-faint mx-1">maps</span>
                                     </div>
                                   {/if}
                                 </div>
                               </div>
                               {#if hasWinner}
                                 <div class="text-right flex-shrink-0 ml-2">
-                                  <div class="text-2xl font-black {match.winnerId === entity1Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player1}</div>
+                                  <div class="text-2xl font-black {match.winnerId === entity1Id ? 'text-cyber-green' : 'text-ink-faint'}">{seriesScore.player1}</div>
                                 </div>
                               {/if}
                             </div>
@@ -1747,7 +1756,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             data-player-id={entity2Id}
                             data-is-winner={match.winnerId === entity2Id}
                             data-next-row-id={match.winnerId === entity2Id ? nextPlayerRowId : (match.winnerId === entity1Id && loserPlayerRowId ? loserPlayerRowId : null)}
-                            class="w-full text-left px-3 py-3 transition-all duration-300 {match.winnerId === entity2Id ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== entity2Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                            class="w-full text-left px-3 py-3 transition-all duration-300 {match.winnerId === entity2Id ? 'bg-space-600 ring-2 ring-cyber-green/50' : ''} {match.winnerId && match.winnerId !== entity2Id ? 'opacity-40' : 'hover:bg-space-700/30'}"
                           >
                             <div class="flex items-center justify-between">
                               <div class="flex items-center gap-2.5 flex-1 min-w-0">
@@ -1764,14 +1773,14 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   {#if hasWinner}
                                     <div class="text-xs text-gray-400 mt-0.5">
                                       <span class="font-bold {match.winnerId === entity2Id ? 'text-cyber-green' : ''}">{seriesScore.player2}</span>
-                                      <span class="text-gray-500 mx-1">maps</span>
+                                      <span class="text-ink-faint mx-1">maps</span>
                                     </div>
                                   {/if}
                                 </div>
                               </div>
                               {#if hasWinner}
                                 <div class="text-right flex-shrink-0 ml-2">
-                                  <div class="text-2xl font-black {match.winnerId === entity2Id ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player2}</div>
+                                  <div class="text-2xl font-black {match.winnerId === entity2Id ? 'text-cyber-green' : 'text-ink-faint'}">{seriesScore.player2}</div>
                                 </div>
                               {/if}
                             </div>
@@ -1807,8 +1816,8 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                             return acc;
                           }, { player1: 0, player2: 0 }) : { player1: 0, player2: 0 }}
                           
-                          <div class="glass rounded-xl overflow-hidden relative z-10 transform transition-all duration-300 {isEditing3rd ? 'ring-2 ring-brand-cyan scale-105 shadow-2xl' : hasWinner ? 'shadow-lg shadow-cyber-green/20' : 'hover:scale-102 hover:shadow-xl'} border border-orange-500 ring-4 ring-orange-600/50" data-match-id={`match-3rd-place`}>
-                            <div class="bg-gradient-to-r from-space-700 to-space-800 px-3 py-2 flex items-center justify-between border-b border-space-600">
+                          <div class="glass rounded-xl overflow-hidden relative z-10 transform transition-all duration-300 {isEditing3rd ? 'ring-2 ring-brand-cyan scale-105 shadow-2xl' : hasWinner ? 'shadow-lg shadow-cyber-green/20' : 'hover:scale-102 hover:shadow-xl'} border border-ember ring-4 ring-ember/50" data-match-id={`match-3rd-place`}>
+                            <div class="bg-space-600 px-3 py-2 flex items-center justify-between border-b border-space-600">
                               <div class="flex items-center gap-2">
                                 <span class="text-xs font-bold text-gray-400">3rd Place</span>
                                 {#if hasWinner}
@@ -1835,19 +1844,19 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                     <img src={entity1Image3rd} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-cyber-blue" />
                                     <span class="font-bold text-white truncate">{entity1Name3rd}</span>
                                   </div>
-                                  <div class="px-3 text-gray-500 font-bold">VS</div>
+                                  <div class="px-3 text-ink-faint font-bold">VS</div>
                                   <div class="flex items-center gap-2 flex-1 justify-end">
                                     <span class="font-bold text-white truncate">{entity2Name3rd}</span>
                                     <img src={entity2Image3rd} alt="Profile" class="w-7 h-7 rounded-full object-cover ring-2 ring-brand-purple" />
                                   </div>
                                 </div>
 
-                                <div class="flex justify-center items-center gap-4 py-2 bg-gradient-to-r from-space-700 to-space-800 rounded-lg">
+                                <div class="flex justify-center items-center gap-4 py-2 bg-space-600 rounded-lg">
                                   <div class="text-center">
                                     <div class="text-3xl font-black {getSeriesScore().player1Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green animate-pulse' : 'text-white'}">{getSeriesScore().player1Wins}</div>
                                     <div class="text-xs text-gray-400 mt-1">Maps Won</div>
                                   </div>
-                                  <div class="w-px h-12 bg-gradient-to-b from-transparent via-gray-600 to-transparent"></div>
+                                  <div class="w-px h-12 bg-space-600"></div>
                                   <div class="text-center">
                                     <div class="text-3xl font-black {getSeriesScore().player2Wins >= Math.ceil(mapsPerMatch/2) ? 'text-cyber-green animate-pulse' : 'text-white'}">{getSeriesScore().player2Wins}</div>
                                     <div class="text-xs text-gray-400 mt-1">Maps Won</div>
@@ -1873,11 +1882,11 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                     
                                     {#if isWinOnly}
                                       <!-- Win-Only Mode: W Buttons -->
-                                      <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : ''}">
+                                      <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-accent bg-accent/10' : 'ring-2 ring-deep bg-deep/10') : ''}">
                                         <div class="flex items-center gap-1.5 min-w-[60px]">
                                           <span class="text-xs text-gray-400 font-bold">
                                             {#if selectedMaps[mapIdx]}
-                                              <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                              <span class="text-accent">{selectedMaps[mapIdx]}</span>
                                             {:else}
                                               Game {mapIdx + 1}
                                             {/if}
@@ -1889,7 +1898,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                         >
                                           W
                                         </button>
-                                        <span class="text-gray-600 font-bold">:</span>
+                                        <span class="text-ink-faint font-bold">:</span>
                                         <button
                                           onclick={() => setMapWinner(mapIdx, 'player2')}
                                           class="w-10 h-10 rounded-lg font-black text-base transition-all {mapWinner === 'player2' ? 'bg-cyber-green text-black' : 'bg-space-600 hover:bg-space-500 text-white border-2 border-space-500 hover:border-cyber-green'}"
@@ -1899,18 +1908,18 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                       </div>
                                       {@const duplicateMapError = getDuplicateMapError(mapIdx)}
                                       {#if duplicateMapError}
-                                        <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{duplicateMapError}</div>
+                                        <div class="text-xs text-loss text-center font-medium bg-loss/10 rounded px-2 py-1">{duplicateMapError}</div>
                                       {/if}
                                     {:else}
                                       <!-- Standard Score Inputs -->
-                                      <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-cyan-500 bg-cyan-500/10' : 'ring-2 ring-purple-500 bg-purple-500/10') : mapError ? 'ring-2 ring-red-500/50' : ''}">
+                                      <div class="flex items-center gap-2 p-2 rounded-lg bg-space-700/80 {mapWinner ? (mapWinner === 'player1' ? 'ring-2 ring-accent bg-accent/10' : 'ring-2 ring-deep bg-deep/10') : mapError ? 'ring-2 ring-loss/50' : ''}">
                                         <div class="flex items-center gap-1.5 min-w-[60px]">
                                           {#if mapWinner === 'player1'}
                                             <svg class="w-3.5 h-3.5 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                           {/if}
                                           <span class="text-xs text-gray-400 font-bold">
                                             {#if selectedMaps[mapIdx]}
-                                              <span class="text-cyan-400">{selectedMaps[mapIdx]}</span>
+                                              <span class="text-accent">{selectedMaps[mapIdx]}</span>
                                             {:else}
                                               Map {mapIdx + 1}
                                             {/if}
@@ -1924,7 +1933,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                           oninput={(e) => updateMapScore(mapIdx, 'player1', parseInt((e.target as HTMLInputElement).value) || 0)}
                                           class="w-14 text-center text-base font-bold bg-space-600 border-2 {mapWinner === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-1.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                                         />
-                                        <span class="text-gray-500 font-bold">:</span>
+                                        <span class="text-ink-faint font-bold">:</span>
                                         <input
                                           type="number"
                                           min="0"
@@ -1938,7 +1947,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                         {/if}
                                       </div>
                                       {#if mapError}
-                                        <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded px-2 py-1">{mapError}</div>
+                                        <div class="text-xs text-loss text-center font-medium bg-loss/10 rounded px-2 py-1">{mapError}</div>
                                       {/if}
                                     {/if}
                                   </div>
@@ -1954,7 +1963,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   <button
                                     onclick={submitResult}
                                     disabled={!canSubmitSeries()}
-                                    class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-300 {canSubmitSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
+                                    class="flex-1 py-2.5 text-sm font-bold rounded-lg transition-all duration-300 {canSubmitSeries() ? 'bg-win text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-ink-faint cursor-not-allowed'}"
                                   >
                                     {#if canSubmitSeries()}
                                       <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
@@ -1965,7 +1974,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   </button>
                                 </div>
                               {:else}
-                                {#if !match3rd.winnerId && entity1Id3rd && entity2Id3rd}
+                                {#if canEdit && !match3rd.winnerId && entity1Id3rd && entity2Id3rd}
                                   <button
                                     type="button"
                                     class="w-full p-3 text-center text-sm font-bold text-brand-cyan hover:bg-brand-cyan/10 transition-all duration-300 border-b border-space-600 hover:text-brand-cyan hover:shadow-inner"
@@ -1987,7 +1996,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                         </div>
                                         <div class="flex items-center gap-2 font-bold">
                                           <span class="text-white">{getGameScore1(game)}</span>
-                                          <span class="text-gray-500">:</span>
+                                          <span class="text-ink-faint">:</span>
                                           <span class="text-white">{getGameScore2(game)}</span>
                                           {#if gameWinner === entity1Id3rd}
                                             <svg class="w-3 h-3 text-cyber-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
@@ -2005,7 +2014,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   id="match-3rd-place-p1"
                                   data-player-id={entity1Id3rd}
                                   data-is-winner={match3rd.winnerId === entity1Id3rd}
-                                  class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match3rd.winnerId === entity1Id3rd ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== entity1Id3rd ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                                  class="w-full text-left px-3 py-3 border-b border-space-600 transition-all duration-300 {match3rd.winnerId === entity1Id3rd ? 'bg-space-600 ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== entity1Id3rd ? 'opacity-40' : 'hover:bg-space-700/30'}"
                                 >
                                   <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-2.5 flex-1 min-w-0">
@@ -2022,14 +2031,14 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                         {#if hasWinner}
                                           <div class="text-xs text-gray-400 mt-0.5">
                                             <span class="font-bold {match3rd.winnerId === entity1Id3rd ? 'text-cyber-green' : ''}">{seriesScore.player1}</span>
-                                            <span class="text-gray-500 mx-1">maps</span>
+                                            <span class="text-ink-faint mx-1">maps</span>
                                           </div>
                                         {/if}
                                       </div>
                                     </div>
                                     {#if hasWinner}
                                       <div class="text-right flex-shrink-0 ml-2">
-                                        <div class="text-2xl font-black {match3rd.winnerId === entity1Id3rd ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player1}</div>
+                                        <div class="text-2xl font-black {match3rd.winnerId === entity1Id3rd ? 'text-cyber-green' : 'text-ink-faint'}">{seriesScore.player1}</div>
                                       </div>
                                     {/if}
                                   </div>
@@ -2040,7 +2049,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   id="match-3rd-place-p2"
                                   data-player-id={entity2Id3rd}
                                   data-is-winner={match3rd.winnerId === entity2Id3rd}
-                                  class="w-full text-left px-3 py-3 transition-all duration-300 {match3rd.winnerId === entity2Id3rd ? 'bg-gradient-to-r from-cyber-green/20 to-transparent ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== entity2Id3rd ? 'opacity-40' : 'hover:bg-space-700/30'}"
+                                  class="w-full text-left px-3 py-3 transition-all duration-300 {match3rd.winnerId === entity2Id3rd ? 'bg-space-600 ring-2 ring-cyber-green/50' : ''} {match3rd.winnerId && match3rd.winnerId !== entity2Id3rd ? 'opacity-40' : 'hover:bg-space-700/30'}"
                                 >
                                   <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-2.5 flex-1 min-w-0">
@@ -2057,14 +2066,14 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                         {#if hasWinner}
                                           <div class="text-xs text-gray-400 mt-0.5">
                                             <span class="font-bold {match3rd.winnerId === entity2Id3rd ? 'text-cyber-green' : ''}">{seriesScore.player2}</span>
-                                            <span class="text-gray-500 mx-1">maps</span>
+                                            <span class="text-ink-faint mx-1">maps</span>
                                           </div>
                                         {/if}
                                       </div>
                                     </div>
                                     {#if hasWinner}
                                       <div class="text-right flex-shrink-0 ml-2">
-                                        <div class="text-2xl font-black {match3rd.winnerId === entity2Id3rd ? 'text-cyber-green' : 'text-gray-600'}">{seriesScore.player2}</div>
+                                        <div class="text-2xl font-black {match3rd.winnerId === entity2Id3rd ? 'text-cyber-green' : 'text-ink-faint'}">{seriesScore.player2}</div>
                                       </div>
                                     {/if}
                                   </div>
@@ -2104,7 +2113,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <div class="bg-space-800 border-2 border-brand-cyan rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" role="presentation" onclick={(e) => e.stopPropagation()}>
           <!-- Modal header -->
-          <div class="bg-gradient-to-r from-space-700 to-space-800 px-6 py-4 border-b border-space-600 flex items-center justify-between sticky top-0 z-10">
+          <div class="bg-space-600 px-6 py-4 border-b border-space-600 flex items-center justify-between sticky top-0 z-10">
             <div class="flex items-center gap-4">
               <h2 class="text-xl font-black text-white">{modalMatch.matchLabel || 'Match'}</h2>
               <span class="px-3 py-1 bg-brand-cyan/20 text-brand-cyan font-bold rounded-lg text-sm">BO{mapsPerMatch}</span>
@@ -2116,7 +2125,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                   <img src={getTeamImageUrl(team1)} alt="" class="w-8 h-8 rounded-lg object-cover" />
                   <span class="text-2xl font-black {seriesScore.team1Wins > seriesScore.team2Wins ? 'text-cyber-green' : 'text-white'}">{seriesScore.team1Wins}</span>
                 </div>
-                <span class="text-gray-500 font-bold">-</span>
+                <span class="text-ink-faint font-bold">-</span>
                 <div class="flex items-center gap-2">
                   <span class="text-2xl font-black {seriesScore.team2Wins > seriesScore.team1Wins ? 'text-cyber-green' : 'text-white'}">{seriesScore.team2Wins}</span>
                   <img src={getTeamImageUrl(team2)} alt="" class="w-8 h-8 rounded-lg object-cover" />
@@ -2159,14 +2168,14 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
               {@const gameReady = isGameReadyForInput(gameIdx)}
               {@const maxScore = maxScorePerMap || 99}
               
-              <div class="bg-space-700/50 rounded-xl border {isGameComplete ? 'border-cyber-green/50' : gameTie ? 'border-red-500/50' : 'border-space-600'} overflow-hidden">
+              <div class="bg-space-700/50 rounded-xl border {isGameComplete ? 'border-cyber-green/50' : gameTie ? 'border-loss/50' : 'border-space-600'} overflow-hidden">
                 <!-- Game header with score inputs -->
                 <div class="bg-space-700 px-4 py-3 border-b border-space-600">
                   <div class="flex items-center justify-between mb-3">
                     <div class="flex items-center gap-3">
                       <span class="text-lg font-black text-white">Game {gameIdx + 1}</span>
                       {#if gameTie}
-                        <span class="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs font-bold rounded">
+                        <span class="px-2 py-0.5 bg-loss/20 text-loss text-xs font-bold rounded">
                           Tie not allowed
                         </span>
                       {:else if isGameComplete}
@@ -2191,14 +2200,14 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                   
                   <!-- Map required warning -->
                   {#if mapPool.length > 0 && !modalGameMaps[gameIdx]}
-                    <div class="text-center text-yellow-400 text-xs font-medium mb-3 bg-yellow-500/10 rounded-lg py-2">
-                      ⚠️ Select a map to enable score input
+                    <div class="text-center text-gold text-xs font-medium mb-3 bg-gold/10 rounded-lg py-2">
+                      <span class="inline-flex items-center justify-center gap-1.5"><svg class="w-4 h-4 flex-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>Select a map to enable score input</span>
                     </div>
                   {/if}
                   
                   <!-- Duplicate map error -->
                   {#if getModalDuplicateMapError(gameIdx)}
-                    <div class="text-xs text-red-400 text-center font-medium bg-red-500/10 rounded-lg px-2 py-2 mb-3">{getModalDuplicateMapError(gameIdx)}</div>
+                    <div class="text-xs text-loss text-center font-medium bg-loss/10 rounded-lg px-2 py-2 mb-3">{getModalDuplicateMapError(gameIdx)}</div>
                   {/if}
                   
                   <!-- Round Score inputs -->
@@ -2212,12 +2221,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                         max={maxScore}
                         placeholder="0"
                         disabled={!gameReady}
-                        class="w-20 h-14 text-3xl font-black text-center rounded-lg transition-all {gameWinner === 'team1' ? 'bg-cyber-green/20 border-2 border-cyber-green text-cyber-green' : gameTie ? 'bg-red-500/20 border-2 border-red-500 text-red-400' : 'bg-space-600 border-2 border-space-500 text-white'} focus:outline-none focus:ring-2 focus:ring-brand-cyan disabled:cursor-not-allowed placeholder:text-gray-500"
+                        class="w-20 h-14 text-3xl font-black text-center rounded-lg transition-all {gameWinner === 'team1' ? 'bg-cyber-green/20 border-2 border-cyber-green text-cyber-green' : gameTie ? 'bg-loss/20 border-2 border-loss text-loss' : 'bg-space-600 border-2 border-space-500 text-white'} focus:outline-none focus:ring-2 focus:ring-brand-cyan disabled:cursor-not-allowed placeholder:text-ink-faint"
                         value={team1Score ?? ''}
                         onchange={(e) => updateModalGameScore(gameIdx, 'team1', parseInt((e.target as HTMLInputElement).value) || 0)}
                       />
                     </div>
-                    <span class="text-2xl font-bold text-gray-500">:</span>
+                    <span class="text-2xl font-bold text-ink-faint">:</span>
                     <div class="flex items-center gap-3">
                       <input
                         type="number"
@@ -2225,7 +2234,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                         max={maxScore}
                         placeholder="0"
                         disabled={!gameReady}
-                        class="w-20 h-14 text-3xl font-black text-center rounded-lg transition-all {gameWinner === 'team2' ? 'bg-cyber-green/20 border-2 border-cyber-green text-cyber-green' : gameTie ? 'bg-red-500/20 border-2 border-red-500 text-red-400' : 'bg-space-600 border-2 border-space-500 text-white'} focus:outline-none focus:ring-2 focus:ring-brand-cyan disabled:cursor-not-allowed placeholder:text-gray-500"
+                        class="w-20 h-14 text-3xl font-black text-center rounded-lg transition-all {gameWinner === 'team2' ? 'bg-cyber-green/20 border-2 border-cyber-green text-cyber-green' : gameTie ? 'bg-loss/20 border-2 border-loss text-loss' : 'bg-space-600 border-2 border-space-500 text-white'} focus:outline-none focus:ring-2 focus:ring-brand-cyan disabled:cursor-not-allowed placeholder:text-ink-faint"
                         value={team2Score ?? ''}
                         onchange={(e) => updateModalGameScore(gameIdx, 'team2', parseInt((e.target as HTMLInputElement).value) || 0)}
                       />
@@ -2241,7 +2250,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                   <div class="grid grid-cols-2 gap-4">
                     <!-- Team 1 Players -->
                     <div class="bg-brand-purple/10 rounded-lg p-3 border border-brand-purple/20">
-                      <div class="text-sm font-bold text-brand-purple mb-3 border-b border-brand-purple/20 pb-2">{team1?.name}</div>
+                      <div class="text-sm font-bold text-deep-soft mb-3 border-b border-brand-purple/20 pb-2">{team1?.name}</div>
                       {#each team1Players as player (player.id)}
                         <div class="flex items-center gap-2 mb-2">
                           <img src={getPlayerImageUrl(player.name)} alt="" class="w-6 h-6 rounded-full flex-shrink-0" />
@@ -2255,12 +2264,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                               value={modalGamePlayerStats[gameIdx]?.[player.id]?.kills || 0}
                               oninput={(e) => updateModalPlayerStat(gameIdx, player.id, 'kills', parseInt((e.target as HTMLInputElement).value) || 0)}
                             />
-                            <span class="text-gray-500 font-bold">/</span>
+                            <span class="text-ink-faint font-bold">/</span>
                             <input
                               type="number"
                               min="0"
                               placeholder="D"
-                              class="w-14 px-2 py-1.5 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none"
+                              class="w-14 px-2 py-1.5 text-sm bg-space-600 border border-loss/30 rounded text-center text-loss font-bold focus:border-loss focus:outline-none"
                               value={modalGamePlayerStats[gameIdx]?.[player.id]?.deaths || 0}
                               oninput={(e) => updateModalPlayerStat(gameIdx, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value) || 0)}
                             />
@@ -2285,12 +2294,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                               value={modalGamePlayerStats[gameIdx]?.[player.id]?.kills || 0}
                               oninput={(e) => updateModalPlayerStat(gameIdx, player.id, 'kills', parseInt((e.target as HTMLInputElement).value) || 0)}
                             />
-                            <span class="text-gray-500 font-bold">/</span>
+                            <span class="text-ink-faint font-bold">/</span>
                             <input
                               type="number"
                               min="0"
                               placeholder="D"
-                              class="w-14 px-2 py-1.5 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none"
+                              class="w-14 px-2 py-1.5 text-sm bg-space-600 border border-loss/30 rounded text-center text-loss font-bold focus:border-loss focus:outline-none"
                               value={modalGamePlayerStats[gameIdx]?.[player.id]?.deaths || 0}
                               oninput={(e) => updateModalPlayerStat(gameIdx, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value) || 0)}
                             />
@@ -2314,12 +2323,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
             </button>
             <div class="flex items-center gap-3">
               {#if hasAnyTie()}
-                <span class="text-red-400 text-sm font-medium">⚠️ Fix tied games</span>
+                <span class="text-loss text-sm font-medium inline-flex items-center gap-1.5"><svg class="w-4 h-4 flex-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>Fix tied games</span>
               {/if}
               <button
                 onclick={submitModalMatchResult}
                 disabled={!canSubmitModalSeries()}
-                class="px-8 py-2.5 text-sm font-bold rounded-lg transition-all {canSubmitModalSeries() ? 'bg-gradient-to-r from-cyber-green to-emerald-500 text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
+                class="px-8 py-2.5 text-sm font-bold rounded-lg transition-all {canSubmitModalSeries() ? 'bg-win text-space-900 hover:scale-105 shadow-lg shadow-cyber-green/30' : 'bg-gray-700 text-ink-faint cursor-not-allowed'}"
               >
                 {#if canSubmitModalSeries()}
                   <svg class="w-5 h-5 inline-block mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>

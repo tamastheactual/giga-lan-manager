@@ -2,7 +2,7 @@
 //
 // Single source of truth shared by the client (src/**, via the `$shared` Vite
 // alias) and the server (server/**, via a relative `../shared/*.js` import).
-// Do not fork this file — the two former copies (src/lib/gameArchetypes.ts and
+// Do not fork this file - the two former copies (src/lib/gameArchetypes.ts and
 // server/gameArchetypes.ts) had already drifted apart.
 
 export type ScoreArchetype = 'rounds' | 'kills' | 'health' | 'winonly' | 'points' | 'team-rounds' | 'team-kills';

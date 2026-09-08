@@ -9,12 +9,19 @@
 }
 
 :root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Sora, chosen by rendering the real UI in five candidates side by side
+     rather than by description. Inter and Archivo were both tried and both
+     read as neutral dashboard defaults; Sora's wider geometric letterforms
+     give the headings presence and keep the standings tables airy. */
+  font-family: 'Sora', system-ui, -apple-system, 'Segoe UI', sans-serif;
   line-height: 1.6;
   font-weight: 400;
-  color: #e8eef5;
-  background: linear-gradient(135deg, #0a0e1a 0%, #121830 50%, #1a2040 100%);
+  color: #EDF0F4;
+  /* Flat near-black. The old 135deg navy gradient tinted every surface above
+     it, so nothing sat on a neutral ground and panels never read as flat. */
+  background: #0B0D11;
   min-height: 100vh;
+  font-variant-numeric: tabular-nums;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -34,16 +41,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a0e1a;
+  background: #0B0D11;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #252b50;
+  background: #2A303B;
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #23B7D1;
+  background: #3A4250;
 }
 
 /* Custom scrollbar for game selection and other containers */
@@ -52,17 +59,17 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(10, 14, 26, 0.5);
+  background: rgba(11, 13, 17, 0.5);
   border-radius: 3px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #252b50;
+  background: #2A303B;
   border-radius: 3px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #23B7D1;
+  background: #3A4250;
 }
 
 /* Hide number input spinners globally */
@@ -75,11 +82,13 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
-/* Glass morphism utility */
+/* Card surface.
+   Was a translucent navy pane with a cyan border on every instance, so every
+   panel claimed the accent and none of them could be primary. Now a plain
+   raised surface with a hairline; the accent is spent on interaction only. */
 .glass {
-  background: rgba(26, 32, 64, 0.8);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(35, 183, 209, 0.15);
+  background: #161A21;
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .glass-card {
@@ -89,15 +98,16 @@ input[type="number"] {
 
 /* Gradient text */
 .gradient-text {
-  background: linear-gradient(135deg, #23B7D1 0%, #4A5394 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  /* Was a low-contrast gradient fill that made headings hard to read against
+     the dark ground. Solid ink, with the accent reserved for interaction. */
+  color: #EDF0F4;
+  background: none;
+  -webkit-text-fill-color: currentColor;
 }
 
 /* Orange accent gradient */
 .gradient-text-accent {
-  background: linear-gradient(135deg, #FF914D 0%, #23B7D1 100%);
+  background: linear-gradient(135deg, #FF914D 0%, #2BC4DE 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -176,3 +186,147 @@ input[type="number"] {
 .animate-bounce-slow {
   animation: bounce-slow 2s ease-in-out infinite;
 }
+
+/* ===========================================================================
+ * Component layer
+ *
+ * Added because every page had been inventing its own buttons: one row in the
+ * lobby held a purple->cyan gradient, a bare text link and a cyan->green
+ * gradient, all as peers. Three treatments for three equal actions reads as
+ * three unrelated things. One primary style, one secondary, one quiet - and
+ * the accent means "interactive" rather than "look here".
+ * ======================================================================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.125rem;
+  border-radius: 0.625rem;
+  font-weight: 700;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn:focus-visible { outline: 2px solid #2BC4DE; outline-offset: 2px; }
+
+/* One primary action per view. */
+.btn-primary { background: #2BC4DE; color: #07161B; }
+.btn-primary:hover:not(:disabled) { background: #7FE3F5; }
+
+/* Equal-weight actions that are not the primary one. */
+.btn-secondary { background: #1E232C; color: #EDF0F4; border-color: #2A303B; }
+.btn-secondary:hover:not(:disabled) { background: #2A303B; border-color: #3A4250; }
+
+/* Tertiary: navigation-ish, low commitment. */
+.btn-ghost { background: transparent; color: #9BA5B4; }
+.btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,.06); color: #EDF0F4; }
+
+/* Destructive. The only red in the UI that is not a match result. */
+.btn-danger { background: transparent; color: #F2606F; border-color: rgba(229,86,109,.35); }
+.btn-danger:hover:not(:disabled) { background: rgba(229,86,109,.14); border-color: #F2606F; }
+
+/* --- navigation -------------------------------------------------------- */
+
+.nav-link {
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: #9BA5B4;
+  transition: color .15s ease, background-color .15s ease;
+}
+.nav-link:hover { color: #EDF0F4; background: rgba(255,255,255,.05); }
+
+/* The page you are actually on. Previously LOBBY was styled as a permanent
+ * gradient pill, so it read as "current" on every page including the ones it
+ * was not. */
+.nav-link-active {
+  color: #07161B;
+  background: #2BC4DE;
+}
+.nav-link-active:hover { color: #07161B; background: #7FE3F5; }
+
+/* --- identity ---------------------------------------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+.chip-organiser { color: #7FE3F5; background: rgba(35,183,209,.12); border-color: rgba(35,183,209,.4); }
+.chip-viewer    { color: #9BA5B4; background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.12); }
+.chip-dot { width: .4rem; height: .4rem; border-radius: 999px; background: currentColor; }
+
+/* --- copyable code ----------------------------------------------------- */
+
+/* The join code is the one thing people have to read aloud, type and share,
+ * and it used to be small cyan text beside a plain "Copy link". The whole
+ * block is now the button. */
+.code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.625rem;
+  background: #0B0D11;
+  border: 1px solid #2A303B;
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.code-copy:hover { border-color: #2BC4DE; background: #101319; }
+.code-copy:focus-visible { outline: 2px solid #2BC4DE; outline-offset: 2px; }
+.code-copy__value {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: #7FE3F5;
+}
+/* The affordance is an icon, not the word "Copy". The label lives in the
+   tooltip and the accessible name, so the control stops repeating itself. */
+.code-copy__icon { color: #9BA5B4; flex: none; }
+.code-copy:hover .code-copy__icon { color: #7FE3F5; }
+.code-copy.is-copied { border-color: #3ECF8E; }
+.code-copy.is-copied .code-copy__icon { color: #3ECF8E; }
+
+/* --- section headings -------------------------------------------------- */
+
+.section-title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #9BA5B4;
+}
+
+/* A divider between two inline facts. Replaces the bullet characters that were
+   used as separators; a hairline reads as structure rather than as content. */
+.sep {
+  display: inline-block;
+  width: 1px;
+  height: 0.7em;
+  vertical-align: -0.05em;
+  margin: 0 0.6rem;
+  background: currentColor;
+  opacity: .28;
+}
+
+/* Negative tracking belongs on display sizes, not on body text. Applied
+   globally it also pinched the word spaces, so "AI DEPARTMENT" read as one
+   word. Headings tighten; everything else keeps the face's own metrics. */
+h1, h2, .gradient-text { letter-spacing: -0.02em; }
+h3 { letter-spacing: -0.01em; }

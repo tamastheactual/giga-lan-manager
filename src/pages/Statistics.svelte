@@ -4,8 +4,44 @@
   import { getPlayerImageUrl } from '$lib/playerImages';
   import { Chart, registerables } from 'chart.js';
   import { getArchetypeConfig, type ScoreArchetype } from '$shared/gameArchetypes';
+  import {
+    calculatePlayerScoreStats,
+    calculateTeamScoreStats,
+    getTournamentPlacement,
+    getHeadToHead,
+    calculateAdvancedStats,
+    getPlayerMatchHistory,
+    type MatchHistoryEntry,
+    type PlayerMapRecord,
+  } from '$shared/statistics';
+
+  /**
+   * A player row as rendered by this page: the Player record, plus the
+   * tournament aggregates, plus whichever archetype-specific fields this game
+   * produces (totalKills / totalHP / totalRounds / totalPoints ...). The index
+   * signature covers that last, game-dependent group; everything the template
+   * relies on unconditionally is declared, so it stays type-checked.
+   */
+  interface PlayerRow {
+    id: string;
+    name: string;
+    points: number;
+    profilePhoto?: string;
+    placement: number;
+    matchesPlayed: number;
+    matchesWon: number;
+    matchesLost: number;
+    matchesTied: number;
+    matchHistory: MatchHistoryEntry[];
+    clutchRate: number;
+    consistencyScore: number;
+    closeWins: number;
+    closeLosses: number;
+    mapPerformance: Record<string, PlayerMapRecord>;
+    [key: string]: any;
+  }
   import Footer from '../components/Footer.svelte';
-  import logoImg from '../assets/logo.png';
+  import logoImg from '../assets/logo.svg';
 
   Chart.register(...registerables);
 
@@ -91,598 +127,10 @@
     return ` ${statLabelShort.toLowerCase()}`;
   });
 
-  // Calculate total score (rounds/kills) per player across entire tournament
-  function calculatePlayerScoreStats(players: any[], matches: any[], bracketMatches: any[]) {
-    const scoreStats: Record<string, { 
-      scoreWon: number; 
-      scoreLost: number; 
-      matchesPlayed: number; 
-      matchesWon: number;
-      matchesLost: number;
-      matchesTied: number;
-      bestPerformance: number; 
-      mapsWon: number;
-      mapsLost: number;
-    }> = {};
-    
-    // Initialize stats for all players
-    players.forEach((p: any) => {
-      scoreStats[p.id] = { 
-        scoreWon: 0, 
-        scoreLost: 0, 
-        matchesPlayed: 0, 
-        matchesWon: 0,
-        matchesLost: 0,
-        matchesTied: 0,
-        bestPerformance: 0, 
-        mapsWon: 0,
-        mapsLost: 0
-      };
-    });
-
-    // Group stage matches
-    matches.forEach((match: any) => {
-      if (!match.result || !match.completed) return;
-      
-      const p1Id = match.player1Id;
-      const p2Id = match.player2Id;
-      const p1Result = match.result[p1Id];
-      const p2Result = match.result[p2Id];
-      
-      // Always count the match as played
-      if (scoreStats[p1Id]) scoreStats[p1Id].matchesPlayed++;
-      if (scoreStats[p2Id]) scoreStats[p2Id].matchesPlayed++;
-      
-      // Track scores if available
-      if (p1Result?.score !== undefined && p2Result?.score !== undefined) {
-        // Track for player 1
-        if (scoreStats[p1Id]) {
-          scoreStats[p1Id].scoreWon += p1Result.score;
-          scoreStats[p1Id].scoreLost += p2Result.score;
-          scoreStats[p1Id].bestPerformance = Math.max(scoreStats[p1Id].bestPerformance, p1Result.score);
-          
-          // Track match outcome
-          if (p1Result.score > p2Result.score) {
-            scoreStats[p1Id].matchesWon++;
-            scoreStats[p1Id].mapsWon++;
-          } else if (p1Result.score < p2Result.score) {
-            scoreStats[p1Id].matchesLost++;
-            scoreStats[p1Id].mapsLost++;
-          } else {
-            scoreStats[p1Id].matchesTied++;
-          }
-        }
-        
-        // Track for player 2
-        if (scoreStats[p2Id]) {
-          scoreStats[p2Id].scoreWon += p2Result.score;
-          scoreStats[p2Id].scoreLost += p1Result.score;
-          scoreStats[p2Id].bestPerformance = Math.max(scoreStats[p2Id].bestPerformance, p2Result.score);
-          
-          // Track match outcome
-          if (p2Result.score > p1Result.score) {
-            scoreStats[p2Id].matchesWon++;
-            scoreStats[p2Id].mapsWon++;
-          } else if (p2Result.score < p1Result.score) {
-            scoreStats[p2Id].matchesLost++;
-            scoreStats[p2Id].mapsLost++;
-          } else {
-            scoreStats[p2Id].matchesTied++;
-          }
-        }
-      }
-    });
-
-    // Bracket matches (BO3 - each MAP counts)
-    bracketMatches.forEach((match: any) => {
-      if (!match.winnerId) return;
-      
-      const p1Id = match.player1Id;
-      const p2Id = match.player2Id;
-      
-      // Count each map/game
-      if (match.games && Array.isArray(match.games)) {
-        match.games.forEach((game: any) => {
-          if (game.player1Score !== undefined && game.player2Score !== undefined) {
-            // Only count maps that were actually played
-            if (game.player1Score === 0 && game.player2Score === 0) return;
-            
-            // Each map is a match
-            if (scoreStats[p1Id]) {
-              scoreStats[p1Id].scoreWon += game.player1Score;
-              scoreStats[p1Id].scoreLost += game.player2Score;
-              scoreStats[p1Id].matchesPlayed++;
-              scoreStats[p1Id].bestPerformance = Math.max(scoreStats[p1Id].bestPerformance, game.player1Score);
-              
-              // Track map outcome
-              if (game.winnerId === p1Id) {
-                scoreStats[p1Id].mapsWon++;
-                scoreStats[p1Id].matchesWon++;
-              } else {
-                scoreStats[p1Id].mapsLost++;
-                scoreStats[p1Id].matchesLost++;
-              }
-            }
-            
-            if (scoreStats[p2Id]) {
-              scoreStats[p2Id].scoreWon += game.player2Score;
-              scoreStats[p2Id].scoreLost += game.player1Score;
-              scoreStats[p2Id].matchesPlayed++;
-              scoreStats[p2Id].bestPerformance = Math.max(scoreStats[p2Id].bestPerformance, game.player2Score);
-              
-              // Track map outcome
-              if (game.winnerId === p2Id) {
-                scoreStats[p2Id].mapsWon++;
-                scoreStats[p2Id].matchesWon++;
-              } else {
-                scoreStats[p2Id].mapsLost++;
-                scoreStats[p2Id].matchesLost++;
-              }
-            }
-          }
-        });
-      }
-    });
-
-    return scoreStats;
-  }
-
-  // Calculate team stats from group and bracket matches
-  function calculateTeamScoreStats(teams: Team[], matches: any[], bracketMatches: any[]) {
-    const teamStats: Record<string, { 
-      roundsWon: number; 
-      roundsLost: number; 
-      matchesPlayed: number; 
-      matchesWon: number;
-      matchesLost: number;
-      mapsWon: number;
-      mapsLost: number;
-    }> = {};
-    
-    // Initialize stats for all teams
-    teams.forEach((t: Team) => {
-      teamStats[t.id] = { 
-        roundsWon: 0, 
-        roundsLost: 0, 
-        matchesPlayed: 0, 
-        matchesWon: 0,
-        matchesLost: 0,
-        mapsWon: 0,
-        mapsLost: 0
-      };
-    });
-
-    // Group stage matches (team-based) - uses teamMatches structure
-    matches.forEach((match: any) => {
-      if (!match.completed) return;
-      
-      const t1Id = match.team1Id;
-      const t2Id = match.team2Id;
-      if (!t1Id || !t2Id) return; // Skip non-team matches
-      
-      const team1Score = match.team1Score ?? 0;
-      const team2Score = match.team2Score ?? 0;
-      
-      // Always count the match as played
-      if (teamStats[t1Id]) teamStats[t1Id].matchesPlayed++;
-      if (teamStats[t2Id]) teamStats[t2Id].matchesPlayed++;
-      
-      // Track scores
-      // Track for team 1
-      if (teamStats[t1Id]) {
-        teamStats[t1Id].roundsWon += team1Score;
-        teamStats[t1Id].roundsLost += team2Score;
-        
-        // Track match outcome
-        if (team1Score > team2Score) {
-          teamStats[t1Id].matchesWon++;
-          teamStats[t1Id].mapsWon++;
-        } else if (team1Score < team2Score) {
-          teamStats[t1Id].matchesLost++;
-          teamStats[t1Id].mapsLost++;
-        }
-      }
-      
-      // Track for team 2
-      if (teamStats[t2Id]) {
-        teamStats[t2Id].roundsWon += team2Score;
-        teamStats[t2Id].roundsLost += team1Score;
-        
-        // Track match outcome
-        if (team2Score > team1Score) {
-          teamStats[t2Id].matchesWon++;
-          teamStats[t2Id].mapsWon++;
-        } else if (team2Score < team1Score) {
-          teamStats[t2Id].matchesLost++;
-          teamStats[t2Id].mapsLost++;
-        }
-      }
-    });
-
-    // Bracket matches (BO3 - each MAP counts)
-    bracketMatches.forEach((match: any) => {
-      const winnerId = match.winnerTeamId || match.winnerId;
-      if (!winnerId) return;
-      
-      const t1Id = match.team1Id;
-      const t2Id = match.team2Id;
-      if (!t1Id || !t2Id) return; // Skip non-team matches
-      
-      // Count the series
-      if (teamStats[t1Id]) teamStats[t1Id].matchesPlayed++;
-      if (teamStats[t2Id]) teamStats[t2Id].matchesPlayed++;
-      
-      // Track series win/loss
-      if (winnerId === t1Id) {
-        if (teamStats[t1Id]) teamStats[t1Id].matchesWon++;
-        if (teamStats[t2Id]) teamStats[t2Id].matchesLost++;
-      } else if (winnerId === t2Id) {
-        if (teamStats[t2Id]) teamStats[t2Id].matchesWon++;
-        if (teamStats[t1Id]) teamStats[t1Id].matchesLost++;
-      }
-      
-      // Count each map/game
-      if (match.games && Array.isArray(match.games)) {
-        match.games.forEach((game: any) => {
-          const team1Score = game.team1Score ?? game.player1Score ?? 0;
-          const team2Score = game.team2Score ?? game.player2Score ?? 0;
-          const gameWinnerId = game.winnerTeamId || game.winnerId;
-          
-          // Only count maps that were actually played
-          if (team1Score === 0 && team2Score === 0) return;
-          
-          // Track for team 1
-          if (teamStats[t1Id]) {
-            teamStats[t1Id].roundsWon += team1Score;
-            teamStats[t1Id].roundsLost += team2Score;
-            
-            // Track map outcome
-            if (gameWinnerId === t1Id) {
-              teamStats[t1Id].mapsWon++;
-            } else if (gameWinnerId === t2Id) {
-              teamStats[t1Id].mapsLost++;
-            }
-          }
-          
-          // Track for team 2
-          if (teamStats[t2Id]) {
-            teamStats[t2Id].roundsWon += team2Score;
-            teamStats[t2Id].roundsLost += team1Score;
-            
-            // Track map outcome
-            if (gameWinnerId === t2Id) {
-              teamStats[t2Id].mapsWon++;
-            } else if (gameWinnerId === t1Id) {
-              teamStats[t2Id].mapsLost++;
-            }
-          }
-        });
-      }
-    });
-
-    return teamStats;
-  }
-
-  // Determine final tournament placement for a player
-  function getTournamentPlacement(playerId: string, bracketMatches: any[], totalPlayers: number = 0): number {
-    // Check if player is champion (winner of finals)
-    const finals = bracketMatches.find((m: any) => m.bracketType === 'finals');
-    if (finals?.winnerId === playerId) return 1;
-    
-    // Check if player is runner-up (loser of finals)
-    if (finals?.winnerId && (finals.player1Id === playerId || finals.player2Id === playerId)) {
-      return 2;
-    }
-    
-    // For 3-player tournaments: no 3rd place match, the player who didn't make finals is 3rd
-    // Check if there's no 3rd place match and player is not in finals
-    const thirdPlace = bracketMatches.find((m: any) => m.bracketType === '3rd-place');
-    
-    if (!thirdPlace && totalPlayers === 3) {
-      // No 3rd place match and exactly 3 players - the remaining player is 3rd
-      if (finals && finals.player1Id !== playerId && finals.player2Id !== playerId) {
-        return 3;
-      }
-    }
-    
-    // Check if player won 3rd place match
-    if (thirdPlace?.winnerId === playerId) return 3;
-    
-    // Check if player lost 3rd place match (4th place)
-    if (thirdPlace?.winnerId && (thirdPlace.player1Id === playerId || thirdPlace.player2Id === playerId)) {
-      return 4;
-    }
-    
-    // Check semifinals losers (5th-6th)
-    const semis = bracketMatches.filter((m: any) => m.bracketType === 'semifinals');
-    for (const semi of semis) {
-      if (semi.winnerId && (semi.player1Id === playerId || semi.player2Id === playerId) && semi.winnerId !== playerId) {
-        return 5;
-      }
-    }
-    
-    // Check quarterfinals losers (7th-8th)
-    const quarters = bracketMatches.filter((m: any) => m.bracketType === 'quarterfinals');
-    for (const quarter of quarters) {
-      if (quarter.winnerId && (quarter.player1Id === playerId || quarter.player2Id === playerId) && quarter.winnerId !== playerId) {
-        return 7;
-      }
-    }
-    
-    // Player didn't make playoffs - use group stage rank (high number)
-    return 100;
-  }
-
-  // Calculate head-to-head record between two players
-  function getHeadToHead(p1Id: string, p2Id: string, groupMatches: any[], bracketMatches: any[]): { wins: number; losses: number; ties: number } {
-    let wins = 0, losses = 0, ties = 0;
-    
-    // Check group matches
-    groupMatches.forEach((match: any) => {
-      if (match.completed && ((match.player1Id === p1Id && match.player2Id === p2Id) || (match.player1Id === p2Id && match.player2Id === p1Id))) {
-        const p1Result = match.result?.[p1Id];
-        const p2Result = match.result?.[p2Id];
-        if (p1Result?.score !== undefined && p2Result?.score !== undefined) {
-          if (p1Result.score > p2Result.score) wins++;
-          else if (p1Result.score < p2Result.score) losses++;
-          else ties++;
-        }
-      }
-    });
-    
-    // Check bracket matches (count each map)
-    bracketMatches.forEach((match: any) => {
-      if ((match.player1Id === p1Id && match.player2Id === p2Id) || (match.player1Id === p2Id && match.player2Id === p1Id)) {
-        const isPlayer1 = match.player1Id === p1Id;
-        match.games?.forEach((game: any) => {
-          if (game.winnerId === p1Id) wins++;
-          else if (game.winnerId === p2Id) losses++;
-        });
-      }
-    });
-    
-    return { wins, losses, ties };
-  }
-
-  // Calculate advanced statistics
-  function calculateAdvancedStats(players: any[], groupMatches: any[], bracketMatches: any[]) {
-    const stats: any = {
-      mostDominant: { player: '', opponent: '', margin: 0, score: '', stage: '', mapName: '' },
-      mostDominantList: [] as any[],
-      closestMatches: [] as any[],
-      mapPerformance: {} as Record<string, Record<string, { wins: number; total: number }>>,
-      clutchFactors: {} as Record<string, { closeWins: number; closeLosses: number }>,
-      consistencyScores: {} as Record<string, number>
-    };
-    
-    // Initialize player stats - with safety check
-    if (!players || !Array.isArray(players)) {
-      return stats;
-    }
-    
-    players.forEach(p => {
-      if (p && p.id) {
-        stats.clutchFactors[p.id] = { closeWins: 0, closeLosses: 0 };
-        stats.mapPerformance[p.id] = {};
-      }
-    });
-    
-    // Analyze all matches - group matches and flattened bracket games
-    const allMatches = [...groupMatches];
-    
-    // Add bracket match games with proper player IDs
-    bracketMatches.forEach((bm: any) => {
-      if (bm.games && Array.isArray(bm.games)) {
-        bm.games.forEach((g: any) => {
-          if (g.player1Score !== undefined && g.player2Score !== undefined) {
-            allMatches.push({
-              player1Id: bm.player1Id,
-              player2Id: bm.player2Id,
-              player1Score: g.player1Score,
-              player2Score: g.player2Score,
-              completed: !!bm.winnerId,
-              bracketType: bm.bracketType,
-              mapName: g.mapName,
-              winnerId: g.winnerId
-            });
-          }
-        });
-      }
-    });
-    
-    allMatches.forEach((match: any) => {
-      if (!match.completed && !match.player1Score && !match.player2Score) return;
-      if (!match.player1Id || !match.player2Id) return;
-      
-      const p1Score = match.result?.[match.player1Id]?.score ?? match.player1Score ?? 0;
-      const p2Score = match.result?.[match.player2Id]?.score ?? match.player2Score ?? 0;
-      const margin = Math.abs(p1Score - p2Score);
-      const total = p1Score + p2Score;
-      const mapName = match.mapName || 'Unknown';
-      
-      // Track map performance - with safety checks
-      if (stats.mapPerformance[match.player1Id]) {
-        if (!stats.mapPerformance[match.player1Id][mapName]) {
-          stats.mapPerformance[match.player1Id][mapName] = { wins: 0, total: 0 };
-        }
-        stats.mapPerformance[match.player1Id][mapName].total++;
-      }
-      
-      if (stats.mapPerformance[match.player2Id]) {
-        if (!stats.mapPerformance[match.player2Id][mapName]) {
-          stats.mapPerformance[match.player2Id][mapName] = { wins: 0, total: 0 };
-        }
-        stats.mapPerformance[match.player2Id][mapName].total++;
-      }
-      
-      const winnerId = p1Score > p2Score ? match.player1Id : p2Score > p1Score ? match.player2Id : null;
-      if (winnerId && stats.mapPerformance[winnerId] && stats.mapPerformance[winnerId][mapName]) {
-        stats.mapPerformance[winnerId][mapName].wins++;
-      }
-      
-      // Close match tracking (margin <= 2 for rounds/kills, or within 10% for health)
-      const isClose = margin <= 2 || (total > 0 && margin / total <= 0.1);
-      if (isClose && winnerId && stats.clutchFactors[winnerId]) {
-        stats.clutchFactors[winnerId].closeWins++;
-        const loserId = winnerId === match.player1Id ? match.player2Id : match.player1Id;
-        if (stats.clutchFactors[loserId]) stats.clutchFactors[loserId].closeLosses++;
-        
-        const winnerName = players.find(p => p.id === winnerId)?.name || 'Unknown';
-        const loserName = players.find(p => p.id === loserId)?.name || 'Unknown';
-        
-        stats.closestMatches.push({
-          winner: winnerName,
-          loser: loserName,
-          player1: winnerName,
-          player2: loserName,
-          score: `${Math.max(p1Score, p2Score)}-${Math.min(p1Score, p2Score)}`,
-          margin,
-          mapName
-        });
-      }
-      
-      // Most dominant victory
-      if (margin > 0 && winnerId) {
-        stats.mostDominantList.push({
-          player: players.find(p => p.id === winnerId)?.name || 'Unknown',
-          opponent: players.find(p => p.id === (winnerId === match.player1Id ? match.player2Id : match.player1Id))?.name || 'Unknown',
-          margin,
-          score: `${Math.max(p1Score, p2Score)}-${Math.min(p1Score, p2Score)}`,
-          stage: match.bracketType ? 'Playoffs' : 'Groups',
-          mapName
-        });
-        
-        if (margin > stats.mostDominant.margin) {
-          stats.mostDominant = stats.mostDominantList[stats.mostDominantList.length - 1];
-        }
-      }
-      
-    });
-    
-    // Sort closest matches and dominant performances
-    stats.closestMatches.sort((a: any, b: any) => a.margin - b.margin);
-    stats.mostDominantList.sort((a: any, b: any) => b.margin - a.margin);
-    
-    // Calculate consistency (standard deviation of scores)
-    players.forEach(player => {
-      const scores: number[] = [];
-      [...groupMatches, ...bracketMatches.flatMap((bm: any) => bm.games || [])].forEach((match: any) => {
-        if (match.player1Id === player.id && match.result?.[player.id]?.score !== undefined) {
-          scores.push(match.result[player.id].score);
-        } else if (match.player2Id === player.id && match.result?.[player.id]?.score !== undefined) {
-          scores.push(match.result[player.id].score);
-        } else if (match.player1Id === player.id && match.player1Score !== undefined) {
-          scores.push(match.player1Score);
-        } else if (match.player2Id === player.id && match.player2Score !== undefined) {
-          scores.push(match.player2Score);
-        }
-      });
-      
-      if (scores.length > 0) {
-        const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
-        const variance = scores.reduce((sum, score) => sum + Math.pow(score - mean, 2), 0) / scores.length;
-        const stdDev = Math.sqrt(variance);
-        // Consistency score: inverse of coefficient of variation (lower stdDev = more consistent)
-        stats.consistencyScores[player.id] = mean > 0 ? Math.max(0, 100 - (stdDev / mean * 100)) : 0;
-      }
-    });
-    
-    return stats;
-  }
 
   let selectedPlayerForH2H = $state<string | null>(null);
   let selectedPlayer2ForH2H = $state<string | null>(null);
 
-  function getPlayerMatchHistory(playerId: string, players: any[], groupMatches: any[], bracketMatches: any[]) {
-    const history: any[] = [];
-    
-    // Process group matches (single games)
-    for (const match of groupMatches) {
-      if (!match.completed) continue;
-      
-      let opponentId = '';
-      let playerScore = 0;
-      let opponentScore = 0;
-      
-      if (match.player1Id === playerId) {
-        opponentId = match.player2Id;
-        const p1Result = match.result?.[match.player1Id];
-        const p2Result = match.result?.[match.player2Id];
-        playerScore = p1Result?.score || 0;
-        opponentScore = p2Result?.score || 0;
-      } else if (match.player2Id === playerId) {
-        opponentId = match.player1Id;
-        const p1Result = match.result?.[match.player1Id];
-        const p2Result = match.result?.[match.player2Id];
-        playerScore = p2Result?.score || 0;
-        opponentScore = p1Result?.score || 0;
-      } else {
-        continue;
-      }
-      
-      const opponent = players.find((p: any) => p.id === opponentId);
-      if (!opponent) continue;
-      
-      const result = playerScore > opponentScore ? 'win' : playerScore < opponentScore ? 'loss' : 'tie';
-      
-      history.push({
-        opponent: opponent.name,
-        opponentId,
-        playerScore,
-        opponentScore,
-        result,
-        stage: 'Groups',
-        round: 'group',
-        isSeries: false,
-        mapName: match.mapName // Include group stage map if available
-      });
-    }
-    
-    // Process bracket matches (BO3 series - show each game)
-    for (const match of bracketMatches) {
-      if (!match.winnerId || !match.games || match.games.length === 0) continue;
-      
-      let opponentId = '';
-      const isPlayer1 = match.player1Id === playerId;
-      
-      if (match.player1Id === playerId) {
-        opponentId = match.player2Id;
-      } else if (match.player2Id === playerId) {
-        opponentId = match.player1Id;
-      } else {
-        continue;
-      }
-      
-      const opponent = players.find((p: any) => p.id === opponentId);
-      if (!opponent) continue;
-      
-      // Add each game in the series
-      for (const game of match.games) {
-        // Skip unplayed maps (an empty BO-series slot is 0-0 with no winner) so
-        // they are not recorded as losses in the player's history.
-        if (!game.winnerId && (game.player1Score || 0) === 0 && (game.player2Score || 0) === 0) continue;
-        const playerGameScore = isPlayer1 ? game.player1Score : game.player2Score;
-        const opponentGameScore = isPlayer1 ? game.player2Score : game.player1Score;
-        const gameResult = game.winnerId === playerId ? 'win' : 'loss';
-        
-        history.push({
-          opponent: opponent.name,
-          opponentId,
-          playerScore: playerGameScore,
-          opponentScore: opponentGameScore,
-          result: gameResult,
-          stage: 'Playoffs',
-          round: match.bracketType || 'playoff',
-          isSeries: true,
-          gameNumber: game.gameNumber,
-          mapName: game.mapName,
-          seriesScore: `${isPlayer1 ? match.player1Wins : match.player2Wins}-${isPlayer1 ? match.player2Wins : match.player1Wins}`
-        });
-      }
-    }
-    
-    return history;
-  }
 
   // Compute advanced stats
   const advancedStats = $derived.by(() => {
@@ -693,7 +141,7 @@
   });
 
   // Compute player statistics
-  const playerStats = $derived.by(() => {
+  const playerStats = $derived.by((): PlayerRow[] => {
     if (!tournamentData?.players || !Array.isArray(tournamentData.players)) return [];
     
     const groupMatches = Array.isArray(tournamentData.matches) ? tournamentData.matches : [];
@@ -1793,7 +1241,6 @@
         try {
           teamPlayerStats = await getPlayerStats(tournamentId);
         } catch (e) {
-          console.log('Player stats not available yet');
           teamPlayerStats = [];
         }
       }
@@ -2331,8 +1778,8 @@
     
     if (isSoloShare) {
       // Solo mode stats - colors MUST match tailwind classes in preview:
-      // text-cyber-green = #23B7D1, text-brand-orange = #FF914D, text-emerald-400 = #34d399
-      // text-purple-400 = #c084fc, text-brand-cyan = #23B7D1, text-blue-400 = #60a5fa
+      // text-cyber-green = #23B7D1, text-brand-orange = #FF914D, text-win = #34d399
+      // text-ink-muted = #c084fc, text-brand-cyan = #23B7D1, text-ink-muted = #60a5fa
       if (selectedShareCard === 'bestSingleGame') {
         if (cardData.score !== undefined) stats.push({ value: String(cardData.score), label: 'SCORE', color: '#23B7D1' }); // brand-cyan
         if (cardData.opponent) stats.push({ value: cardData.opponent.length > 8 ? cardData.opponent.substring(0, 8) + '..' : cardData.opponent, label: 'VS', color: '#ffffff' });
@@ -2349,8 +1796,8 @@
       }
     } else {
       // Team mode stats - colors MUST match tailwind classes in preview:
-      // text-brand-cyan = #23B7D1, text-brand-orange = #FF914D, text-purple-400 = #c084fc
-      // text-orange-400 = #fb923c, text-blue-400 = #60a5fa
+      // text-brand-cyan = #23B7D1, text-brand-orange = #FF914D, text-ink-muted = #c084fc
+      // text-ember = #fb923c, text-ink-muted = #60a5fa
       if (cardData.kd !== undefined) stats.push({ 
         value: typeof cardData.kd === 'number' ? cardData.kd.toFixed(2) : String(cardData.kd), 
         label: 'K/D RATIO', 
@@ -2391,7 +1838,7 @@
       ctx.textBaseline = 'middle';
       ctx.fillText(stat.value, x + boxWidth/2, y + boxHeight/2 - 8);
       
-      // Stat label (text-[10px] text-gray-500 uppercase) - properly centered
+      // Stat label (text-[10px] text-ink-faint uppercase) - properly centered
       ctx.fillStyle = '#6b7280';
       ctx.font = 'bold 9px system-ui, -apple-system, sans-serif';
       ctx.fillText(stat.label, x + boxWidth/2, y + boxHeight/2 + 12);
@@ -2423,7 +1870,7 @@
     
     const gameNameWidth = ctx.measureText(gameName).width;
     ctx.fillStyle = '#4b5563'; // gray-600 for bullet
-    ctx.fillText(' • ', 20 + gameNameWidth, footerY + 22);
+    ctx.fillText('  /  ', 20 + gameNameWidth, footerY + 22);
     
     ctx.fillStyle = '#6b7280';
     ctx.font = '10px system-ui, -apple-system, sans-serif';
@@ -2605,14 +2052,15 @@
         const groupMatches = Array.isArray(tournamentData.matches) ? tournamentData.matches : [];
         
         // Create indexed matches with their original position
-        const indexedMatches = groupMatches.map((match: any, index: number) => ({
+        type IndexedMatch = { match: any; originalIndex: number; round: number };
+        const indexedMatches: IndexedMatch[] = groupMatches.map((match: any, index: number) => ({
           match,
           originalIndex: index,
           round: match.round || 1
         }));
         
         // Sort by round first, then by original index
-        indexedMatches.sort((a, b) => {
+        indexedMatches.sort((a: IndexedMatch, b: IndexedMatch) => {
           if (a.round !== b.round) return a.round - b.round;
           return a.originalIndex - b.originalIndex;
         });
@@ -3205,7 +2653,7 @@
 
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3 flex flex-col">
+<div class="min-h-screen bg-space-600 text-gaming-text px-3 py-3 flex flex-col">
   <div class="max-w-6xl mx-auto w-full">
 
     <!-- Header -->
@@ -3216,7 +2664,7 @@
           Back to Dashboard
         </a>
         <div>
-          <div class="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+          <div class="text-sm font-bold text-accent uppercase tracking-wider mb-1 flex items-center gap-2">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
             </svg>
@@ -3232,7 +2680,7 @@
       {#if tournamentData}
         <button
           onclick={exportTournamentData}
-          class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyber-green to-brand-cyan text-space-900 font-bold rounded-lg hover:opacity-90 transition-opacity shadow-lg"
+          class="flex items-center gap-2 px-4 py-2 bg-space-600 text-ink font-bold rounded-lg hover:bg-space-500 transition-colors shadow-lg"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -3248,10 +2696,10 @@
       </div>
     {:else if error}
       <div class="glass rounded-lg p-6 text-center">
-        <svg class="w-12 h-12 mx-auto mb-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-12 h-12 mx-auto mb-3 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
-        <p class="text-red-400 font-bold">Error loading statistics</p>
+        <p class="text-loss font-bold">Error loading statistics</p>
         <p class="text-gray-400 text-sm mt-1">{error}</p>
       </div>
     {:else if tournamentData}
@@ -3261,7 +2709,7 @@
         <div class="flex gap-2 mb-6">
           <button
             onclick={() => statsView = 'teams'}
-            class="flex-1 px-4 py-3 rounded-lg font-bold transition-all {statsView === 'teams' ? 'bg-gradient-to-r from-brand-orange to-brand-purple text-white shadow-glow-orange' : 'bg-space-700 text-gray-400 hover:bg-space-600'}"
+            class="flex-1 px-4 py-3 rounded-lg font-bold transition-all {statsView === 'teams' ? 'bg-space-600 text-white shadow-glow-orange' : 'bg-space-700 text-gray-400 hover:bg-space-600'}"
           >
             <div class="flex items-center justify-center gap-2">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3272,7 +2720,7 @@
           </button>
           <button
             onclick={() => statsView = 'players'}
-            class="flex-1 px-4 py-3 rounded-lg font-bold transition-all {statsView === 'players' ? 'bg-gradient-to-r from-brand-cyan to-cyber-green text-white shadow-glow-cyan' : 'bg-space-700 text-gray-400 hover:bg-space-600'}"
+            class="flex-1 px-4 py-3 rounded-lg font-bold transition-all {statsView === 'players' ? 'bg-space-600 text-white shadow-glow-cyan' : 'bg-space-700 text-gray-400 hover:bg-space-600'}"
           >
             <div class="flex items-center justify-center gap-2">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3286,7 +2734,7 @@
 
       <!-- Individual Stats (Team Tournaments) -->
       {#if isTeamBased && statsView === 'players'}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-cyan/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
             <svg class="w-6 h-6 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
@@ -3315,10 +2763,10 @@
                     <tr class="border-b border-space-700/50 hover:bg-space-700/30 transition-colors">
                       <td class="py-3 px-2">
                         <div class="w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm
-                          {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900' :
-                           index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' :
-                           index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-space-900' :
-                           'bg-space-600 text-gray-400'}">
+                          {index === 0 ? 'bg-gold text-space-900' :
+                           index === 1 ? 'bg-silver text-space-900' :
+                           index === 2 ? 'bg-bronze text-space-900' :
+                           'bg-space-600 text-ink-muted'}">
                           {index + 1}
                         </div>
                       </td>
@@ -3327,7 +2775,7 @@
                           <img 
                             src={getPlayerImageUrl(player?.name || 'Unknown')} 
                             alt={player?.name || 'Unknown'} 
-                            class="w-8 h-8 rounded-full object-cover border-2 {index === 0 ? 'border-yellow-500' : index === 1 ? 'border-gray-400' : index === 2 ? 'border-orange-500' : 'border-space-500'}"
+                            class="w-8 h-8 rounded-full object-cover border-2 {index === 0 ? 'border-gold' : index === 1 ? 'border-gray-400' : index === 2 ? 'border-ember' : 'border-space-500'}"
                           />
                           <span class="font-bold text-white">{player?.name || 'Unknown'}</span>
                         </div>
@@ -3339,10 +2787,10 @@
                         <span class="font-bold text-cyber-green">{stat.kills}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
-                        <span class="font-bold text-red-400">{stat.deaths}</span>
+                        <span class="font-bold text-loss">{stat.deaths}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
-                        <span class="font-black {stat.kdRatio >= 1.5 ? 'text-cyber-green' : stat.kdRatio >= 1 ? 'text-yellow-400' : 'text-red-400'}">{stat.kdRatio.toFixed(2)}</span>
+                        <span class="font-black {stat.kdRatio >= 1.5 ? 'text-cyber-green' : stat.kdRatio >= 1 ? 'text-gold' : 'text-loss'}">{stat.kdRatio.toFixed(2)}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
                         <span class="text-gray-400">{stat.gamesPlayed}</span>
@@ -3354,11 +2802,11 @@
             </div>
           {:else}
             <div class="text-center py-8 text-gray-400">
-              <svg class="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-12 h-12 mx-auto mb-3 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
               </svg>
               <p>No player stats recorded yet</p>
-              <p class="text-sm text-gray-500 mt-1">K/D stats will appear after matches are played</p>
+              <p class="text-sm text-ink-faint mt-1">K/D stats will appear after matches are played</p>
             </div>
           {/if}
         </div>
@@ -3369,11 +2817,11 @@
         
         <!-- Team Champion Banner (shown when tournament has a winner) -->
         {#if teamChampion}
-          <div class="glass-card rounded-xl p-6 mb-6 border-2 border-yellow-500/30 bg-gradient-to-br from-yellow-900/20 via-space-800 to-orange-900/20 relative overflow-hidden">
-            <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/5 via-transparent to-orange-500/5"></div>
+          <div class="glass-card rounded-xl p-6 mb-6 border-2 border-gold/30 bg-gold relative overflow-hidden">
+            <div class="absolute inset-0 bg-gold/20"></div>
             <div class="relative flex items-center gap-6 flex-wrap">
               <!-- Trophy Icon -->
-              <div class="w-20 h-20 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-yellow-500/30">
+              <div class="w-20 h-20 rounded-full bg-gold flex items-center justify-center flex-shrink-0 shadow-lg shadow-gold/30">
                 <svg class="w-10 h-10 text-space-900" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M5 3h14v2h-1v1c0 2.21-1.79 4-4 4h-4c-2.21 0-4-1.79-4-4V5H5V3zm2 3h10V5H7v1zm8 7c.55 0 1 .45 1 1v2h-1v4h-6v-4H8v-2c0-.55.45-1 1-1h6zM4 8h2v1c0 1.66 1.34 3 3 3h6c1.66 0 3-1.34 3-3V8h2v3c0 1.66-1.34 3-3 3h-1v2c0 1.1-.9 2-2 2h-4c-1.1 0-2-.9-2-2v-2H7c-1.66 0-3-1.34-3-3V8z"/>
                 </svg>
@@ -3381,7 +2829,7 @@
               
               <!-- Champion Info -->
               <div class="flex-1 min-w-0">
-                <div class="text-xs font-bold text-yellow-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+                <div class="text-xs font-bold text-gold uppercase tracking-wider mb-1 flex items-center gap-2">
                   <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
                   </svg>
@@ -3393,7 +2841,7 @@
                     <div class="text-sm text-gray-400">
                       Defeated <span class="text-gray-200 font-bold">{teamChampion.runnerUp.name}</span> in Finals
                       {#if teamChampion.finalsScore !== '0-0'}
-                        <span class="text-yellow-400 font-bold ml-1">({teamChampion.finalsScore})</span>
+                        <span class="text-gold font-bold ml-1">({teamChampion.finalsScore})</span>
                       {/if}
                     </div>
                   {/if}
@@ -3409,7 +2857,7 @@
                       src={getPlayerImageUrl(player.name)} 
                       alt={player.name}
                       title={player.name}
-                      class="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover"
+                      class="w-10 h-10 rounded-full border-2 border-gold/50 object-cover"
                       onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(player?.name || '?')}&background=random`; }}
                     />
                   {/if}
@@ -3420,7 +2868,7 @@
         {/if}
 
         <!-- Tournament Overview for Teams -->
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-orange/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
             <svg class="w-6 h-6 text-brand-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -3428,35 +2876,35 @@
             Team Tournament Overview
           </h2>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <div class="bg-gradient-to-br from-brand-orange/20 to-brand-orange/10 rounded-lg p-4 text-center border border-brand-orange/30">
+            <div class="bg-space-600 rounded-lg p-4 text-center border border-white/10">
               <div class="text-3xl font-black text-brand-orange">{tournamentData?.teams?.length || 0}</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Teams</div>
             </div>
-            <div class="bg-gradient-to-br from-brand-cyan/20 to-brand-cyan/10 rounded-lg p-4 text-center border border-brand-cyan/30">
+            <div class="bg-space-600 rounded-lg p-4 text-center border border-white/10">
               <div class="text-3xl font-black text-brand-cyan">{tournamentOverview?.playerCount || 0}</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Players</div>
             </div>
-            <div class="bg-gradient-to-br from-brand-purple/20 to-brand-purple/10 rounded-lg p-4 text-center border border-brand-purple/30">
-              <div class="text-3xl font-black text-brand-purple">{teamAnalysis.totalMapsPlayed}</div>
+            <div class="bg-space-600 rounded-lg p-4 text-center border border-white/10">
+              <div class="text-3xl font-black text-deep-soft">{teamAnalysis.totalMapsPlayed}</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Maps Played</div>
             </div>
-            <div class="bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg p-4 text-center border border-green-500/30">
-              <div class="text-3xl font-black text-green-400">{matchStats?.completionRate || 0}%</div>
+            <div class="bg-win/15 rounded-lg p-4 text-center border border-win/30">
+              <div class="text-3xl font-black text-win">{matchStats?.completionRate || 0}%</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Complete</div>
             </div>
           </div>
           <!-- Secondary Stats Row -->
           <div class="grid grid-cols-3 gap-3">
             <div class="bg-space-700/50 rounded-lg p-3 text-center">
-              <div class="text-xl font-bold text-yellow-400">{teamAnalysis.headToHead.length}</div>
+              <div class="text-xl font-bold text-gold">{teamAnalysis.headToHead.length}</div>
               <div class="text-xs text-gray-400">Matchups</div>
             </div>
             <div class="bg-space-700/50 rounded-lg p-3 text-center">
-              <div class="text-xl font-bold text-cyan-400">{teamAnalysis.bestOnMap.length}</div>
+              <div class="text-xl font-bold text-accent">{teamAnalysis.bestOnMap.length}</div>
               <div class="text-xs text-gray-400">Unique Maps</div>
             </div>
             <div class="bg-space-700/50 rounded-lg p-3 text-center">
-              <div class="text-xl font-bold text-purple-400">{tournamentData?.teamBracketMatches?.length || 0}</div>
+              <div class="text-xl font-bold text-ink-muted">{tournamentData?.teamBracketMatches?.length || 0}</div>
               <div class="text-xs text-gray-400">Playoff Matches</div>
             </div>
           </div>
@@ -3465,7 +2913,7 @@
 
       <!-- Tournament Highlights (for team stats view) -->
       {#if isTeamBased && statsView === 'teams' && advancedStats && matchStats}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-cyan/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
             <svg class="w-5 h-5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
@@ -3475,40 +2923,40 @@
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <!-- Best Team (by win rate) -->
             {#if teamStandings.length > 0}
-              <div class="bg-gradient-to-br from-yellow-900/30 to-yellow-800/20 rounded-lg p-4 border border-yellow-500/20">
+              <div class="bg-gold/15 rounded-lg p-4 border border-gold/20">
                 <div class="flex items-center gap-2 mb-2">
-                  <svg class="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                  <svg class="w-4 h-4 text-gold" fill="currentColor" viewBox="0 0 20 20">
                     <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
                   </svg>
-                  <div class="text-xs font-bold text-yellow-400 uppercase">Top Team</div>
+                  <div class="text-xs font-bold text-gold uppercase">Top Team</div>
                 </div>
                 <div class="text-white font-bold text-lg mb-1">{teamStandings[0].name}</div>
                 <div class="flex gap-3 text-sm">
-                  <span class="text-yellow-400 font-bold">{teamStandings[0].matchWinRate}% Win</span>
+                  <span class="text-gold font-bold">{teamStandings[0].matchWinRate}% Win</span>
                   <span class="text-gray-400">{teamStandings[0].matchesWon}W-{teamStandings[0].matchesLost}L</span>
                 </div>
               </div>
             {/if}
 
             <!-- Total Rounds Played -->
-            <div class="bg-gradient-to-br from-cyan-900/30 to-cyan-800/20 rounded-lg p-4 border border-cyan-500/20">
+            <div class="bg-accent/15 rounded-lg p-4 border border-white/10">
               <div class="flex items-center gap-2 mb-2">
-                <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                 </svg>
-                <div class="text-xs font-bold text-cyan-400 uppercase">Total {scoreLabel}s</div>
+                <div class="text-xs font-bold text-accent uppercase">Total {scoreLabel}s</div>
               </div>
               <div class="text-3xl font-black text-white">{matchStats.totalScorePlayed}</div>
               <div class="text-xs text-gray-400">Avg {(matchStats.totalScorePlayed / (matchStats.completedMatches || 1)).toFixed(1)} per match</div>
             </div>
 
             <!-- Best Series Performance -->
-            <div class="bg-gradient-to-br from-red-900/30 to-red-800/20 rounded-lg p-4 border border-red-500/20">
+            <div class="bg-loss/15 rounded-lg p-4 border border-loss/20">
               <div class="flex items-center gap-2 mb-2">
-                <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-4 h-4 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
                 </svg>
-                <div class="text-xs font-bold text-red-400 uppercase">Best Performance</div>
+                <div class="text-xs font-bold text-loss uppercase">Best Performance</div>
               </div>
               <div class="text-3xl font-black text-white">{matchStats.highestScore}</div>
               <div class="text-xs text-gray-400">{scoreLabel}s in one map</div>
@@ -3522,12 +2970,12 @@
                 return aDiff - bDiff;
               })[0]}
               {#if closestH2H && closestH2H.team1Wins + closestH2H.team2Wins > 0}
-                <div class="bg-gradient-to-br from-orange-900/30 to-orange-800/20 rounded-lg p-4 border border-orange-500/20">
+                <div class="bg-ember/15 rounded-lg p-4 border border-white/10">
                   <div class="flex items-center gap-2 mb-2">
-                    <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4 text-ember" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
-                    <div class="text-xs font-bold text-orange-400 uppercase">Closest Rivalry</div>
+                    <div class="text-xs font-bold text-ember uppercase">Closest Rivalry</div>
                   </div>
                   <div class="text-white font-bold text-sm mb-1">
                     {closestH2H.team1Name} vs {closestH2H.team2Name}
@@ -3539,12 +2987,12 @@
 
             <!-- Group Stage Summary -->
             {#if (tournamentData?.teamMatches?.length || 0) > 0}
-              <div class="bg-gradient-to-br from-emerald-900/30 to-emerald-800/20 rounded-lg p-4 border border-emerald-500/20">
+              <div class="bg-win/15 rounded-lg p-4 border border-win/20">
                 <div class="flex items-center gap-2 mb-2">
-                  <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-4 h-4 text-win" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
                   </svg>
-                  <div class="text-xs font-bold text-emerald-400 uppercase">Group Stage</div>
+                  <div class="text-xs font-bold text-win uppercase">Group Stage</div>
                 </div>
                 <div class="text-3xl font-black text-white">{tournamentData?.teamMatches?.length || 0}</div>
                 <div class="text-xs text-gray-400">matches played</div>
@@ -3553,12 +3001,12 @@
 
             <!-- Playoff Bracket -->
             {#if (tournamentData?.teamBracketMatches?.length || 0) > 0}
-              <div class="bg-gradient-to-br from-purple-900/30 to-purple-800/20 rounded-lg p-4 border border-purple-500/20">
+              <div class="bg-deep/15 rounded-lg p-4 border border-white/10">
                 <div class="flex items-center gap-2 mb-2">
-                  <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-4 h-4 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
                   </svg>
-                  <div class="text-xs font-bold text-purple-400 uppercase">Playoffs</div>
+                  <div class="text-xs font-bold text-ink-muted uppercase">Playoffs</div>
                 </div>
                 <div class="text-3xl font-black text-white">{tournamentData?.teamBracketMatches?.length || 0}</div>
                 <div class="text-xs text-gray-400">bracket matches</div>
@@ -3570,7 +3018,7 @@
 
       <!-- Team Standings (Team Tournaments - Team Stats view) -->
       {#if isTeamBased && statsView === 'teams'}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-orange/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
             <svg class="w-6 h-6 text-brand-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -3598,16 +3046,16 @@
                     <tr class="border-b border-space-700/50 hover:bg-space-700/30 transition-colors">
                       <td class="py-3 px-2">
                         <div class="w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm
-                          {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900' :
-                           index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' :
-                           index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-space-900' :
-                           'bg-space-600 text-gray-400'}">
+                          {index === 0 ? 'bg-gold text-space-900' :
+                           index === 1 ? 'bg-silver text-space-900' :
+                           index === 2 ? 'bg-bronze text-space-900' :
+                           'bg-space-600 text-ink-muted'}">
                           {index + 1}
                         </div>
                       </td>
                       <td class="py-3 px-2">
                         <div class="flex items-center gap-2">
-                          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-brand-orange to-brand-purple flex items-center justify-center text-white font-bold text-sm">
+                          <div class="w-8 h-8 rounded-full bg-space-600 flex items-center justify-center text-white font-bold text-sm">
                             {team.name?.charAt(0) || '?'}
                           </div>
                           <span class="font-bold text-white">{team.name}</span>
@@ -3617,19 +3065,19 @@
                         <span class="font-bold text-cyber-green">{team.matchesWon}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
-                        <span class="font-bold text-red-400">{team.matchesLost}</span>
+                        <span class="font-bold text-loss">{team.matchesLost}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
-                        <span class="font-black {team.matchWinRate >= 60 ? 'text-cyber-green' : team.matchWinRate >= 40 ? 'text-yellow-400' : 'text-red-400'}">{team.matchWinRate}%</span>
+                        <span class="font-black {team.matchWinRate >= 60 ? 'text-cyber-green' : team.matchWinRate >= 40 ? 'text-gold' : 'text-loss'}">{team.matchWinRate}%</span>
                       </td>
                       <td class="py-3 px-2 text-center">
                         <span class="text-cyber-green">{team.roundsWon}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
-                        <span class="text-red-400">{team.roundsLost}</span>
+                        <span class="text-loss">{team.roundsLost}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
-                        <span class="font-bold {team.roundDiff > 0 ? 'text-cyber-green' : team.roundDiff < 0 ? 'text-red-400' : 'text-gray-400'}">
+                        <span class="font-bold {team.roundDiff > 0 ? 'text-cyber-green' : team.roundDiff < 0 ? 'text-loss' : 'text-gray-400'}">
                           {team.roundDiff > 0 ? '+' : ''}{team.roundDiff}
                         </span>
                       </td>
@@ -3640,11 +3088,11 @@
             </div>
           {:else}
             <div class="text-center py-8 text-gray-400">
-              <svg class="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-12 h-12 mx-auto mb-3 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
               </svg>
               <p>No team stats recorded yet</p>
-              <p class="text-sm text-gray-500 mt-1">Team stats will appear after matches are played</p>
+              <p class="text-sm text-ink-faint mt-1">Team stats will appear after matches are played</p>
             </div>
           {/if}
         </div>
@@ -3652,7 +3100,7 @@
 
       <!-- Team Progression Chart (Team Tournaments - Team Stats view) -->
       {#if isTeamBased && statsView === 'teams' && teams.length > 0}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-cyan/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h2 class="text-xl font-bold text-white flex items-center gap-2">
               <svg class="w-6 h-6 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3687,9 +3135,9 @@
       {#if isTeamBased && statsView === 'teams' && teamAnalysis}
         <!-- Head-to-Head Records -->
         {#if teamAnalysis.headToHead.length > 0}
-          <div class="glass-card rounded-xl p-6 mb-6 border border-cyan-500/10">
+          <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
             <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-              <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
               </svg>
               Head-to-Head Records
@@ -3700,15 +3148,15 @@
                   <div class="flex items-center justify-between">
                     <div class="flex-1 text-center">
                       <span class="font-bold text-white text-sm">{h2h.team1Name}</span>
-                      <div class="text-2xl font-black {h2h.team1Wins > h2h.team2Wins ? 'text-cyber-green' : h2h.team1Wins < h2h.team2Wins ? 'text-red-400' : 'text-yellow-400'}">{h2h.team1Wins}</div>
+                      <div class="text-2xl font-black {h2h.team1Wins > h2h.team2Wins ? 'text-cyber-green' : h2h.team1Wins < h2h.team2Wins ? 'text-loss' : 'text-gold'}">{h2h.team1Wins}</div>
                     </div>
-                    <div class="px-4 text-gray-500 text-sm">vs</div>
+                    <div class="px-4 text-ink-faint text-sm">vs</div>
                     <div class="flex-1 text-center">
                       <span class="font-bold text-white text-sm">{h2h.team2Name}</span>
-                      <div class="text-2xl font-black {h2h.team2Wins > h2h.team1Wins ? 'text-cyber-green' : h2h.team2Wins < h2h.team1Wins ? 'text-red-400' : 'text-yellow-400'}">{h2h.team2Wins}</div>
+                      <div class="text-2xl font-black {h2h.team2Wins > h2h.team1Wins ? 'text-cyber-green' : h2h.team2Wins < h2h.team1Wins ? 'text-loss' : 'text-gold'}">{h2h.team2Wins}</div>
                     </div>
                   </div>
-                  <div class="text-center text-xs text-gray-500 mt-2">{h2h.totalGames} game{h2h.totalGames !== 1 ? 's' : ''} played</div>
+                  <div class="text-center text-xs text-ink-faint mt-2">{h2h.totalGames} game{h2h.totalGames !== 1 ? 's' : ''} played</div>
                 </div>
               {/each}
             </div>
@@ -3717,9 +3165,9 @@
 
         <!-- Team Round Efficiency -->
         {#if teamAnalysis.teamEfficiency.length > 0}
-          <div class="glass-card rounded-xl p-6 mb-6 border border-green-500/10">
+          <div class="glass-card rounded-xl p-6 mb-6 border border-win/10">
             <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-              <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-6 h-6 text-win" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
               </svg>
               Round Efficiency
@@ -3741,7 +3189,7 @@
                     <tr class="border-b border-space-700/50 hover:bg-space-700/30 transition-colors">
                       <td class="py-3 px-2">
                         <div class="w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs
-                          {index === 0 ? 'bg-gradient-to-br from-green-400 to-green-600 text-space-900' :
+                          {index === 0 ? 'bg-win text-space-900' :
                            'bg-space-600 text-gray-400'}">
                           {index + 1}
                         </div>
@@ -3753,10 +3201,10 @@
                         <span class="text-cyber-green font-bold">{team.avgRoundsWon}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
-                        <span class="text-red-400 font-bold">{team.avgRoundsLost}</span>
+                        <span class="text-loss font-bold">{team.avgRoundsLost}</span>
                       </td>
                       <td class="py-3 px-2 text-center">
-                        <span class="font-black {team.efficiency >= 1.5 ? 'text-cyber-green' : team.efficiency >= 1 ? 'text-yellow-400' : 'text-red-400'}">{team.efficiency}x</span>
+                        <span class="font-black {team.efficiency >= 1.5 ? 'text-cyber-green' : team.efficiency >= 1 ? 'text-gold' : 'text-loss'}">{team.efficiency}x</span>
                       </td>
                       <td class="py-3 px-2 text-center">
                         <span class="text-gray-400">{team.matchCount}</span>
@@ -3771,24 +3219,24 @@
 
         <!-- Map Dominance -->
         {#if teamAnalysis.bestOnMap.length > 0}
-          <div class="glass-card rounded-xl p-6 mb-6 border border-purple-500/10">
+          <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
             <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-              <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-6 h-6 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
               </svg>
               Map Specialists
             </h2>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {#each teamAnalysis.bestOnMap as mapData}
-                <div class="bg-space-700/50 rounded-lg p-4 border border-purple-500/20">
-                  <div class="text-xs text-purple-400 font-bold uppercase tracking-wider mb-1">{mapData.mapName}</div>
+                <div class="bg-space-700/50 rounded-lg p-4 border border-white/10">
+                  <div class="text-xs text-ink-muted font-bold uppercase tracking-wider mb-1">{mapData.mapName}</div>
                   <div class="text-white font-bold">{mapData.teamName}</div>
                   <div class="flex items-center gap-2 mt-2 text-sm">
                     <span class="text-cyber-green">{mapData.wins}W</span>
-                    <span class="text-gray-500">/</span>
-                    <span class="text-red-400">{mapData.losses}L</span>
-                    <span class="text-gray-500">|</span>
-                    <span class="font-bold {mapData.winRate >= 75 ? 'text-cyber-green' : mapData.winRate >= 50 ? 'text-yellow-400' : 'text-red-400'}">{mapData.winRate}%</span>
+                    <span class="text-ink-faint">/</span>
+                    <span class="text-loss">{mapData.losses}L</span>
+                    <span class="text-ink-faint">|</span>
+                    <span class="font-bold {mapData.winRate >= 75 ? 'text-cyber-green' : mapData.winRate >= 50 ? 'text-gold' : 'text-loss'}">{mapData.winRate}%</span>
                   </div>
                 </div>
               {/each}
@@ -3798,16 +3246,16 @@
 
         <!-- Win Streaks -->
         {#if teamAnalysis.streakLeaders.length > 0}
-          <div class="glass-card rounded-xl p-6 mb-6 border border-orange-500/10">
+          <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
             <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-              <svg class="w-6 h-6 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-6 h-6 text-ember" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
               </svg>
               Win Streaks
             </h2>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {#each teamAnalysis.streakLeaders as team}
-                <div class="bg-space-700/50 rounded-lg p-4 border border-orange-500/20">
+                <div class="bg-space-700/50 rounded-lg p-4 border border-white/10">
                   <div class="text-white font-bold mb-2">{team.teamName}</div>
                   <div class="flex items-center gap-4 text-sm">
                     <div>
@@ -3816,11 +3264,11 @@
                     </div>
                     <div>
                       <span class="text-gray-400 text-xs">Worst</span>
-                      <div class="text-red-400 font-bold">{team.worstStreak}L</div>
+                      <div class="text-loss font-bold">{team.worstStreak}L</div>
                     </div>
                     <div>
                       <span class="text-gray-400 text-xs">Current</span>
-                      <div class="font-bold {team.currentStreak > 0 ? 'text-cyber-green' : team.currentStreak < 0 ? 'text-red-400' : 'text-gray-400'}">
+                      <div class="font-bold {team.currentStreak > 0 ? 'text-cyber-green' : team.currentStreak < 0 ? 'text-loss' : 'text-gray-400'}">
                         {team.currentStreak > 0 ? `${team.currentStreak}W` : team.currentStreak < 0 ? `${Math.abs(team.currentStreak)}L` : '-'}
                       </div>
                     </div>
@@ -3834,9 +3282,9 @@
 
       <!-- MVP & Player Highlights (Team Tournaments - Individual Stats view) -->
       {#if isTeamBased && statsView === 'players' && mvpHighlights}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-purple/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-            <svg class="w-6 h-6 text-brand-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-6 h-6 text-deep-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
             </svg>
             Player Highlights
@@ -3845,10 +3293,10 @@
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <!-- Tournament MVP -->
             {#if mvpHighlights.mvp}
-              <div class="bg-gradient-to-br from-yellow-900/40 to-yellow-800/20 rounded-lg p-4 border border-yellow-500/30 relative overflow-hidden group">
+              <div class="bg-gold/15 rounded-lg p-4 border border-gold/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openShareModal('mvp')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-yellow-500/20 text-yellow-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-yellow-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-gold/20 text-gold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gold/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3859,22 +3307,22 @@
                   <img 
                     src={getPlayerImageUrl(mvpHighlights.mvp.name)} 
                     alt={mvpHighlights.mvp.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-yellow-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-gold/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.mvp?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                      <svg class="w-4 h-4 text-gold" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
                       </svg>
-                      <span class="text-xs font-bold text-yellow-400 uppercase tracking-wider">MVP</span>
+                      <span class="text-xs font-bold text-gold uppercase tracking-wider">MVP</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{mvpHighlights.mvp.name}</div>
                     <div class="text-xs text-gray-400 truncate">{mvpHighlights.mvp.team}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-yellow-500/20">
-                  <span class="text-yellow-400 font-bold">{mvpHighlights.mvp.kd.toFixed(2)} K/D</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-gold/20">
+                  <span class="text-gold font-bold">{mvpHighlights.mvp.kd.toFixed(2)} K/D</span>
                   <span class="text-gray-400">{mvpHighlights.mvp.kills}K / {mvpHighlights.mvp.deaths}D</span>
                 </div>
               </div>
@@ -3882,10 +3330,10 @@
 
             <!-- Top Fragger -->
             {#if mvpHighlights.topKiller}
-              <div class="bg-gradient-to-br from-red-900/40 to-red-800/20 rounded-lg p-4 border border-red-500/30 relative overflow-hidden group">
+              <div class="bg-loss/15 rounded-lg p-4 border border-loss/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openShareModal('topKiller')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-red-500/20 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-loss/20 text-loss opacity-0 group-hover:opacity-100 transition-opacity hover:bg-loss/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3896,22 +3344,22 @@
                   <img 
                     src={getPlayerImageUrl(mvpHighlights.topKiller.name)} 
                     alt={mvpHighlights.topKiller.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-red-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-loss/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.topKiller?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                       </svg>
-                      <span class="text-xs font-bold text-red-400 uppercase tracking-wider">Top Fragger</span>
+                      <span class="text-xs font-bold text-loss uppercase tracking-wider">Top Fragger</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{mvpHighlights.topKiller.name}</div>
                     <div class="text-xs text-gray-400 truncate">{mvpHighlights.topKiller.team}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-red-500/20">
-                  <span class="text-red-400 font-bold">{mvpHighlights.topKiller.kills} Kills</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-loss/20">
+                  <span class="text-loss font-bold">{mvpHighlights.topKiller.kills} Kills</span>
                   <span class="text-gray-400">in {mvpHighlights.topKiller.games} games</span>
                 </div>
               </div>
@@ -3919,10 +3367,10 @@
 
             <!-- The Terminator - Kills Per Game -->
             {#if mvpHighlights.killsPerGame}
-              <div class="bg-gradient-to-br from-orange-900/40 to-orange-800/20 rounded-lg p-4 border border-orange-500/30 relative overflow-hidden group">
+              <div class="bg-ember/15 rounded-lg p-4 border border-white/10 relative overflow-hidden group">
                 <button 
                   onclick={() => openShareModal('killsPerGame')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-orange-500/20 text-orange-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-orange-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-ember/20 text-ember opacity-0 group-hover:opacity-100 transition-opacity hover:bg-ember/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3933,22 +3381,22 @@
                   <img 
                     src={getPlayerImageUrl(mvpHighlights.killsPerGame.name)} 
                     alt={mvpHighlights.killsPerGame.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-orange-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-ember/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.killsPerGame?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-ember" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
                       </svg>
-                      <span class="text-xs font-bold text-orange-400 uppercase tracking-wider">Terminator</span>
+                      <span class="text-xs font-bold text-ember uppercase tracking-wider">Terminator</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{mvpHighlights.killsPerGame.name}</div>
                     <div class="text-xs text-gray-400 truncate">{mvpHighlights.killsPerGame.team}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-orange-500/20">
-                  <span class="text-orange-400 font-bold">{mvpHighlights.killsPerGame.avg.toFixed(1)} K/G</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-white/10">
+                  <span class="text-ember font-bold">{mvpHighlights.killsPerGame.avg.toFixed(1)} K/G</span>
                   <span class="text-gray-400">{mvpHighlights.killsPerGame.kills} in {mvpHighlights.killsPerGame.games}g</span>
                 </div>
               </div>
@@ -3956,10 +3404,10 @@
 
             <!-- The Survivor -->
             {#if mvpHighlights.survivor}
-              <div class="bg-gradient-to-br from-blue-900/40 to-blue-800/20 rounded-lg p-4 border border-blue-500/30 relative overflow-hidden group">
+              <div class="bg-deep/15 rounded-lg p-4 border border-white/10 relative overflow-hidden group">
                 <button 
                   onclick={() => openShareModal('survivor')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-blue-500/20 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-deep/20 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity hover:bg-deep/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3970,22 +3418,22 @@
                   <img 
                     src={getPlayerImageUrl(mvpHighlights.survivor.name)} 
                     alt={mvpHighlights.survivor.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-blue-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-deep/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.survivor?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                       </svg>
-                      <span class="text-xs font-bold text-blue-400 uppercase tracking-wider">Survivor</span>
+                      <span class="text-xs font-bold text-ink-muted uppercase tracking-wider">Survivor</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{mvpHighlights.survivor.name}</div>
                     <div class="text-xs text-gray-400 truncate">{mvpHighlights.survivor.team}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-blue-500/20">
-                  <span class="text-blue-400 font-bold">{mvpHighlights.survivor.avgDeaths.toFixed(1)} D/G</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-white/10">
+                  <span class="text-ink-muted font-bold">{mvpHighlights.survivor.avgDeaths.toFixed(1)} D/G</span>
                   <span class="text-gray-400">{mvpHighlights.survivor.deaths}D in {mvpHighlights.survivor.games}g</span>
                 </div>
               </div>
@@ -3993,10 +3441,10 @@
 
             <!-- Clutch Performer -->
             {#if mvpHighlights.clutchPerformer}
-              <div class="bg-gradient-to-br from-purple-900/40 to-purple-800/20 rounded-lg p-4 border border-purple-500/30 relative overflow-hidden group">
+              <div class="bg-deep/15 rounded-lg p-4 border border-white/10 relative overflow-hidden group">
                 <button 
                   onclick={() => openShareModal('clutchPerformer')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-purple-500/20 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-purple-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-deep/20 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity hover:bg-deep/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4007,22 +3455,22 @@
                   <img 
                     src={getPlayerImageUrl(mvpHighlights.clutchPerformer.name)} 
                     alt={mvpHighlights.clutchPerformer.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-purple-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-deep/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.clutchPerformer?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                       </svg>
-                      <span class="text-xs font-bold text-purple-400 uppercase tracking-wider">Clutch King</span>
+                      <span class="text-xs font-bold text-ink-muted uppercase tracking-wider">Clutch King</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{mvpHighlights.clutchPerformer.name}</div>
                     <div class="text-xs text-gray-400 truncate">{mvpHighlights.clutchPerformer.team}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-purple-500/20">
-                  <span class="text-purple-400 font-bold">{mvpHighlights.clutchPerformer.kd} K/D</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-white/10">
+                  <span class="text-ink-muted font-bold">{mvpHighlights.clutchPerformer.kd} K/D</span>
                   <span class="text-gray-400">{mvpHighlights.clutchPerformer.clutchGames} close games</span>
                 </div>
               </div>
@@ -4030,10 +3478,10 @@
 
             <!-- Best Single Game Performance -->
             {#if mvpHighlights.bestSingleGame}
-              <div class="bg-gradient-to-br from-cyan-900/40 to-cyan-800/20 rounded-lg p-4 border border-cyan-500/30 relative overflow-hidden group">
+              <div class="bg-accent/15 rounded-lg p-4 border border-white/10 relative overflow-hidden group">
                 <button 
                   onclick={() => openShareModal('bestSingleGame')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-cyan-500/20 text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-cyan-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-accent/20 text-accent opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4044,22 +3492,22 @@
                   <img 
                     src={getPlayerImageUrl(mvpHighlights.bestSingleGame.name)} 
                     alt={mvpHighlights.bestSingleGame.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-cyan-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-accent/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.bestSingleGame?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
                       </svg>
-                      <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Best Game</span>
+                      <span class="text-xs font-bold text-accent uppercase tracking-wider">Best Game</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{mvpHighlights.bestSingleGame.name}</div>
-                    <div class="text-xs text-gray-400 truncate">{mvpHighlights.bestSingleGame.team} • {mvpHighlights.bestSingleGame.mapName}</div>
+                    <div class="text-xs text-gray-400 truncate">{mvpHighlights.bestSingleGame.team}<span class="sep" aria-hidden="true"></span>{mvpHighlights.bestSingleGame.mapName}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-cyan-500/20">
-                  <span class="text-cyan-400 font-bold">{mvpHighlights.bestSingleGame.kills}-{mvpHighlights.bestSingleGame.deaths}</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-white/10">
+                  <span class="text-accent font-bold">{mvpHighlights.bestSingleGame.kills}-{mvpHighlights.bestSingleGame.deaths}</span>
                   <span class="text-gray-400">({mvpHighlights.bestSingleGame.kd} K/D)</span>
                 </div>
               </div>
@@ -4067,10 +3515,10 @@
 
             <!-- Most Consistent -->
             {#if mvpHighlights.mostConsistent}
-              <div class="bg-gradient-to-br from-emerald-900/40 to-emerald-800/20 rounded-lg p-4 border border-emerald-500/30 relative overflow-hidden group">
+              <div class="bg-win/15 rounded-lg p-4 border border-win/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openShareModal('mostConsistent')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-emerald-500/20 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-emerald-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-win/20 text-win opacity-0 group-hover:opacity-100 transition-opacity hover:bg-win/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4081,22 +3529,22 @@
                   <img 
                     src={getPlayerImageUrl(mvpHighlights.mostConsistent.name)} 
                     alt={mvpHighlights.mostConsistent.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-emerald-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-win/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(mvpHighlights.mostConsistent?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-win" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                       </svg>
-                      <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">Consistent</span>
+                      <span class="text-xs font-bold text-win uppercase tracking-wider">Consistent</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{mvpHighlights.mostConsistent.name}</div>
                     <div class="text-xs text-gray-400 truncate">{mvpHighlights.mostConsistent.team}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-emerald-500/20">
-                  <span class="text-emerald-400 font-bold">{mvpHighlights.mostConsistent.kd.toFixed(2)} K/D</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-win/20">
+                  <span class="text-win font-bold">{mvpHighlights.mostConsistent.kd.toFixed(2)} K/D</span>
                   <span class="text-gray-400">{mvpHighlights.mostConsistent.games} games</span>
                 </div>
               </div>
@@ -4104,7 +3552,7 @@
 
             <!-- Sacrificial Lamb (Worst K/D) -->
             {#if mvpHighlights.worstKD}
-              <div class="bg-gradient-to-br from-gray-800/60 to-gray-700/40 rounded-lg p-4 border border-gray-600/30 relative overflow-hidden group">
+              <div class="bg-space-600 rounded-lg p-4 border border-gray-600/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openShareModal('worstKD')}
                   class="absolute top-2 right-2 p-1.5 rounded-full bg-gray-500/20 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-500/30"
@@ -4134,7 +3582,7 @@
                 </div>
                 <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-gray-600/30">
                   <span class="text-gray-400 font-bold">{mvpHighlights.worstKD.kd.toFixed(2)} K/D</span>
-                  <span class="text-gray-500">{mvpHighlights.worstKD.kills}K / {mvpHighlights.worstKD.deaths}D</span>
+                  <span class="text-ink-faint">{mvpHighlights.worstKD.kills}K / {mvpHighlights.worstKD.deaths}D</span>
                 </div>
               </div>
             {/if}
@@ -4154,8 +3602,8 @@
                   <div class="bg-space-700/50 rounded-lg p-3 border border-space-600">
                     <div class="text-xs font-bold text-brand-cyan mb-1 truncate">{mapMVP.mapName}</div>
                     <div class="text-white font-bold text-sm truncate">{mapMVP.playerName}</div>
-                    <div class="text-xs text-gray-500 truncate">{mapMVP.teamName}</div>
-                    <div class="text-xs text-brand-purple font-bold mt-1">{mapMVP.kd} K/D ({mapMVP.kills}-{mapMVP.deaths})</div>
+                    <div class="text-xs text-ink-faint truncate">{mapMVP.teamName}</div>
+                    <div class="text-xs text-deep-soft font-bold mt-1">{mapMVP.kd} K/D ({mapMVP.kills}-{mapMVP.deaths})</div>
                   </div>
                 {/each}
               </div>
@@ -4178,7 +3626,7 @@
                       <img 
                         src={getPlayerImageUrl(leader.playerName)} 
                         alt={leader.playerName}
-                        class="w-8 h-8 rounded-full object-cover border border-brand-cyan/30"
+                        class="w-8 h-8 rounded-full object-cover border border-white/10"
                         onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(leader.playerName)}&background=random&size=32`; }}
                       />
                       <span class="text-xs font-bold text-brand-cyan bg-brand-cyan/10 px-2 py-0.5 rounded">#{i + 1}</span>
@@ -4187,8 +3635,8 @@
                     <div class="text-white font-bold text-sm truncate">{leader.playerName}</div>
                     <div class="flex items-center gap-2 mt-2">
                       <span class="text-lg font-black text-brand-orange">{leader.kills}</span>
-                      <span class="text-xs text-gray-500">kills</span>
-                      <span class="text-xs text-brand-purple ml-auto">{leader.kd.toFixed(2)} K/D</span>
+                      <span class="text-xs text-ink-faint">kills</span>
+                      <span class="text-xs text-deep-soft ml-auto">{leader.kd.toFixed(2)} K/D</span>
                     </div>
                   </div>
                 {/each}
@@ -4217,18 +3665,18 @@
 
       <!-- Solo Champion Banner (shown for 1v1 tournaments with a winner) -->
       {#if !isTeamBased && soloPlayerHighlights?.champion}
-        <div class="glass-card rounded-xl p-6 mb-6 border-2 border-yellow-500/30 bg-gradient-to-br from-yellow-900/20 via-space-800 to-orange-900/20 relative overflow-hidden">
-          <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/5 via-transparent to-orange-500/5"></div>
+        <div class="glass-card rounded-xl p-6 mb-6 border-2 border-gold/30 bg-gold relative overflow-hidden">
+          <div class="absolute inset-0 bg-gold/20"></div>
           <div class="relative flex items-center gap-6 flex-wrap">
             <!-- Champion Avatar -->
             <div class="relative">
               <img 
                 src={getPlayerImageUrl(soloPlayerHighlights.champion.name)} 
                 alt={soloPlayerHighlights.champion.name}
-                class="w-20 h-20 rounded-full object-cover border-4 border-yellow-500/50 shadow-lg shadow-yellow-500/30"
+                class="w-20 h-20 rounded-full object-cover border-4 border-gold/50 shadow-lg shadow-gold/30"
                 onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(soloPlayerHighlights.champion?.name || '?')}&background=random&size=160`; }}
               />
-              <div class="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center shadow-lg">
+              <div class="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-gold flex items-center justify-center shadow-lg">
                 <svg class="w-4 h-4 text-space-900" fill="currentColor" viewBox="0 0 20 20">
                   <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
                 </svg>
@@ -4237,7 +3685,7 @@
             
             <!-- Champion Info -->
             <div class="flex-1 min-w-0">
-              <div class="text-xs font-bold text-yellow-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+              <div class="text-xs font-bold text-gold uppercase tracking-wider mb-1 flex items-center gap-2">
                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M5 3h14v2h-1v1c0 2.21-1.79 4-4 4h-4c-2.21 0-4-1.79-4-4V5H5V3zm2 3h10V5H7v1zm8 7c.55 0 1 .45 1 1v2h-1v4h-6v-4H8v-2c0-.55.45-1 1-1h6z"/>
                 </svg>
@@ -4245,10 +3693,10 @@
               </div>
               <h2 class="text-3xl font-black text-white mb-2">{soloPlayerHighlights.champion.name}</h2>
               <div class="flex items-center gap-4 flex-wrap">
-                <span class="text-yellow-400 font-bold">{soloPlayerHighlights.champion.winRate}% Win Rate</span>
+                <span class="text-gold font-bold">{soloPlayerHighlights.champion.winRate}% Win Rate</span>
                 <span class="text-gray-400">{soloPlayerHighlights.champion.matchesWon}W - {soloPlayerHighlights.champion.matchesLost}L</span>
                 {#if soloPlayerHighlights.runnerUp}
-                  <span class="text-gray-500">|</span>
+                  <span class="text-ink-faint">|</span>
                   <span class="text-gray-400">
                     Defeated <span class="text-gray-200 font-bold">{soloPlayerHighlights.runnerUp.name}</span> in Finals
                   </span>
@@ -4261,7 +3709,7 @@
 
       <!-- Tournament Overview (shown for solo tournaments only) -->
       {#if !isTeamBased && tournamentOverview && matchStats}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-cyan/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
             <svg class="w-6 h-6 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -4269,20 +3717,20 @@
             Tournament Overview
           </h2>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="bg-space-700/50 rounded-lg p-4 text-center border border-brand-cyan/20">
+            <div class="bg-space-700/50 rounded-lg p-4 text-center border border-white/10">
               <div class="text-3xl font-black text-brand-cyan">{tournamentOverview.playerCount}</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Players</div>
             </div>
-            <div class="bg-space-700/50 rounded-lg p-4 text-center border border-brand-orange/20">
+            <div class="bg-space-700/50 rounded-lg p-4 text-center border border-white/10">
               <div class="text-3xl font-black text-brand-orange">{matchStats.totalMatches}</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Total Matches</div>
             </div>
-            <div class="bg-space-700/50 rounded-lg p-4 text-center border border-brand-purple/20">
-              <div class="text-3xl font-black text-brand-purple">{matchStats.completedMatches}</div>
+            <div class="bg-space-700/50 rounded-lg p-4 text-center border border-white/10">
+              <div class="text-3xl font-black text-deep-soft">{matchStats.completedMatches}</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Completed</div>
             </div>
-            <div class="bg-space-700/50 rounded-lg p-4 text-center border border-green-500/20">
-              <div class="text-3xl font-black text-green-400">{matchStats.completionRate}%</div>
+            <div class="bg-space-700/50 rounded-lg p-4 text-center border border-win/20">
+              <div class="text-3xl font-black text-win">{matchStats.completionRate}%</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Progress</div>
             </div>
           </div>
@@ -4291,7 +3739,7 @@
 
       <!-- Tournament Highlights (shown for solo tournaments only - team tournaments show this at top) -->
       {#if !isTeamBased && advancedStats && matchStats}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-cyan/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
             <svg class="w-5 h-5 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
@@ -4303,22 +3751,22 @@
 
             <!-- Most Dominant Performances - not relevant for win-only games -->
             {#if !isWinOnly && advancedStats.mostDominantList && advancedStats.mostDominantList.length > 0}
-              <div class="bg-gradient-to-br from-red-900/30 to-red-800/20 rounded-lg p-3 border border-red-500/20">
+              <div class="bg-loss/15 rounded-lg p-3 border border-loss/20">
                 <div class="flex items-center gap-2 mb-2">
-                  <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-4 h-4 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                   </svg>
-                  <div class="text-xs font-bold text-red-400 uppercase">Most Dominant Performances</div>
+                  <div class="text-xs font-bold text-loss uppercase">Most Dominant Performances</div>
                 </div>
                 <div class="space-y-1">
                   {#each advancedStats.mostDominantList.slice(0, 5) as performance}
-                    <div class="flex items-center justify-between bg-red-900/20 rounded px-2 py-0.5">
+                    <div class="flex items-center justify-between bg-space-900/40 rounded px-2 py-0.5">
                       <div class="text-white text-xs truncate flex-1">
                         {performance.player} vs {performance.opponent}
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
-                        <span class="text-xs text-gray-400">{performance.score}</span>
-                        <span class="text-xs text-red-400 font-bold">+{performance.margin}</span>
+                        <span class="text-xs text-ink-muted">{performance.score}</span>
+                        <span class="text-xs text-loss font-bold">+{performance.margin}</span>
                       </div>
                     </div>
                   {/each}
@@ -4328,22 +3776,22 @@
 
             <!-- Closest Matches - not relevant for win-only games -->
             {#if !isWinOnly && advancedStats.closestMatches.length > 0}
-              <div class="bg-gradient-to-br from-yellow-900/30 to-yellow-800/20 rounded-lg p-3 border border-yellow-500/20">
+              <div class="bg-gold/15 rounded-lg p-3 border border-gold/20">
                 <div class="flex items-center gap-2 mb-2">
-                  <svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
-                  <div class="text-xs font-bold text-yellow-400 uppercase">Closest Matches</div>
+                  <div class="text-xs font-bold text-gold uppercase">Closest Matches</div>
                 </div>
                 <div class="space-y-1">
                   {#each advancedStats.closestMatches.slice(0, 5) as match}
-                    <div class="flex items-center justify-between bg-yellow-900/20 rounded px-2 py-0.5">
+                    <div class="flex items-center justify-between bg-space-900/40 rounded px-2 py-0.5">
                       <div class="text-white text-xs truncate flex-1">
                         {match.winner} vs {match.loser}
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
-                        <span class="text-xs text-gray-400">{match.score}</span>
-                        <span class="text-xs text-yellow-400 font-bold">±{match.margin}</span>
+                        <span class="text-xs text-ink-muted">{match.score}</span>
+                        <span class="text-xs text-gold font-bold">±{match.margin}</span>
                       </div>
                     </div>
                   {/each}
@@ -4353,7 +3801,7 @@
 
             <!-- Total Score Stats - not relevant for win-only games -->
             {#if !isWinOnly}
-            <div class="bg-gradient-to-br from-brand-cyan/20 to-brand-cyan/10 rounded-lg p-4 border border-brand-cyan/20">
+            <div class="bg-space-600 rounded-lg p-4 border border-white/10">
               <div class="flex items-center gap-2 mb-2">
                 <svg class="w-4 h-4 text-brand-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
@@ -4367,7 +3815,7 @@
 
             <!-- Highest Score - not relevant for win-only games -->
             {#if !isWinOnly}
-            <div class="bg-gradient-to-br from-brand-orange/20 to-brand-orange/10 rounded-lg p-4 border border-brand-orange/20">
+            <div class="bg-space-600 rounded-lg p-4 border border-white/10">
               <div class="flex items-center gap-2 mb-2">
                 <svg class="w-4 h-4 text-brand-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
@@ -4380,12 +3828,12 @@
             {/if}
 
             <!-- Bracket Stats -->
-            <div class="bg-gradient-to-br from-brand-purple/20 to-brand-purple/10 rounded-lg p-4 border border-brand-purple/20">
+            <div class="bg-space-600 rounded-lg p-4 border border-white/10">
               <div class="flex items-center gap-2 mb-2">
-                <svg class="w-4 h-4 text-brand-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-4 h-4 text-deep-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
                 </svg>
-                <div class="text-xs font-bold text-brand-purple uppercase">Playoffs</div>
+                <div class="text-xs font-bold text-deep-soft uppercase">Playoffs</div>
               </div>
               <div class="text-white font-bold text-2xl mb-1">{matchStats.bracketSeries || 0}</div>
               <div class="text-xs text-gray-400">{matchStats.bracketMatches || 0} maps played</div>
@@ -4396,9 +3844,9 @@
 
       <!-- Player Highlights (solo tournaments only) -->
       {#if !isTeamBased && soloPlayerHighlights}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-purple/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-            <svg class="w-6 h-6 text-brand-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-6 h-6 text-deep-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
             </svg>
             Player Highlights
@@ -4407,10 +3855,10 @@
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <!-- Champion -->
             {#if soloPlayerHighlights.champion}
-              <div class="bg-gradient-to-br from-yellow-900/40 to-yellow-800/20 rounded-lg p-4 border border-yellow-500/30 relative overflow-hidden group">
+              <div class="bg-gold/15 rounded-lg p-4 border border-gold/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('champion')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-yellow-500/20 text-yellow-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-yellow-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-gold/20 text-gold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gold/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4421,21 +3869,21 @@
                   <img 
                     src={getPlayerImageUrl(soloPlayerHighlights.champion.name)} 
                     alt={soloPlayerHighlights.champion.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-yellow-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-gold/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(soloPlayerHighlights.champion?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                      <svg class="w-4 h-4 text-gold" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
                       </svg>
-                      <span class="text-xs font-bold text-yellow-400 uppercase tracking-wider">Champion</span>
+                      <span class="text-xs font-bold text-gold uppercase tracking-wider">Champion</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{soloPlayerHighlights.champion.name}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-yellow-500/20">
-                  <span class="text-yellow-400 font-bold">{soloPlayerHighlights.champion.winRate}% Win Rate</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-gold/20">
+                  <span class="text-gold font-bold">{soloPlayerHighlights.champion.winRate}% Win Rate</span>
                   <span class="text-gray-400">{soloPlayerHighlights.champion.matchesWon}W-{soloPlayerHighlights.champion.matchesLost}L</span>
                 </div>
               </div>
@@ -4443,7 +3891,7 @@
 
             <!-- Runner Up -->
             {#if soloPlayerHighlights.runnerUp}
-              <div class="bg-gradient-to-br from-gray-700/40 to-gray-600/20 rounded-lg p-4 border border-gray-400/30 relative overflow-hidden group">
+              <div class="bg-space-600 rounded-lg p-4 border border-gray-400/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('runnerUp')}
                   class="absolute top-2 right-2 p-1.5 rounded-full bg-gray-500/20 text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-500/30"
@@ -4479,10 +3927,10 @@
 
             <!-- Most Consistent -->
             {#if soloPlayerHighlights.mostConsistent}
-              <div class="bg-gradient-to-br from-emerald-900/40 to-emerald-800/20 rounded-lg p-4 border border-emerald-500/30 relative overflow-hidden group">
+              <div class="bg-win/15 rounded-lg p-4 border border-win/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('mostConsistent')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-emerald-500/20 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-emerald-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-win/20 text-win opacity-0 group-hover:opacity-100 transition-opacity hover:bg-win/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4493,21 +3941,21 @@
                   <img 
                     src={getPlayerImageUrl(soloPlayerHighlights.mostConsistent.name)} 
                     alt={soloPlayerHighlights.mostConsistent.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-emerald-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-win/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(soloPlayerHighlights.mostConsistent?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-win" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                       </svg>
-                      <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">Mr. Consistent</span>
+                      <span class="text-xs font-bold text-win uppercase tracking-wider">Mr. Consistent</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{soloPlayerHighlights.mostConsistent.name}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-emerald-500/20">
-                  <span class="text-emerald-400 font-bold">{Math.round(soloPlayerHighlights.mostConsistent.consistencyScore / 10)}/10 Score</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-win/20">
+                  <span class="text-win font-bold">{Math.round(soloPlayerHighlights.mostConsistent.consistencyScore / 10)}/10 Score</span>
                   <span class="text-gray-400">{soloPlayerHighlights.mostConsistent.matchesPlayed} games</span>
                 </div>
               </div>
@@ -4515,10 +3963,10 @@
 
             <!-- Clutch Master -->
             {#if soloPlayerHighlights.clutchMaster}
-              <div class="bg-gradient-to-br from-purple-900/40 to-purple-800/20 rounded-lg p-4 border border-purple-500/30 relative overflow-hidden group">
+              <div class="bg-deep/15 rounded-lg p-4 border border-white/10 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('clutchMaster')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-purple-500/20 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-purple-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-deep/20 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity hover:bg-deep/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4529,21 +3977,21 @@
                   <img 
                     src={getPlayerImageUrl(soloPlayerHighlights.clutchMaster.name)} 
                     alt={soloPlayerHighlights.clutchMaster.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-purple-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-deep/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(soloPlayerHighlights.clutchMaster?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                       </svg>
-                      <span class="text-xs font-bold text-purple-400 uppercase tracking-wider">Clutch King</span>
+                      <span class="text-xs font-bold text-ink-muted uppercase tracking-wider">Clutch King</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{soloPlayerHighlights.clutchMaster.name}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-purple-500/20">
-                  <span class="text-purple-400 font-bold">{soloPlayerHighlights.clutchMaster.clutchRate}% Clutch</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-white/10">
+                  <span class="text-ink-muted font-bold">{soloPlayerHighlights.clutchMaster.clutchRate}% Clutch</span>
                   <span class="text-gray-400">{soloPlayerHighlights.clutchMaster.closeWins}W in close games</span>
                 </div>
               </div>
@@ -4551,10 +3999,10 @@
 
             <!-- Top Scorer (only for score-based games) -->
             {#if !isWinOnly && soloPlayerHighlights.topScorer}
-              <div class="bg-gradient-to-br from-red-900/40 to-red-800/20 rounded-lg p-4 border border-red-500/30 relative overflow-hidden group">
+              <div class="bg-loss/15 rounded-lg p-4 border border-loss/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('topScorer')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-red-500/20 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-loss/20 text-loss opacity-0 group-hover:opacity-100 transition-opacity hover:bg-loss/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4565,21 +4013,21 @@
                   <img 
                     src={getPlayerImageUrl(soloPlayerHighlights.topScorer.name)} 
                     alt={soloPlayerHighlights.topScorer.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-red-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-loss/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(soloPlayerHighlights.topScorer?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
                       </svg>
-                      <span class="text-xs font-bold text-red-400 uppercase tracking-wider">Top Scorer</span>
+                      <span class="text-xs font-bold text-loss uppercase tracking-wider">Top Scorer</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{soloPlayerHighlights.topScorer.name}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-red-500/20">
-                  <span class="text-red-400 font-bold">{soloPlayerHighlights.topScorer.score} {isKillBased ? 'Kills' : isHealthBased ? 'HP' : isPointsBased ? 'Pts' : 'Rounds'}</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-loss/20">
+                  <span class="text-loss font-bold">{soloPlayerHighlights.topScorer.score} {isKillBased ? 'Kills' : isHealthBased ? 'HP' : isPointsBased ? 'Pts' : 'Rounds'}</span>
                   <span class="text-gray-400">in {soloPlayerHighlights.topScorer.matchesPlayed} games</span>
                 </div>
               </div>
@@ -4587,10 +4035,10 @@
 
             <!-- Best Single Game (only for score-based games) -->
             {#if !isWinOnly && soloPlayerHighlights.bestSingleGame}
-              <div class="bg-gradient-to-br from-cyan-900/40 to-cyan-800/20 rounded-lg p-4 border border-cyan-500/30 relative overflow-hidden group">
+              <div class="bg-accent/15 rounded-lg p-4 border border-white/10 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('bestSingleGame')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-cyan-500/20 text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-cyan-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-accent/20 text-accent opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4601,21 +4049,21 @@
                   <img 
                     src={getPlayerImageUrl(soloPlayerHighlights.bestSingleGame.playerName)} 
                     alt={soloPlayerHighlights.bestSingleGame.playerName}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-cyan-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-accent/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(soloPlayerHighlights.bestSingleGame?.playerName || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
                       </svg>
-                      <span class="text-xs font-bold text-cyan-400 uppercase tracking-wider">Best Game</span>
+                      <span class="text-xs font-bold text-accent uppercase tracking-wider">Best Game</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{soloPlayerHighlights.bestSingleGame.playerName}</div>
                   </div>
                 </div>
-                <div class="flex flex-col gap-1 text-sm mt-3 pt-2 border-t border-cyan-500/20">
-                  <span class="text-cyan-400 font-bold">{soloPlayerHighlights.bestSingleGame.score} {isKillBased ? 'Kills' : isHealthBased ? 'HP' : isPointsBased ? 'Pts' : 'Rounds'}</span>
+                <div class="flex flex-col gap-1 text-sm mt-3 pt-2 border-t border-white/10">
+                  <span class="text-accent font-bold">{soloPlayerHighlights.bestSingleGame.score} {isKillBased ? 'Kills' : isHealthBased ? 'HP' : isPointsBased ? 'Pts' : 'Rounds'}</span>
                   <span class="text-gray-400 text-xs truncate">vs {soloPlayerHighlights.bestSingleGame.opponent} on {soloPlayerHighlights.bestSingleGame.mapName}</span>
                 </div>
               </div>
@@ -4623,10 +4071,10 @@
 
             <!-- Most Dominant (for win-only games, show this instead of Top Scorer) -->
             {#if isWinOnly && soloPlayerHighlights.mostDominant}
-              <div class="bg-gradient-to-br from-red-900/40 to-red-800/20 rounded-lg p-4 border border-red-500/30 relative overflow-hidden group">
+              <div class="bg-loss/15 rounded-lg p-4 border border-loss/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('mostDominant')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-red-500/20 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-loss/20 text-loss opacity-0 group-hover:opacity-100 transition-opacity hover:bg-loss/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4637,21 +4085,21 @@
                   <img 
                     src={getPlayerImageUrl(soloPlayerHighlights.mostDominant.name)} 
                     alt={soloPlayerHighlights.mostDominant.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-red-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-loss/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(soloPlayerHighlights.mostDominant?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
                       </svg>
-                      <span class="text-xs font-bold text-red-400 uppercase tracking-wider">Most Dominant</span>
+                      <span class="text-xs font-bold text-loss uppercase tracking-wider">Most Dominant</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{soloPlayerHighlights.mostDominant.name}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-red-500/20">
-                  <span class="text-red-400 font-bold">{soloPlayerHighlights.mostDominant.winRate}% Win Rate</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-loss/20">
+                  <span class="text-loss font-bold">{soloPlayerHighlights.mostDominant.winRate}% Win Rate</span>
                   <span class="text-gray-400">{soloPlayerHighlights.mostDominant.matchesWon}W-{soloPlayerHighlights.mostDominant.matchesLost}L</span>
                 </div>
               </div>
@@ -4659,10 +4107,10 @@
 
             <!-- Survivor - Best average score per game (only for score-based games) -->
             {#if !isWinOnly && soloPlayerHighlights.survivor}
-              <div class="bg-gradient-to-br from-blue-900/40 to-blue-800/20 rounded-lg p-4 border border-blue-500/30 relative overflow-hidden group">
+              <div class="bg-deep/15 rounded-lg p-4 border border-white/10 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('survivor')}
-                  class="absolute top-2 right-2 p-1.5 rounded-full bg-blue-500/20 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-500/30"
+                  class="absolute top-2 right-2 p-1.5 rounded-full bg-deep/20 text-ink-muted opacity-0 group-hover:opacity-100 transition-opacity hover:bg-deep/30"
                   title="Share this card"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4673,21 +4121,21 @@
                   <img 
                     src={getPlayerImageUrl(soloPlayerHighlights.survivor.name)} 
                     alt={soloPlayerHighlights.survivor.name}
-                    class="w-14 h-14 rounded-full object-cover border-2 border-blue-500/50 shadow-lg"
+                    class="w-14 h-14 rounded-full object-cover border-2 border-deep/50 shadow-lg"
                     onerror={(e) => { (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(soloPlayerHighlights.survivor?.name || '?')}&background=random`; }}
                   />
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-1.5 mb-1">
-                      <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg class="w-4 h-4 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                       </svg>
-                      <span class="text-xs font-bold text-blue-400 uppercase tracking-wider">Survivor</span>
+                      <span class="text-xs font-bold text-ink-muted uppercase tracking-wider">Survivor</span>
                     </div>
                     <div class="text-white font-bold text-lg truncate">{soloPlayerHighlights.survivor.name}</div>
                   </div>
                 </div>
-                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-blue-500/20">
-                  <span class="text-blue-400 font-bold">{soloPlayerHighlights.survivor.avgScore} avg {isKillBased ? 'K' : isHealthBased ? 'HP' : isPointsBased ? 'pts' : 'rds'}/game</span>
+                <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-white/10">
+                  <span class="text-ink-muted font-bold">{soloPlayerHighlights.survivor.avgScore} avg {isKillBased ? 'K' : isHealthBased ? 'HP' : isPointsBased ? 'pts' : 'rds'}/game</span>
                   <span class="text-gray-400">{soloPlayerHighlights.survivor.matchesPlayed} games</span>
                 </div>
               </div>
@@ -4695,7 +4143,7 @@
 
             <!-- Worst Performer (Sacrificial Lamb) -->
             {#if soloPlayerHighlights.worstPerformer}
-              <div class="bg-gradient-to-br from-gray-800/60 to-gray-700/40 rounded-lg p-4 border border-gray-600/30 relative overflow-hidden group">
+              <div class="bg-space-600 rounded-lg p-4 border border-gray-600/30 relative overflow-hidden group">
                 <button 
                   onclick={() => openSoloShareModal('worstPerformer')}
                   class="absolute top-2 right-2 p-1.5 rounded-full bg-gray-600/20 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-600/30"
@@ -4724,7 +4172,7 @@
                 </div>
                 <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-gray-600/20">
                   <span class="text-gray-400 font-bold">{soloPlayerHighlights.worstPerformer.winRate}% Win Rate</span>
-                  <span class="text-gray-500">{soloPlayerHighlights.worstPerformer.matchesWon}W-{soloPlayerHighlights.worstPerformer.matchesLost}L</span>
+                  <span class="text-ink-faint">{soloPlayerHighlights.worstPerformer.matchesWon}W-{soloPlayerHighlights.worstPerformer.matchesLost}L</span>
                 </div>
               </div>
             {/if}
@@ -4734,7 +4182,7 @@
 
       <!-- Player Rankings (solo tournaments only - team tournaments have separate Player K/D tab) -->
       {#if !isTeamBased}
-      <div class="glass-card rounded-xl p-6 mb-6 border border-brand-orange/10">
+      <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
         <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
           <svg class="w-6 h-6 text-brand-orange" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
@@ -4747,10 +4195,10 @@
             <div class="flex items-center gap-3 p-3 rounded-lg bg-space-700/50 hover:bg-space-700 transition-colors border border-space-600/50">
               <!-- Rank -->
               <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0
-                {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900' :
-                 index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' :
-                 index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-space-900' :
-                 'bg-space-600 text-gray-400'}">
+                {index === 0 ? 'bg-gold text-space-900' :
+                 index === 1 ? 'bg-silver text-space-900' :
+                 index === 2 ? 'bg-bronze text-space-900' :
+                 'bg-space-600 text-ink-muted'}">
                 {index + 1}
               </div>
 
@@ -4764,7 +4212,7 @@
                 <div class="flex-1 min-w-0 space-y-1">
                   <div class="font-bold text-white truncate">{player.name}</div>
                   <div class="text-xs text-gray-400">
-                    {player.matchesPlayed} maps • 
+                    {player.matchesPlayed} maps 
                     {#if isKillBased}
                       {player.matchesWon}W-{player.matchesLost}L
                     {:else if isHealthBased}
@@ -4776,7 +4224,7 @@
                   <!-- Advanced Stats Pills -->
                   <div class="flex gap-2 flex-wrap">
                     {#if player.clutchRate !== undefined}
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-orange/20 text-brand-orange border border-brand-orange/30">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-orange/20 text-brand-orange border border-white/10">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                         </svg>
@@ -4784,7 +4232,7 @@
                       </span>
                     {/if}
                     {#if player.consistencyScore !== undefined}
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-purple/20 text-brand-purple border border-brand-purple/30">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-purple/20 text-deep-soft border border-white/10">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                         </svg>
@@ -4799,7 +4247,7 @@
                   {#if player.matchHistory && player.matchHistory.length > 0}
                     <button 
                       onclick={() => togglePlayerExpanded(player.id)}
-                      class="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold text-brand-cyan hover:text-brand-cyan/80 bg-brand-cyan/10 hover:bg-brand-cyan/20 transition-colors border border-brand-cyan/30"
+                      class="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold text-brand-cyan hover:text-brand-cyan/80 bg-brand-cyan/10 hover:bg-brand-cyan/20 transition-colors border border-white/10"
                     >
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -4816,136 +4264,136 @@
               {#if isWinOnly}
                 <!-- Win-only games: Simple win/loss stats -->
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-xl font-black text-green-400">{player.matchesWon}</div>
+                  <div class="text-xl font-black text-win">{player.matchesWon}</div>
                   <div class="text-xs text-gray-400">Wins</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-xl font-black text-red-400">{player.matchesLost}</div>
+                  <div class="text-xl font-black text-loss">{player.matchesLost}</div>
                   <div class="text-xs text-gray-400">Losses</div>
                 </div>
                 
                 <div class="text-center w-24 flex-shrink-0">
-                  <div class="text-lg font-bold text-cyan-400">{player.totalMatches}</div>
+                  <div class="text-lg font-bold text-accent">{player.totalMatches}</div>
                   <div class="text-xs text-gray-400">Total Matches</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-yellow-400">{player.winRate}%</div>
+                  <div class="text-lg font-bold text-gold">{player.winRate}%</div>
                   <div class="text-xs text-gray-400">Win Rate</div>
                 </div>
                 
               {:else if isKillBased}
                 <!-- Kill-based: Kill stats -->
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-xl font-black text-cyan-400">{player.totalKills}</div>
+                  <div class="text-xl font-black text-accent">{player.totalKills}</div>
                   <div class="text-xs text-gray-400">Kills</div>
                 </div>
                 
                 <div class="text-center w-16 flex-shrink-0">
-                  <div class="text-lg font-bold {player.killDiff > 0 ? 'text-green-400' : player.killDiff < 0 ? 'text-red-400' : 'text-gray-400'}">
+                  <div class="text-lg font-bold {player.killDiff > 0 ? 'text-win' : player.killDiff < 0 ? 'text-loss' : 'text-gray-400'}">
                     {player.killDiff > 0 ? '+' : ''}{player.killDiff}
                   </div>
                   <div class="text-xs text-gray-400">K/D</div>
                 </div>
                 
                 <div class="text-center w-16 flex-shrink-0">
-                  <div class="text-lg font-bold text-purple-400">{player.kdRatio}</div>
+                  <div class="text-lg font-bold text-ink-muted">{player.kdRatio}</div>
                   <div class="text-xs text-gray-400">Ratio</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-orange-400">{player.avgKillsPerMap}</div>
+                  <div class="text-lg font-bold text-ember">{player.avgKillsPerMap}</div>
                   <div class="text-xs text-gray-400">Avg/Map</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-yellow-400">{player.winRate}%</div>
+                  <div class="text-lg font-bold text-gold">{player.winRate}%</div>
                   <div class="text-xs text-gray-400">Win Rate</div>
                 </div>
                 
               {:else if isHealthBased}
                 <!-- Worms: HP stats -->
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-xl font-black text-cyan-400">{player.totalHP}</div>
+                  <div class="text-xl font-black text-accent">{player.totalHP}</div>
                   <div class="text-xs text-gray-400">Total HP</div>
                 </div>
                 
                 <div class="text-center w-16 flex-shrink-0">
-                  <div class="text-lg font-bold text-yellow-400">{player.roundsWon}</div>
+                  <div class="text-lg font-bold text-gold">{player.roundsWon}</div>
                   <div class="text-xs text-gray-400">Wins</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-purple-400">{player.avgHPPerWin}</div>
+                  <div class="text-lg font-bold text-ink-muted">{player.avgHPPerWin}</div>
                   <div class="text-xs text-gray-400">Avg HP/Win</div>
                 </div>
                 
                 <div class="text-center w-16 flex-shrink-0">
-                  <div class="text-lg font-bold text-orange-400">{player.bestRound}</div>
+                  <div class="text-lg font-bold text-ember">{player.bestRound}</div>
                   <div class="text-xs text-gray-400">Best</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-green-400">{player.winRate}%</div>
+                  <div class="text-lg font-bold text-win">{player.winRate}%</div>
                   <div class="text-xs text-gray-400">Win Rate</div>
                 </div>
                 
               {:else if isPointsBased}
                 <!-- Custom points stats -->
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-xl font-black text-cyan-400">{player.totalPoints}</div>
+                  <div class="text-xl font-black text-accent">{player.totalPoints}</div>
                   <div class="text-xs text-gray-400">Total Points</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold {player.pointsDiff > 0 ? 'text-green-400' : player.pointsDiff < 0 ? 'text-red-400' : 'text-gray-400'}">
+                  <div class="text-lg font-bold {player.pointsDiff > 0 ? 'text-win' : player.pointsDiff < 0 ? 'text-loss' : 'text-gray-400'}">
                     {player.pointsDiff > 0 ? '+' : ''}{player.pointsDiff}
                   </div>
                   <div class="text-xs text-gray-400">+/- Points</div>
                 </div>
                 
                 <div class="text-center w-16 flex-shrink-0">
-                  <div class="text-lg font-bold text-purple-400">{player.pointsWinRate}%</div>
+                  <div class="text-lg font-bold text-ink-muted">{player.pointsWinRate}%</div>
                   <div class="text-xs text-gray-400">Pts %</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-orange-400">{player.avgPointsPerMatch}</div>
+                  <div class="text-lg font-bold text-ember">{player.avgPointsPerMatch}</div>
                   <div class="text-xs text-gray-400">Avg/Match</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-yellow-400">{player.matchWinRate}%</div>
+                  <div class="text-lg font-bold text-gold">{player.matchWinRate}%</div>
                   <div class="text-xs text-gray-400">Match Win %</div>
                 </div>
                 
               {:else}
                 <!-- Rounds-based stats -->
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-xl font-black text-cyan-400">{player.totalRounds}</div>
+                  <div class="text-xl font-black text-accent">{player.totalRounds}</div>
                   <div class="text-xs text-gray-400">Rounds Won</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold {player.roundDiff > 0 ? 'text-green-400' : player.roundDiff < 0 ? 'text-red-400' : 'text-gray-400'}">
+                  <div class="text-lg font-bold {player.roundDiff > 0 ? 'text-win' : player.roundDiff < 0 ? 'text-loss' : 'text-gray-400'}">
                     {player.roundDiff > 0 ? '+' : ''}{player.roundDiff}
                   </div>
                   <div class="text-xs text-gray-400">+/- Rounds</div>
                 </div>
                 
                 <div class="text-center w-16 flex-shrink-0">
-                  <div class="text-lg font-bold text-purple-400">{player.roundWinRate}%</div>
+                  <div class="text-lg font-bold text-ink-muted">{player.roundWinRate}%</div>
                   <div class="text-xs text-gray-400">Round %</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-orange-400">{player.avgRoundsPerMap}</div>
+                  <div class="text-lg font-bold text-ember">{player.avgRoundsPerMap}</div>
                   <div class="text-xs text-gray-400">Avg/Map</div>
                 </div>
                 
                 <div class="text-center w-20 flex-shrink-0">
-                  <div class="text-lg font-bold text-yellow-400">{player.matchWinRate}%</div>
+                  <div class="text-lg font-bold text-gold">{player.matchWinRate}%</div>
                   <div class="text-xs text-gray-400">Map Win %</div>
                 </div>
               {/if}
@@ -4986,27 +4434,27 @@
                         <div class="flex items-center justify-between">
                           <div class="flex-1">
                             <div class="flex items-center gap-2 flex-wrap">
-                              <span class="text-xs font-bold uppercase {match.stage === 'Playoffs' ? 'text-purple-400' : 'text-blue-400'}">
+                              <span class="text-xs font-bold uppercase {match.stage === 'Playoffs' ? 'text-ink-muted' : 'text-ink-muted'}">
                                 {match.stage}
                               </span>
                               <span class="text-white font-semibold">vs {match.opponent}</span>
                               {#if match.isSeries}
-                                <span class="text-xs text-gray-500">• Game {match.gameNumber}</span>
+                                <span class="text-xs text-ink-faint">Game {match.gameNumber}</span>
                               {/if}
                               {#if match.mapName}
-                                <span class="text-xs text-cyan-400">• {match.mapName}</span>
+                                <span class="text-xs text-ink-muted">{match.mapName}</span>
                               {/if}
                             </div>
                             <div class="text-xs text-gray-400 mt-1 flex items-center gap-2">
                               <span>{match.round === 'group' ? 'Group Stage' : match.round.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</span>
                               {#if match.isSeries && match.seriesScore}
-                                <span class="text-purple-400 font-bold">• Series: {match.seriesScore}</span>
+                                <span class="text-ink-muted font-bold">Series: {match.seriesScore}</span>
                               {/if}
                             </div>
                           </div>
                           <div class="flex items-center gap-3">
                             <div class="text-right">
-                              <div class="text-lg font-bold {match.result === 'win' ? 'text-green-400' : match.result === 'loss' ? 'text-red-400' : 'text-yellow-400'}">
+                              <div class="text-lg font-bold {match.result === 'win' ? 'text-win' : match.result === 'loss' ? 'text-loss' : 'text-gold'}">
                                 {match.playerScore} - {match.opponentScore}
                               </div>
                               <div class="text-xs text-gray-400">
@@ -5015,15 +4463,15 @@
                             </div>
                             <div class="w-16 text-center flex-shrink-0">
                               {#if match.result === 'win'}
-                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-500/50">
+                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-win/[0.12] text-win border border-win/50">
                                   WIN
                                 </span>
                               {:else if match.result === 'loss'}
-                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/50">
+                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-loss/[0.12] text-loss border border-loss/50">
                                   LOSS
                                 </span>
                               {:else}
-                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/50">
+                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-gold/[0.12] text-gold border border-gold/50">
                                   TIE
                                 </span>
                               {/if}
@@ -5042,10 +4490,10 @@
 
       <!-- Points Progression Chart (solo tournaments only) -->
       {#if !isTeamBased && playerStats.length > 0}
-        <div class="glass-card rounded-xl p-6 mb-6 border border-brand-purple/10">
+        <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h2 class="text-xl font-bold text-white flex items-center gap-2">
-              <svg class="w-6 h-6 text-brand-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-6 h-6 text-deep-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
               </svg>
               Player Progression
@@ -5076,7 +4524,7 @@
       {/if}
     {:else}
       <div class="glass rounded-lg p-12 text-center">
-        <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-16 h-16 mx-auto mb-4 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>
         <p class="text-gray-400">No tournament data available</p>
@@ -5088,27 +4536,27 @@
   {#if showShareModal && selectedShareCard && (mvpHighlights || soloPlayerHighlights)}
     {@const cardData = isSoloShare ? (soloPlayerHighlights as any)?.[selectedShareCard] : (mvpHighlights as any)?.[selectedShareCard]}
     {@const soloCardConfigs: Record<string, any> = {
-      champion: { title: 'TOURNAMENT CHAMPION', color: 'from-yellow-500 to-amber-600', accent: 'yellow', glow: 'shadow-yellow-500/30', iconType: 'star' },
+      champion: { title: 'TOURNAMENT CHAMPION', color: 'from-gold to-gold', accent: 'yellow', glow: 'shadow-gold/30', iconType: 'star' },
       runnerUp: { title: 'RUNNER UP', color: 'from-gray-400 to-gray-500', accent: 'gray', glow: 'shadow-gray-400/30', iconType: 'medal' },
-      mostConsistent: { title: 'MR. CONSISTENT', color: 'from-emerald-500 to-teal-600', accent: 'emerald', glow: 'shadow-emerald-500/30', iconType: 'chart' },
-      clutchMaster: { title: 'CLUTCH KING', color: 'from-purple-500 to-pink-600', accent: 'purple', glow: 'shadow-purple-500/30', iconType: 'clock' },
-      topScorer: { title: 'TOP SCORER', color: 'from-red-500 to-orange-600', accent: 'red', glow: 'shadow-red-500/30', iconType: 'fire' },
-      bestSingleGame: { title: 'BEST SINGLE GAME', color: 'from-cyan-500 to-blue-600', accent: 'cyan', glow: 'shadow-cyan-500/30', iconType: 'trending' },
-      mostDominant: { title: 'MOST DOMINANT', color: 'from-red-500 to-orange-600', accent: 'red', glow: 'shadow-red-500/30', iconType: 'fire' },
-      survivor: { title: 'SURVIVOR', color: 'from-blue-500 to-cyan-600', accent: 'blue', glow: 'shadow-blue-500/30', iconType: 'shield' },
+      mostConsistent: { title: 'MR. CONSISTENT', color: 'from-win to-deep', accent: 'emerald', glow: 'shadow-win/30', iconType: 'chart' },
+      clutchMaster: { title: 'CLUTCH KING', color: 'from-deep to-deep', accent: 'purple', glow: 'shadow-deep/30', iconType: 'clock' },
+      topScorer: { title: 'TOP SCORER', color: 'from-loss to-ember', accent: 'red', glow: 'shadow-loss/30', iconType: 'fire' },
+      bestSingleGame: { title: 'BEST SINGLE GAME', color: 'from-accent to-deep', accent: 'cyan', glow: 'shadow-accent/30', iconType: 'trending' },
+      mostDominant: { title: 'MOST DOMINANT', color: 'from-loss to-ember', accent: 'red', glow: 'shadow-loss/30', iconType: 'fire' },
+      survivor: { title: 'SURVIVOR', color: 'from-deep to-accent', accent: 'blue', glow: 'shadow-deep/30', iconType: 'shield' },
       worstPerformer: { title: 'SACRIFICIAL LAMB', color: 'from-gray-500 to-gray-600', accent: 'gray', glow: 'shadow-gray-500/30', iconType: 'sad' }
     }}
     {@const teamCardConfigs: Record<string, any> = {
-      mvp: { title: 'TOURNAMENT MVP', color: 'from-yellow-500 to-amber-600', accent: 'yellow', glow: 'shadow-yellow-500/30', iconType: 'star' },
-      topKiller: { title: 'TOP FRAGGER', color: 'from-red-500 to-orange-600', accent: 'red', glow: 'shadow-red-500/30', iconType: 'lightning' },
-      killsPerGame: { title: 'THE TERMINATOR', color: 'from-orange-500 to-red-600', accent: 'orange', glow: 'shadow-orange-500/30', iconType: 'fire' },
-      survivor: { title: 'THE SURVIVOR', color: 'from-blue-500 to-cyan-600', accent: 'blue', glow: 'shadow-blue-500/30', iconType: 'shield' },
-      clutchPerformer: { title: 'CLUTCH KING', color: 'from-purple-500 to-pink-600', accent: 'purple', glow: 'shadow-purple-500/30', iconType: 'clock' },
-      bestSingleGame: { title: 'BEST SINGLE GAME', color: 'from-cyan-500 to-blue-600', accent: 'cyan', glow: 'shadow-cyan-500/30', iconType: 'trending' },
-      mostConsistent: { title: 'MR. CONSISTENT', color: 'from-emerald-500 to-teal-600', accent: 'emerald', glow: 'shadow-emerald-500/30', iconType: 'chart' },
+      mvp: { title: 'TOURNAMENT MVP', color: 'from-gold to-gold', accent: 'yellow', glow: 'shadow-gold/30', iconType: 'star' },
+      topKiller: { title: 'TOP FRAGGER', color: 'from-loss to-ember', accent: 'red', glow: 'shadow-loss/30', iconType: 'lightning' },
+      killsPerGame: { title: 'THE TERMINATOR', color: 'from-ember to-loss', accent: 'orange', glow: 'shadow-ember/30', iconType: 'fire' },
+      survivor: { title: 'THE SURVIVOR', color: 'from-deep to-accent', accent: 'blue', glow: 'shadow-deep/30', iconType: 'shield' },
+      clutchPerformer: { title: 'CLUTCH KING', color: 'from-deep to-deep', accent: 'purple', glow: 'shadow-deep/30', iconType: 'clock' },
+      bestSingleGame: { title: 'BEST SINGLE GAME', color: 'from-accent to-deep', accent: 'cyan', glow: 'shadow-accent/30', iconType: 'trending' },
+      mostConsistent: { title: 'MR. CONSISTENT', color: 'from-win to-deep', accent: 'emerald', glow: 'shadow-win/30', iconType: 'chart' },
       worstKD: { title: 'NEEDS PRACTICE', color: 'from-gray-500 to-gray-600', accent: 'gray', glow: 'shadow-gray-500/30', iconType: 'sad' }
     }}
-    {@const cardConfig = (isSoloShare ? soloCardConfigs[selectedShareCard] : teamCardConfigs[selectedShareCard]) || { title: 'PLAYER STATS', color: 'from-cyan-500 to-blue-600', accent: 'cyan', glow: 'shadow-cyan-500/30', iconType: 'star' }}
+    {@const cardConfig = (isSoloShare ? soloCardConfigs[selectedShareCard] : teamCardConfigs[selectedShareCard]) || { title: 'PLAYER STATS', color: 'from-accent to-deep', accent: 'cyan', glow: 'shadow-accent/30', iconType: 'star' }}
     <div 
       class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4"
       onclick={closeShareModal}
@@ -5156,11 +4604,11 @@
                 if (cardData.winRate !== undefined) stats.push({ value: `${cardData.winRate}%`, label: 'Win Rate', colorClass: 'text-cyber-green' });
                 if (cardData.matchesWon !== undefined) stats.push({ value: String(cardData.matchesWon), label: 'Wins', colorClass: 'text-cyber-green' });
                 if (cardData.matchesLost !== undefined) stats.push({ value: String(cardData.matchesLost), label: 'Losses', colorClass: 'text-brand-orange' });
-                if (cardData.consistencyScore !== undefined && stats.length < 3) stats.push({ value: `${Math.round(cardData.consistencyScore / 10)}/10`, label: 'Consistency', colorClass: 'text-emerald-400' });
-                if (cardData.clutchRate !== undefined && stats.length < 3) stats.push({ value: `${cardData.clutchRate}%`, label: 'Clutch', colorClass: 'text-purple-400' });
-                if (cardData.closeWins !== undefined && stats.length < 3) stats.push({ value: String(cardData.closeWins), label: 'Close Wins', colorClass: 'text-purple-400' });
+                if (cardData.consistencyScore !== undefined && stats.length < 3) stats.push({ value: `${Math.round(cardData.consistencyScore / 10)}/10`, label: 'Consistency', colorClass: 'text-win' });
+                if (cardData.clutchRate !== undefined && stats.length < 3) stats.push({ value: `${cardData.clutchRate}%`, label: 'Clutch', colorClass: 'text-ink-muted' });
+                if (cardData.closeWins !== undefined && stats.length < 3) stats.push({ value: String(cardData.closeWins), label: 'Close Wins', colorClass: 'text-ink-muted' });
                 if (cardData.score !== undefined && stats.length < 3) stats.push({ value: String(cardData.score), label: 'Total Score', colorClass: 'text-brand-cyan' });
-                if (cardData.avgScore !== undefined && stats.length < 3) stats.push({ value: String(cardData.avgScore), label: 'Avg/Game', colorClass: 'text-blue-400' });
+                if (cardData.avgScore !== undefined && stats.length < 3) stats.push({ value: String(cardData.avgScore), label: 'Avg/Game', colorClass: 'text-ink-muted' });
                 if (cardData.matchesPlayed !== undefined && stats.length < 3) stats.push({ value: String(cardData.matchesPlayed), label: 'Games', colorClass: 'text-white' });
               }
             } else {
@@ -5168,16 +4616,16 @@
               if (cardData.kills !== undefined) stats.push({ value: String(cardData.kills), label: 'Kills', colorClass: 'text-brand-cyan' });
               if (cardData.deaths !== undefined) stats.push({ value: String(cardData.deaths), label: 'Deaths', colorClass: 'text-brand-orange' });
               if (cardData.games !== undefined && !cardData.kd && stats.length < 3) stats.push({ value: String(cardData.games), label: 'Games', colorClass: 'text-white' });
-              if (cardData.clutchGames !== undefined && stats.length < 3) stats.push({ value: String(cardData.clutchGames), label: 'Clutch', colorClass: 'text-purple-400' });
-              if (cardData.avg !== undefined && stats.length < 3) stats.push({ value: cardData.avg.toFixed(1), label: 'K/Game', colorClass: 'text-orange-400' });
-              if (cardData.avgDeaths !== undefined && stats.length < 3) stats.push({ value: cardData.avgDeaths.toFixed(1), label: 'D/Game', colorClass: 'text-blue-400' });
+              if (cardData.clutchGames !== undefined && stats.length < 3) stats.push({ value: String(cardData.clutchGames), label: 'Clutch', colorClass: 'text-ink-muted' });
+              if (cardData.avg !== undefined && stats.length < 3) stats.push({ value: cardData.avg.toFixed(1), label: 'K/Game', colorClass: 'text-ember' });
+              if (cardData.avgDeaths !== undefined && stats.length < 3) stats.push({ value: cardData.avgDeaths.toFixed(1), label: 'D/Game', colorClass: 'text-ink-muted' });
             }
             return stats.slice(0, 3);
           })()}
           <div class="p-5 flex justify-center">
             <div 
               bind:this={shareCardRef}
-              class="relative bg-gradient-to-br from-space-900 via-space-800 to-space-900 rounded-xl overflow-hidden shadow-2xl {cardConfig.glow}"
+              class="relative bg-space-600 rounded-xl overflow-hidden shadow-2xl {cardConfig.glow}"
               style="width: 400px;"
             >
               <!-- Decorative top gradient bar -->
@@ -5194,7 +4642,7 @@
                     </div>
                   </div>
                   <div class="text-right">
-                    <div class="text-[10px] text-gray-500 uppercase tracking-wider">Tournament</div>
+                    <div class="text-[10px] text-ink-faint uppercase tracking-wider">Tournament</div>
                     <div class="text-xs text-white font-semibold truncate max-w-[120px]">{tournamentData?.name || 'Tournament'}</div>
                   </div>
                 </div>
@@ -5277,7 +4725,7 @@
                   {#each previewStats as stat}
                     <div class="bg-space-800/80 rounded-lg p-3 text-center border border-space-700/50">
                       <div class="text-xl font-black {stat.colorClass} truncate">{stat.value}</div>
-                      <div class="text-[10px] text-gray-500 uppercase tracking-wider font-bold">{stat.label}</div>
+                      <div class="text-[10px] text-ink-faint uppercase tracking-wider font-bold">{stat.label}</div>
                     </div>
                   {/each}
                 </div>
@@ -5287,12 +4735,12 @@
               <div class="px-5 py-3 bg-space-800/50 border-t border-space-700/30 flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <span class="text-[10px] text-gray-400 font-semibold">{gameConfig?.name || 'Game'}</span>
-                  <span class="text-gray-600">•</span>
-                  <span class="text-[10px] text-gray-500">{isTeamBased ? 'Team Tournament' : '1v1 Tournament'}</span>
+                  <span class="sep" aria-hidden="true"></span>
+                  <span class="text-[10px] text-ink-faint">{isTeamBased ? 'Team Tournament' : '1v1 Tournament'}</span>
                 </div>
                 <div class="flex items-center gap-1.5">
                   <img src={logoImg} alt="AI Dept" class="w-3.5 h-3.5 opacity-70" />
-                  <span class="text-[10px] text-gray-500">AI Department</span>
+                  <span class="text-[10px] text-ink-faint">AI Department</span>
                 </div>
               </div>
             </div>
@@ -5303,7 +4751,7 @@
         <div class="p-4 border-t border-space-700 bg-space-800/30 flex gap-3">
           <button 
             onclick={copyShareCard}
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-brand-cyan to-brand-blue hover:from-brand-cyan/90 hover:to-brand-blue/90 text-white rounded-xl font-bold transition-all shadow-lg shadow-brand-cyan/20 hover:shadow-brand-cyan/30 hover:scale-[1.02]"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-space-600  text-white rounded-xl font-bold transition-all shadow-lg shadow-brand-cyan/20 hover:shadow-brand-cyan/30 hover:scale-[1.02]"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
