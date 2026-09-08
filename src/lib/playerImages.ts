@@ -76,6 +76,21 @@ export function getPlayerImageUrl(playerName: string): string {
 }
 
 /**
+ * Resolve the avatar to render for a player.
+ *
+ * An uploaded photo is stored as a data: URL and always wins. Anything else is
+ * ignored on purpose: older versions persisted the bundled asset URL at the
+ * moment the player was added, and that URL carries Vite's content hash, so it
+ * 404s after the next production build. Falling back to the name lookup always
+ * resolves against the current build.
+ */
+export function resolvePlayerAvatar(player: { name?: string; profilePhoto?: string } | null | undefined): string {
+    const stored = player?.profilePhoto;
+    if (typeof stored === 'string' && stored.startsWith('data:')) return stored;
+    return getPlayerImageUrl(player?.name ?? '');
+}
+
+/**
  * Check if a player has a custom image (not the default Cat)
  */
 export function hasCustomImage(playerName: string): boolean {

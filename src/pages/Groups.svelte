@@ -18,6 +18,7 @@
   let mapPool = $state([]) as string[];
   let groupStageRoundLimit = $state<number | undefined>(undefined);
   let useCustomPoints = $state(false);
+  let canEdit = $state(false);
 
   // Team tournament support
   let isTeamBased = $state(false);
@@ -168,16 +169,6 @@
     return participantCount === 2 && podsEmpty;
   });
   
-  // Debug logging with $effect
-  $effect(() => {
-    console.log('[Groups] Reactive update - currentRound:', currentRound);
-    console.log('[Groups] Reactive update - matches count:', isTeamBased ? teamMatches.length : matches.length);
-    console.log('[Groups] Reactive update - currentRoundMatches count:', currentRoundMatches.length);
-    console.log('[Groups] Reactive update - matchScores:', matchScores);
-    console.log('[Groups] Reactive update - pods:', isTeamBased ? teamPods.length : pods.length);
-    console.log('[Groups] Reactive update - isTeamBased:', isTeamBased);
-  });
-
   // Track if we've done initial auto-advance
   let hasAutoAdvanced = $state(false);
 
@@ -191,7 +182,6 @@
         const roundComplete = isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round);
         if (!roundComplete) {
           if (round !== currentRound) {
-            console.log(`[Groups] Initial load: advancing to first incomplete round ${round}`);
             currentRound = round;
           }
           break;
@@ -202,23 +192,7 @@
   });
 
   async function loadState() {
-    console.log('[Groups] loadState() called');
     const data = await getState(tournamentId);
-    console.log('[Groups] loadState() received data:', {
-      podsCount: data.pods.length,
-      matchesCount: data.matches.length,
-      playersCount: data.players.length,
-      state: data.state,
-      mapPoolLength: data.mapPool?.length || 0,
-      useCustomPoints: data.useCustomPoints,
-      groupStageRoundLimit: data.groupStageRoundLimit,
-      gameType: data.gameType,
-      isTeamBased: data.isTeamBased,
-      teamsCount: data.teams?.length || 0,
-      teamPodsCount: data.teamPods?.length || 0,
-      teamMatchesCount: data.teamMatches?.length || 0,
-      playerStatisticsCount: Object.keys(data.playerStatistics || {}).length
-    });
 
     // With $state, direct assignment triggers reactivity
     pods = data.pods;
@@ -229,6 +203,7 @@
     mapPool = data.mapPool || [];
     groupStageRoundLimit = data.groupStageRoundLimit;
     useCustomPoints = data.useCustomPoints || false;
+    canEdit = data.isAdmin === true;
     
     // Team tournament data
     isTeamBased = data.isTeamBased || false;
@@ -296,8 +271,6 @@
         }
     });
 
-    console.log('[Groups] loadState() complete - matchScores:', matchScores);
-    console.log('[Groups] loadState() complete - mapPool:', mapPool);
     
     // Ensure currentRound is valid after loading
     const loadedMatches = isTeamBased ? teamMatches : matches;
@@ -527,7 +500,6 @@
   }
 
   async function submitMatchResult(matchId: string, match: any) {
-      console.log('[Groups] submitMatchResult called:', matchId);
       const scores = matchScores[matchId];
       if (!scores || !isValidScore(matchId)) return;
 
@@ -553,16 +525,17 @@
         payload.mapName = selectedMap;
       }
 
-      console.log('[Groups] submitMatchResult - submitting:', payload);
-      await submitMatch(tournamentId, matchId, results, selectedMap);
-      console.log('[Groups] submitMatchResult - match submitted, reloading state');
+      try {
+        await submitMatch(tournamentId, matchId, results, selectedMap);
+      } catch (error: any) {
+        showError(error.message || 'Failed to submit the match result');
+        return;
+      }
       await loadState();
-      console.log('[Groups] submitMatchResult complete');
   }
   
   // Submit team match result with player K/D stats
   async function submitTeamMatch(matchId: string, match: any) {
-    console.log('[Groups] submitTeamMatch called:', matchId);
     const scores = matchScores[matchId];
     if (!scores) return;
     
@@ -589,7 +562,6 @@
     
     try {
       await submitTeamMatchResult(tournamentId, matchId, team1Score, team2Score, [game]);
-      console.log('[Groups] submitTeamMatch - submitted, reloading state');
       expandedMatchId = null;
       await loadState();
     } catch (error: any) {
@@ -604,9 +576,7 @@
     confirmButtonText = 'Generate';
     pendingAction = async () => {
       try {
-        console.log('[Groups] Generating brackets...');
         await generateBrackets(tournamentId);
-        console.log('[Groups] Brackets generated, redirecting...');
         window.location.href = `/tournament/${tournamentId}/brackets`;
       } catch (error) {
         console.error('[Groups] Error generating brackets:', error);
@@ -665,7 +635,6 @@
     // For team tournaments, teamPods contain the groups
     const groups: Record<string, any[]> = {};
     
-    console.log('[Groups] getGroupsWithTeams - teamPods:', teamPods);
     
     teamPods.forEach((pod: any) => {
       const groupKey = pod.id;
@@ -680,7 +649,6 @@
       });
     });
     
-    console.log('[Groups] getGroupsWithTeams - groups:', groups);
     
     // Sort teams within each group by standings
     Object.keys(groups).forEach(key => {
@@ -698,6 +666,16 @@
 
   onMount(loadState);
 </script>
+
+{#if !canEdit}
+  <div class="max-w-7xl mx-auto px-4 pt-4">
+    <div class="flex items-center gap-3 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-4 py-2.5">
+      <svg class="w-4 h-4 text-brand-cyan flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+      <span class="text-sm text-brand-cyan font-semibold">Viewing live — only the organiser can enter results.</span>
+    </div>
+  </div>
+{/if}
+
 
 <div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3 flex flex-col">
   <div class="max-w-6xl mx-auto w-full">
@@ -717,7 +695,7 @@
         </div>
       </div>
       
-      {#if tournamentState === 'group' && (isTeamBased ? teamMatches.every((m: any) => m.completed) : matches.every(m => m.completed))}
+      {#if canEdit && tournamentState === 'group' && (isTeamBased ? teamMatches.every((m: any) => m.completed) : matches.every(m => m.completed))}
         <button 
           onclick={handleGenerateBrackets}
           class="bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold text-xs py-1.5 px-4 rounded-lg shadow-glow-orange hover:scale-105 transition-transform flex items-center gap-1.5"
@@ -817,15 +795,18 @@
                     {getGroupDisplayName(groupId)}
                   </span>
                   {#if tournamentState === 'registration'}
+                    {#if canEdit}
                     <button
                       class="ml-2 px-2 py-1 text-xs bg-brand-purple text-white rounded hover:bg-brand-cyan transition-colors"
                       onclick={() => startEditingGroup(groupId, getGroupDisplayName(groupId))}
                     >
                       Edit
                     </button>
+                    {/if}
                   {/if}
                 </div>
               {/if}
+              {#if canEdit}
               <button
                 onclick={() => handleResetGroup(groupId)}
                 class="px-2 py-1 text-xs bg-gradient-to-r from-red-600 to-orange-500 text-white rounded-lg font-bold shadow-md shadow-red-500/20 hover:shadow-red-500/40 hover:scale-105 transition-all duration-300 border border-red-400/30"
@@ -835,6 +816,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
               </button>
+              {/if}
             </div>
             <table class="w-full {isTeamBased ? 'text-sm' : 'text-xs'}">
               <thead>
@@ -1193,7 +1175,7 @@
                 {/if}
 
                 <!-- Submit Button -->
-                {#if !match.completed && isValidScore(match.id)}
+                {#if canEdit && !match.completed && isValidScore(match.id)}
                   <div class="mt-2 pt-2 border-t border-space-600">
                     {#if isTeamBased}
                       <button 
@@ -1228,6 +1210,7 @@
 
     <!-- Full Tournament Reset Button -->
     <div class="text-center pt-8 border-t border-space-600 mt-8">
+      {#if canEdit}
       <button
         onclick={() => handleResetTournament()}
         class="bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-red-500/30 hover:shadow-red-500/50 hover:scale-105 transition-all duration-300 border border-red-400/30"
@@ -1237,6 +1220,7 @@
         </svg>
         Reset Tournament Data
       </button>
+      {/if}
     </div>
     {/if}
   </div>

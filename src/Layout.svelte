@@ -2,18 +2,19 @@
   import './app.css';
   import logoImg from './assets/logo.png';
   import { onMount } from 'svelte';
+  import { getAdminStatus, signOutOwner } from '$lib/api';
   let { children, tournamentId } = $props();
 
-  let auth = $state({ authRequired: false, isAdmin: false });
+  let auth = $state({ authRequired: false, isAdmin: false, isOwner: false });
   onMount(async () => {
     try {
-      const res = await fetch('/api/admin/status');
-      if (res.ok) auth = await res.json();
+      auth = await getAdminStatus();
     } catch (e) { /* status unavailable — leave auth hidden */ }
   });
-  async function logout() {
-    await fetch('/api/logout', { method: 'POST' });
-    window.location.reload();
+  function signOut() {
+    // No session to destroy: forget the token this browser holds.
+    signOutOwner();
+    window.location.href = '/';
   }
 </script>
 
@@ -38,12 +39,13 @@
           <a href={`/tournament/${tournamentId}/statistics`} class="text-sm font-bold text-cyber-green hover:text-brand-orange hover:scale-105 transition-all duration-200">STATISTICS</a>
         {/if}
         {#if auth.authRequired}
-          {#if auth.isAdmin}
-            <button onclick={logout} class="text-sm font-bold text-brand-orange hover:text-cyber-green transition-colors">LOGOUT</button>
+          {#if auth.isOwner}
+            <button onclick={signOut} class="text-sm font-bold text-brand-orange hover:text-cyber-green transition-colors">SIGN OUT</button>
           {:else}
-            <a href="/login" class="text-sm font-bold text-brand-orange hover:text-cyber-green transition-colors">🔒 ADMIN</a>
+            <a href="/login" class="text-sm font-bold text-brand-orange hover:text-cyber-green transition-colors">🔒 ORGANISER</a>
           {/if}
         {/if}
+        <a href="/join" class="text-sm font-bold text-gray-400 hover:text-cyber-green transition-colors">JOIN</a>
       </div>
     </div>
   </div>

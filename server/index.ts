@@ -1,22 +1,19 @@
 import express from 'express';
 import { createClient } from 'redis';
-import cors from 'cors';
-import bodyParser from 'body-parser';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import session from 'express-session';
-import crypto from 'crypto';
 
 import { TournamentManager } from './tournament.js';
-import type { Team, TeamGameResult, PlayerGameStats } from '../shared/types.js';
-import { type GameType, GAME_CONFIGS, getAllGames, supportsTeamMode, getTeamModeGames } from '../shared/gameTypes.js';
-
-declare module 'express-session' {
-    interface SessionData {
-        isAdmin?: boolean;
-    }
-}
+import type { TeamGameResult } from '../shared/types.js';
+import { type GameType, GAME_CONFIGS, getAllGames, getTeamModeGames } from '../shared/gameTypes.js';
+import {
+    generateJoinCode,
+    normalizeCode,
+    pathTournamentId,
+    hashSecret,
+    looksLowEntropy,
+    timingSafeEqualHex,
+} from '../shared/access.js';
 
 const app = express();
 const port = 3000;
@@ -28,10 +25,37 @@ const redisClient = createClient({ url: redisUrl });
 redisClient.on('error', (err) => console.log('Redis Client Error', err));
 
 const tournaments: Map<string, TournamentManager> = new Map();
+// joinCode -> tournamentId. Rebuilt at boot and kept in step on create/delete.
+const joinCodes: Map<string, string> = new Map();
+
+// Every code ever issued, including those of deleted tournaments. A code is
+// never reissued: a bookmarked /t/<code> link must go stale rather than quietly
+// resolve to somebody else's tournament later.
+const usedJoinCodes: Set<string> = new Set();
+const USED_CODES_KEY = 'joincodes:used';
+
+/** A join code that has never been issued before. */
+function freshJoinCode(): string {
+    for (let i = 0; i < 100; i++) {
+        const code = generateJoinCode();
+        if (!usedJoinCodes.has(code)) return code;
+    }
+    throw new Error('Could not allocate a unique join code');
+}
+
+/** Claim a code: reserve it in memory and record it as spent, durably. */
+async function claimJoinCode(code: string, tournamentId: string): Promise<void> {
+    joinCodes.set(code, tournamentId);
+    usedJoinCodes.add(code);
+    await redisClient.sAdd(USED_CODES_KEY, code);
+}
 
 (async () => {
   await redisClient.connect();
   console.log('Connected to Redis');
+
+  // Codes spent by tournaments that may since have been deleted.
+  for (const code of await redisClient.sMembers(USED_CODES_KEY)) usedJoinCodes.add(code);
 
   // Load tournament list from Redis
   const tournamentIds = await redisClient.sMembers('tournaments:list');
@@ -42,10 +66,27 @@ const tournaments: Map<string, TournamentManager> = new Map();
       const tournament = new TournamentManager(data.id, data.name, data.gameType, data.mapPool);
       // Copy all properties from persisted data, including createdAt
       Object.assign(tournament, data);
-      // Fill in any missing maps for completed matches
-      tournament.fillMissingMaps();
       tournaments.set(id, tournament);
-      console.log(`Loaded tournament: ${data.name} (${id}) - createdAt: ${tournament.createdAt}`);
+      let dirty = false;
+
+      // Back-fill maps for matches recorded before maps were tracked, and SAVE
+      // the result -- leaving it unsaved meant it was recomputed every boot.
+      if (tournament.fillMissingMaps()) dirty = true;
+
+      // Tournaments created before per-tournament access get credentials now.
+      // The generated admin key is printed once, because nobody else has it --
+      // a holder of the instance admin token can also manage it regardless.
+      if (!tournament.joinCode || !tournament.adminKeyHash) {
+        const adminKey = await tournament.issueAccess(freshJoinCode());
+        console.log(
+          `[migrate] "${tournament.name}" -> join code ${tournament.joinCode}, admin key ${adminKey}`,
+        );
+        dirty = true;
+      }
+      await claimJoinCode(tournament.joinCode, id);
+
+      if (dirty) await redisClient.set(`tournament:${id}`, JSON.stringify(tournament));
+      console.log(`Loaded tournament: ${data.name} (${id}) - join ${tournament.joinCode}`);
     }
   }
 })();
@@ -57,50 +98,163 @@ const saveState = async (tournamentId: string) => {
     }
 };
 
-app.use(cors());
-app.use(bodyParser.json({ limit: '10mb' })); 
+// No CORS middleware: the SPA and the API are same-origin in production (Express
+// serves both) and in dev (Vite proxies /api -> :3000). A wildcard
+// Access-Control-Allow-Origin on a cookie-authenticated API was only ever
+// defanged by sameSite:'lax' and the absence of credentials -- load-bearing
+// settings that nothing documented.
+app.use(express.json({ limit: '10mb' }));
 
-// --- Admin auth (Option A): one shared password via the ADMIN_PASSWORD env var.
-// When set, mutating requests (POST/PUT/DELETE/PATCH) require an admin login;
-// viewing (GET) stays open so players can watch. When unset, auth is disabled
-// (with a warning) so dev and existing deployments keep working unchanged.
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-if (!ADMIN_PASSWORD) {
-    console.warn('[auth] ADMIN_PASSWORD is not set — the API is OPEN (anyone on the network can modify tournaments). Set ADMIN_PASSWORD to require an admin login.');
+// ---------------------------------------------------------------------------
+// Instance admin token
+//
+// One high-entropy secret decides who may CREATE tournaments. It is sent as an
+// X-Admin-Token header and compared as a hash -- there is no login form, no
+// session and no cookie, because a bearer token in a header does the same job
+// without a server-side store and works unchanged on an edge runtime.
+//
+// ADMIN_PASSWORD is still honoured so existing deployments keep working.
+// ---------------------------------------------------------------------------
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || process.env.ADMIN_PASSWORD || '';
+
+if (!ADMIN_TOKEN) {
+    console.warn(
+        '[auth] No ADMIN_TOKEN set — ANYONE who can reach this server can create tournaments.\n' +
+        '       Generate one with `npm run gen-token` and set ADMIN_TOKEN.\n' +
+        '       (Writing to an existing tournament still always needs its own admin key.)',
+    );
+} else {
+    if (process.env.ADMIN_TOKEN === undefined) {
+        console.warn('[auth] ADMIN_PASSWORD is deprecated; rename it to ADMIN_TOKEN.');
+    }
+    if (looksLowEntropy(ADMIN_TOKEN)) {
+        console.warn(
+            '[auth] ADMIN_TOKEN looks guessable. It is the only thing stopping strangers\n' +
+            '       creating tournaments on this instance. Use `npm run gen-token`.',
+        );
+    }
 }
 
-app.use(session({
-    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
-    resave: false,
-    saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 12 * 60 * 60 * 1000 }, // 12h
-}));
+// Hashed once at boot so the comparison never touches the plaintext.
+let adminTokenHash = '';
+const adminTokenReady: Promise<void> = ADMIN_TOKEN
+    ? hashSecret(ADMIN_TOKEN).then((h) => { adminTokenHash = h; })
+    : Promise.resolve();
 
-app.post('/api/login', (req, res) => {
-    if (!ADMIN_PASSWORD) return res.json({ success: true }); // auth disabled
-    const { password } = req.body ?? {};
-    if (typeof password === 'string' && password === ADMIN_PASSWORD) {
-        req.session.isAdmin = true;
-        return res.json({ success: true });
+// Throttle guessing. The admin token and a ~30-bit join code are both
+// brute-force oracles if the endpoints that check them are unthrottled.
+const RATE_WINDOW_MS = 15 * 60 * 1000;
+
+function makeRateLimiter(maxAttempts: number) {
+    const attempts = new Map<string, { count: number; firstAt: number }>();
+    return {
+        limited(key: string): boolean {
+            const entry = attempts.get(key);
+            if (!entry || Date.now() - entry.firstAt > RATE_WINDOW_MS) return false;
+            return entry.count >= maxAttempts;
+        },
+        recordFailure(key: string): void {
+            const now = Date.now();
+            const entry = attempts.get(key);
+            if (!entry || now - entry.firstAt > RATE_WINDOW_MS) {
+                attempts.set(key, { count: 1, firstAt: now });
+            } else {
+                entry.count++;
+            }
+        },
+        clear(key: string): void {
+            attempts.delete(key);
+        },
+    };
+}
+
+const tokenLimiter = makeRateLimiter(10);
+const joinLimiter = makeRateLimiter(30);
+
+/**
+ * Does this request carry the instance admin token?
+ *
+ * Returns false when no token is configured: with nothing set there IS no
+ * instance owner. Treating everyone as the owner made this a master key over
+ * every tournament, so on an open instance any visitor could write to any
+ * tournament without its admin key -- the exact opposite of the guarantee that
+ * "an open instance never means an open tournament". The open case is handled
+ * where it belongs, at the create gate.
+ */
+async function isInstanceOwner(req: express.Request): Promise<boolean> {
+    if (!ADMIN_TOKEN) return false;
+    await adminTokenReady;
+    const supplied = req.header('x-admin-token');
+    if (typeof supplied !== 'string' || supplied.length === 0) return false;
+    return timingSafeEqualHex(await hashSecret(supplied), adminTokenHash);
+}
+
+// Check a token before storing it, so the UI can say "that is not right" rather
+// than silently failing on the next write.
+app.post('/api/admin/verify', async (req, res) => {
+    const ip = req.ip || 'unknown';
+    if (tokenLimiter.limited(ip)) {
+        return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
     }
-    return res.status(401).json({ error: 'Incorrect password' });
+    const { token } = req.body ?? {};
+    if (!ADMIN_TOKEN) return res.json({ ok: true, authRequired: false });
+
+    if (typeof token === 'string' && timingSafeEqualHex(await hashSecret(token), adminTokenHash)) {
+        tokenLimiter.clear(ip);
+        return res.json({ ok: true, authRequired: true });
+    }
+    tokenLimiter.recordFailure(ip);
+    return res.status(401).json({ error: 'That admin token is not valid' });
 });
 
-app.post('/api/logout', (req, res) => {
-    req.session.destroy(() => res.json({ success: true }));
+app.get('/api/admin/status', async (req, res) => {
+    // `isOwner` means "holds the instance admin token". It is NOT the same as
+    // holding a given tournament's admin key -- see /state's `isAdmin`.
+    const owner = await isInstanceOwner(req);
+    res.json({ authRequired: !!ADMIN_TOKEN, isAdmin: owner, isOwner: owner });
 });
 
-app.get('/api/admin/status', (req, res) => {
-    res.json({ authRequired: !!ADMIN_PASSWORD, isAdmin: !ADMIN_PASSWORD || !!req.session.isAdmin });
-});
+// ---------------------------------------------------------------------------
+// Access control
+//
+// Two independent things:
+//   * the INSTANCE OWNER holds ADMIN_TOKEN. They may create and import
+//     tournaments, list every tournament, and manage any of them.
+//   * a TOURNAMENT ADMIN holds that tournament's admin key (X-Admin-Key) and
+//     may write to that tournament only.
+//
+// Reading a tournament needs only its id, which is what a join code resolves
+// to. Holding a join code therefore grants view and nothing more.
+// ---------------------------------------------------------------------------
 
-// Gate every mutating API route; GET stays public.
-app.use('/api', (req, res, next) => {
-    if (!ADMIN_PASSWORD) return next();
-    if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return next();
-    if (req.path === '/login' || req.path === '/logout') return next();
-    if (req.session.isAdmin) return next();
-    return res.status(401).json({ error: 'Admin login required' });
+const MUTATING = ['POST', 'PUT', 'DELETE', 'PATCH'];
+
+/** Does this request carry write access to `tournamentId`? */
+async function canWriteTournament(req: express.Request, tournamentId: string): Promise<boolean> {
+    if (await isInstanceOwner(req)) return true; // instance owner is a superuser
+    const tournament = tournaments.get(tournamentId);
+    if (!tournament) return false;
+    const supplied = req.header('x-admin-key');
+    return typeof supplied === 'string' && (await tournament.isAdminKey(supplied));
+}
+
+app.use('/api', async (req, res, next) => {
+    if (!MUTATING.includes(req.method)) return next();
+    if (req.path === '/admin/verify') return next();
+
+    const tournamentId = pathTournamentId(req.path);
+    if (tournamentId) {
+        // Writing to one tournament. Always requires that tournament's key --
+        // independently of ADMIN_TOKEN, so a shared join code can never edit.
+        if (await canWriteTournament(req, tournamentId)) return next();
+        return res.status(401).json({ error: "This tournament's admin key is required" });
+    }
+
+    // Creating or importing. With no ADMIN_TOKEN the instance is open to all
+    // (the server warns about this at boot); with one, it takes the token.
+    if (!ADMIN_TOKEN) return next();
+    if (await isInstanceOwner(req)) return next();
+    return res.status(401).json({ error: 'A valid admin token is required to create a tournament' });
 });
 
 // API Routes
@@ -108,8 +262,14 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Tournament management
-app.get('/api/tournaments', (req, res) => {
+// The instance owner's lobby. This used to hand every tournament to anyone who
+// asked; with per-tournament access, viewers reach a tournament by join code
+// instead and never see the full list.
+app.get('/api/tournaments', async (req, res) => {
+  // On an open instance anyone may create, so anyone may see the list.
+  if (ADMIN_TOKEN && !(await isInstanceOwner(req))) {
+    return res.status(401).json({ error: 'A valid admin token is required' });
+  }
   const tournamentList = Array.from(tournaments.values()).map(t => ({
     id: t.id,
     name: t.name,
@@ -118,9 +278,36 @@ app.get('/api/tournaments', (req, res) => {
     gameType: t.gameType,
     createdAt: t.createdAt,
     startedAt: t.startedAt,
-    isTeamBased: t.isTeamBased
+    isTeamBased: t.isTeamBased,
+    joinCode: t.joinCode
   }));
   res.json(tournamentList);
+});
+
+// Resolve a shared join code to the tournament it opens. Public and rate
+// limited: the code is only ~30 bits, so it must not be freely guessable.
+app.get('/api/join/:code', (req, res) => {
+  const ip = req.ip || 'unknown';
+  if (joinLimiter.limited(ip)) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
+  }
+  const code = normalizeCode(req.params.code);
+  const tournamentId = joinCodes.get(code);
+  const tournament = tournamentId ? tournaments.get(tournamentId) : undefined;
+  if (!tournament) {
+    joinLimiter.recordFailure(ip);
+    return res.status(404).json({ error: 'No tournament with that code' });
+  }
+  joinLimiter.clear(ip);
+  res.json({
+    id: tournament.id,
+    name: tournament.name,
+    gameType: tournament.gameType,
+    state: tournament.state,
+    joinCode: tournament.joinCode,
+    isTeamBased: tournament.isTeamBased,
+    playerCount: tournament.players.length,
+  });
 });
 
 // Get available games
@@ -141,10 +328,18 @@ app.post('/api/tournaments', async (req, res) => {
   }
   const id = uuidv4();
   const tournament = new TournamentManager(id, name, gameType as GameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode);
+  // The plaintext admin key exists only in this response. Only its hash is kept.
+  const adminKey = await tournament.issueAccess(freshJoinCode());
   tournaments.set(id, tournament);
+  await claimJoinCode(tournament.joinCode, id);
   await redisClient.sAdd('tournaments:list', id);
   await saveState(id);
-  res.json({ id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, isTeamBased: tournament.isTeamBased });
+  res.json({
+    id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints,
+    isTeamBased: tournament.isTeamBased,
+    joinCode: tournament.joinCode,
+    adminKey, // shown once -- never retrievable again
+  });
 });
 
 // Delete a tournament
@@ -155,6 +350,8 @@ app.delete('/api/tournament/:tournamentId', async (req, res) => {
     }
 
     try {
+        const doomed = tournaments.get(tournamentId);
+        if (doomed?.joinCode) joinCodes.delete(doomed.joinCode);
         tournaments.delete(tournamentId);
         await redisClient.sRem('tournaments:list', tournamentId);
         await redisClient.del(`tournament:${tournamentId}`);
@@ -211,14 +408,20 @@ app.post('/api/tournaments/import', async (req, res) => {
         tournament.teamMatches = asArray(importData.teamMatches);
         tournament.teamBracketMatches = asArray(importData.teamBracketMatches);
         
+        // Always mint fresh credentials. An exported JSON file must never carry
+        // working admin access to whoever happens to receive it.
+        const adminKey = await tournament.issueAccess(freshJoinCode());
         tournaments.set(id, tournament);
+        await claimJoinCode(tournament.joinCode, id);
         await redisClient.sAdd('tournaments:list', id);
         await saveState(id);
-        
-        res.json({ 
-            success: true, 
-            id, 
+
+        res.json({
+            success: true,
+            id,
             name: tournament.name,
+            joinCode: tournament.joinCode,
+            adminKey, // shown once
             message: `Tournament "${tournament.name}" imported successfully`
         });
     } catch (e: any) {
@@ -227,7 +430,7 @@ app.post('/api/tournaments/import', async (req, res) => {
 });
 
 // Get tournament state
-app.get('/api/tournament/:tournamentId/state', (req, res) => {
+app.get('/api/tournament/:tournamentId/state', async (req, res) => {
   const { tournamentId } = req.params;
   const tournament = tournaments.get(tournamentId);
   if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
@@ -235,6 +438,11 @@ app.get('/api/tournament/:tournamentId/state', (req, res) => {
   res.json({
     id: tournament.id,
     name: tournament.name,
+    // The join code is a read credential, and the caller already has read
+    // access. `isAdmin` is what the UI uses to decide whether to offer editing;
+    // the server enforces it regardless.
+    joinCode: tournament.joinCode,
+    isAdmin: await canWriteTournament(req, tournamentId),
     gameType: tournament.gameType,
     gameConfig: tournament.getGameConfig(),
     players: tournament.players,
@@ -296,14 +504,11 @@ app.post('/api/tournament/:tournamentId/match/:id', async (req, res) => {
     const tournament = tournaments.get(tournamentId);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     const { results, mapName } = req.body;
-    console.log(`[API] POST /api/tournament/${tournamentId}/match/${id} - Received:`, { id, results, mapName });
     try {
         tournament.submitMatchResult(id, results, mapName);
         await saveState(tournamentId);
-        console.log(`[API] POST /api/tournament/${tournamentId}/match/${id} - Success, state saved`);
         res.json({ success: true });
     } catch (e: any) {
-        console.error(`[API] POST /api/tournament/${tournamentId}/match/${id} - Error:`, e.message);
         res.status(400).json({ error: e.message });
     }
 });
@@ -661,12 +866,9 @@ app.get('/api/tournament/:tournamentId/team-rankings', (req, res) => {
   res.json(tournament.getTeamRankings());
 });
 
-// Serve static files from the Svelte app build
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-// In production (docker), dist is at /app/dist. In dev, it might be different.
-// We'll assume the server is run from the root or we adjust the path.
-// If running with ts-node from root:
+// Serve the built SPA. In Docker the server runs from /app with dist/ beside it;
+// in dev `npm run start:server` runs from the repo root. Both resolve off cwd.
+// (__filename/__dirname were computed here and never used.)
 app.use(express.static(path.join(process.cwd(), 'dist')));
 
 app.get(/.*/, (req, res) => {

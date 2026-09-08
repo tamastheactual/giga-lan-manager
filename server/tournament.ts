@@ -1,10 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
-import { type GameType, getGameConfig, supportsTeamMode } from '../shared/gameTypes.js';
+import { type GameType, getGameConfig, getEffectiveArchetype } from '../shared/gameTypes.js';
+import { validateMatchResult, validateTeamMatchResult } from '../shared/validation.js';
+import { generateJoinCode, generateAdminKey, hashAdminKey, verifyAdminKey } from '../shared/access.js';
 import type { Player, Team, PlayerGameStats, TeamGameResult, GameResult, Match, Pod, BracketGameResult, BracketMatch, TeamBracketMatch, TeamMatch, TeamPod } from '../shared/types.js';
 import { build3PlayerFinalsBracket, buildPlayoffBracket, reorderForCrossGroupMatchups, build3TeamFinalsBracket, buildTeamPlayoffBracket } from './brackets.js';
-
-// Schema version for data migrations
-const SCHEMA_VERSION = 2;
 
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB decoded
 
@@ -37,6 +36,12 @@ export class TournamentManager {
     state: 'registration' | 'group' | 'playoffs' | 'completed' = 'registration';
     createdAt: string;
     startedAt?: string;
+
+    // Per-tournament access. The join code is a short read-only credential meant
+    // to be shared; the admin key is a 128-bit write credential stored only as a
+    // hash and shown to its creator exactly once.
+    joinCode: string = '';
+    adminKeyHash: string = '';
     groupStageRoundLimit?: number; // Custom round limit for group stage (CS 1.6)
     playoffsRoundLimit?: number; // Custom round limit for playoffs (CS 1.6)
     useCustomPoints?: boolean; // Override default archetype with custom points
@@ -80,34 +85,75 @@ export class TournamentManager {
         }
     }
     
+    /**
+     * Give this tournament a fresh join code and admin key, returning the
+     * plaintext admin key ONCE. The key itself is never stored.
+     *
+     * `joinCode` may be supplied by the caller, which owns collision checking
+     * against the other tournaments it knows about.
+     */
+    async issueAccess(joinCode?: string): Promise<string> {
+        this.joinCode = joinCode ?? generateJoinCode();
+        const adminKey = generateAdminKey();
+        this.adminKeyHash = await hashAdminKey(adminKey);
+        return adminKey;
+    }
+
+    /** Does this key grant write access to this tournament? */
+    async isAdminKey(key: string): Promise<boolean> {
+        return verifyAdminKey(key, this.adminKeyHash);
+    }
+
     // Get game configuration
     getGameConfig() {
         return getGameConfig(this.gameType);
     }
 
-    // Fill in missing maps for existing matches with random selection
-    fillMissingMaps() {
+    // Scoring archetype in force for this tournament (a custom-points override wins).
+    getArchetype() {
+        return getEffectiveArchetype(this.gameType, this.useCustomPoints);
+    }
+
+    // Back-fill a map name onto completed matches recorded before maps were
+    // tracked, so old tournaments still render a map instead of a blank.
+    //
+    // The choice is DERIVED FROM THE MATCH ID, not random: this runs on every
+    // boot and its result used not to be saved, so a random pick meant the match
+    // history and the per-map statistics changed every time the server restarted.
+    // Returns true when something was filled, so the caller can persist it.
+    fillMissingMaps(): boolean {
         const config = this.getGameConfig();
         const availableMaps = this.mapPool.length > 0 ? this.mapPool : config.maps;
-        
-        // Fill in missing maps for group stage matches
-        this.matches.forEach(match => {
-            if (!match.mapName && match.completed) {
-                match.mapName = availableMaps[Math.floor(Math.random() * availableMaps.length)];
-            }
-        });
+        if (availableMaps.length === 0) return false;
+        let changed = false;
 
-        // Fill in missing maps for bracket matches
-        this.bracketMatches.forEach(match => {
-            // Fill in missing maps in games array
-            if (match.games && match.games.length > 0) {
-                match.games.forEach((game: GameResult) => {
-                    if (!game.mapName) {
-                        game.mapName = availableMaps[Math.floor(Math.random() * availableMaps.length)];
-                    }
-                });
+        // Stable, dependency-free string hash (FNV-1a) -> index into the map pool.
+        const mapFor = (seed: string): string => {
+            let h = 0x811c9dc5;
+            for (let i = 0; i < seed.length; i++) {
+                h ^= seed.charCodeAt(i);
+                h = Math.imul(h, 0x01000193) >>> 0;
             }
-        });
+            return availableMaps[h % availableMaps.length];
+        };
+
+        for (const match of this.matches) {
+            if (!match.mapName && match.completed) {
+                match.mapName = mapFor(match.id);
+                changed = true;
+            }
+        }
+
+        for (const match of this.bracketMatches) {
+            for (const game of match.games ?? []) {
+                if (!game.mapName) {
+                    game.mapName = mapFor(`${match.id}:${game.gameNumber}`);
+                    changed = true;
+                }
+            }
+        }
+
+        return changed;
     }
 
     // Fisher-Yates shuffle. Unbiased, unlike `sort(() => Math.random() - 0.5)`,
@@ -149,6 +195,11 @@ export class TournamentManager {
             throw new Error("Player not found");
         }
         this.players.splice(index, 1);
+        // Drop the id from any roster too, or the team keeps a dangling member
+        // and its size check stops reflecting reality.
+        for (const team of this.teams) {
+            team.playerIds = team.playerIds.filter(id => id !== playerId);
+        }
     }
 
     // Team management methods
@@ -164,13 +215,22 @@ export class TournamentManager {
             throw new Error(`Team name "${name}" already exists`);
         }
         
-        // Validate all players exist
+        // Validate all players exist, and that nobody is already rostered
+        // elsewhere -- a player on two teams corrupts every per-player stat.
         for (const playerId of playerIds) {
-            if (!this.players.find(p => p.id === playerId)) {
+            const player = this.players.find(p => p.id === playerId);
+            if (!player) {
                 throw new Error(`Player ${playerId} not found`);
             }
+            const other = this.teams.find(t => t.playerIds.includes(playerId));
+            if (other) {
+                throw new Error(`${player.name} is already on team "${other.name}"`);
+            }
         }
-        
+        if (new Set(playerIds).size !== playerIds.length) {
+            throw new Error('A player cannot be listed twice on the same team');
+        }
+
         // Check team size limits
         const config = this.getGameConfig();
         if (config.minTeamSize !== undefined && playerIds.length < config.minTeamSize) {
@@ -228,12 +288,21 @@ export class TournamentManager {
         }
         if (updates.logo !== undefined) { validateImage(updates.logo, 'logo'); team.logo = updates.logo; }
         if (updates.playerIds) {
-            // Validate all players exist
+            // Validate all players exist and are not rostered on another team.
             for (const playerId of updates.playerIds) {
-                if (!this.players.find(p => p.id === playerId)) {
+                const player = this.players.find(p => p.id === playerId);
+                if (!player) {
                     throw new Error(`Player ${playerId} not found`);
                 }
+                const other = this.teams.find(t => t.id !== teamId && t.playerIds.includes(playerId));
+                if (other) {
+                    throw new Error(`${player.name} is already on team "${other.name}"`);
+                }
             }
+            if (new Set(updates.playerIds).size !== updates.playerIds.length) {
+                throw new Error('A player cannot be listed twice on the same team');
+            }
+
             
             // Check team size limits
             const config = this.getGameConfig();
@@ -300,65 +369,17 @@ export class TournamentManager {
         this.generatePods();
     }
 
+    // Group counts the LAN has actually run. Note that 11 and 13 never reach
+    // here: startGroupStage() adds a BYE player first, so they arrive as 12/14.
+    private static readonly GROUP_COUNTS: Record<number, number> = {
+        4: 1, 5: 1, 6: 2, 7: 1, 8: 2, 9: 3, 10: 2, 12: 3, 14: 2, 15: 3, 16: 4,
+    };
+
     private generatePods() {
         const numPlayers = this.players.length;
-        
-        // Determine group size and count
-        let groupSize = 4;
-        let numGroups = 1;
-        
-        if (numPlayers === 4) {
-            groupSize = 4;
-            numGroups = 1;
-        } else if (numPlayers === 5) {
-            groupSize = 5;
-            numGroups = 1;
-        } else if (numPlayers === 6) {
-            groupSize = 3;
-            numGroups = 2;
-        } else if (numPlayers === 7) {
-            groupSize = 7;
-            numGroups = 1;
-        } else if (numPlayers === 8) {
-            groupSize = 4;
-            numGroups = 2;
-        } else if (numPlayers === 9) {
-            groupSize = 3;
-            numGroups = 3;
-        } else if (numPlayers === 10) {
-            // 10 players: 2 groups of 5
-            groupSize = 5;
-            numGroups = 2;
-        } else if (numPlayers === 11) {
-            // 11 players: awkward, use 3 groups (4, 4, 3)
-            groupSize = 4;
-            numGroups = 3;
-        } else if (numPlayers === 12) {
-            // 12 players: 3 groups of 4
-            groupSize = 4;
-            numGroups = 3;
-        } else if (numPlayers === 13) {
-            // 13 players: awkward number, make uneven groups
-            groupSize = 7;
-            numGroups = 2; // Will be 7 and 6
-        } else if (numPlayers === 14) {
-            // 14 players: 2 groups of 7
-            groupSize = 7;
-            numGroups = 2;
-        } else if (numPlayers === 15) {
-            // 15 players: 3 groups of 5
-            groupSize = 5;
-            numGroups = 3;
-        } else if (numPlayers === 16) {
-            // 16 players: 4 groups of 4
-            groupSize = 4;
-            numGroups = 4;
-        } else {
-            // For larger numbers, try to make groups of 4-5
-            groupSize = 4;
-            numGroups = Math.ceil(numPlayers / 4);
-        }
-        
+        // Larger fields fall back to groups of about four.
+        const numGroups = TournamentManager.GROUP_COUNTS[numPlayers] ?? Math.ceil(numPlayers / 4);
+
         // Shuffle and divide players into groups
         const shuffled = this.shuffle(this.players);
         const groups: Player[][] = [];
@@ -500,8 +521,17 @@ export class TournamentManager {
     }
     
     submitMatchResult(matchId: string, results: { [playerId: string]: { points: number, score?: number } }, mapName?: string, gameResults?: GameResult[]) {
+        // Group results are only meaningful while the group stage is running.
+        // Editing one after the bracket is seeded silently rewrites the standings
+        // the bracket was built from, leaving the podium and the group table
+        // disagreeing with no way to tell which is right.
+        if (this.state !== 'group') {
+            throw new Error("Match results can only be submitted during the group stage");
+        }
         const match = this.matches.find(m => m.id === matchId);
         if (!match) throw new Error("Match not found");
+
+        validateMatchResult(results, [match.player1Id, match.player2Id], this.getArchetype());
 
         match.result = results;
         match.completed = true;
@@ -560,36 +590,39 @@ export class TournamentManager {
         }
     }
 
-    // Submit BO3 bracket match game result
+    // Maps per playoff series, from the game config (BO3 for every shipped game).
+    // Never infer this from how many games happen to be recorded so far: a BO5
+    // read that way looks like a BO3 for its first three maps and ends 2-0.
+    private getMapsPerMatch(): number {
+        return this.getGameConfig().playoffs.mapsPerMatch || 3;
+    }
+
+    // Submit one map of a playoff series. Upserts by gameNumber and rebuilds the
+    // series score from the games array, so resubmitting or correcting a map
+    // replaces it instead of counting it twice (same rebuild-don't-increment
+    // rule as recalculatePlayerStats).
     submitBracketGameResult(matchId: string, gameResult: BracketGameResult) {
         const match = this.bracketMatches.find(m => m.id === matchId);
         if (!match) throw new Error("Bracket match not found");
-        
-        if (!match.games) {
-            match.games = [];
-            match.player1Wins = 0;
-            match.player2Wins = 0;
+
+        const maxGames = this.getMapsPerMatch();
+        if (!Number.isInteger(gameResult.gameNumber) || gameResult.gameNumber < 1 || gameResult.gameNumber > maxGames) {
+            throw new Error(`Game number must be between 1 and ${maxGames}`);
         }
-        
-        // Don't allow more than 3 games
-        if (match.games.length >= 3) {
-            throw new Error("BO3 match already has 3 games");
-        }
-        
-        // Add the game result
-        match.games.push(gameResult);
-        
-        // Update win counts
-        if (gameResult.winnerId === match.player1Id) {
-            match.player1Wins = (match.player1Wins || 0) + 1;
-        } else if (gameResult.winnerId === match.player2Id) {
-            match.player2Wins = (match.player2Wins || 0) + 1;
-        }
-        
-        // Check if match is won (first to 2)
-        if ((match.player1Wins || 0) >= 2) {
+
+        if (!match.games) match.games = [];
+        const existing = match.games.findIndex(g => g.gameNumber === gameResult.gameNumber);
+        if (existing === -1) match.games.push(gameResult);
+        else match.games[existing] = gameResult;
+        match.games.sort((a, b) => a.gameNumber - b.gameNumber);
+
+        match.player1Wins = match.games.filter(g => g.winnerId && g.winnerId === match.player1Id).length;
+        match.player2Wins = match.games.filter(g => g.winnerId && g.winnerId === match.player2Id).length;
+
+        const winsNeeded = Math.ceil(maxGames / 2);
+        if (match.player1Wins >= winsNeeded) {
             this.submitBracketWinner(matchId, match.player1Id!);
-        } else if ((match.player2Wins || 0) >= 2) {
+        } else if (match.player2Wins >= winsNeeded) {
             this.submitBracketWinner(matchId, match.player2Id!);
         }
     }
@@ -718,6 +751,12 @@ export class TournamentManager {
             throw new Error("Winner must be one of the players in the match");
         }
 
+        // Re-declaring the same winner is a no-op. The playoff UI submits the
+        // series games (which already decide the winner) and then calls this
+        // again; without the guard the second pass seeded the SAME loser into
+        // both slots of the 3rd-place match.
+        if (match.winnerId === winnerId) return;
+
         match.winnerId = winnerId;
         const loserId = match.player1Id === winnerId ? match.player2Id : match.player1Id;
 
@@ -736,7 +775,8 @@ export class TournamentManager {
         // If this is a semifinal, send loser to third place match
         if (match.bracketType === 'semifinals') {
             const thirdPlaceMatch = this.bracketMatches.find(m => m.bracketType === '3rd-place');
-            if (thirdPlaceMatch && loserId) {
+            const alreadySeeded = thirdPlaceMatch?.player1Id === loserId || thirdPlaceMatch?.player2Id === loserId;
+            if (thirdPlaceMatch && loserId && !alreadySeeded) {
                 // Add loser to third place match
                 if (!thirdPlaceMatch.player1Id) {
                     thirdPlaceMatch.player1Id = loserId;
@@ -919,33 +959,11 @@ export class TournamentManager {
     // Generate team pods for group stage
     private generateTeamPods() {
         const numTeams = this.teams.length;
-        
-        // Determine group size and count (same logic as solo)
-        let groupSize = 4;
-        let numGroups = 1;
-        
-        if (numTeams === 4) {
-            groupSize = 4;
-            numGroups = 1;
-        } else if (numTeams === 5) {
-            groupSize = 5;
-            numGroups = 1;
-        } else if (numTeams === 6) {
-            groupSize = 6;
-            numGroups = 1;
-        } else if (numTeams === 7) {
-            groupSize = 7;
-            numGroups = 1;
-        } else if (numTeams === 8) {
-            groupSize = 4;
-            numGroups = 2;
-        } else if (numTeams >= 9 && numTeams <= 12) {
-            groupSize = Math.ceil(numTeams / 3);
-            numGroups = 3;
-        } else {
-            groupSize = Math.ceil(numTeams / 4);
-            numGroups = 4;
-        }
+        // One group up to 7 teams, two at 8, three to 12, four beyond.
+        const numGroups =
+            numTeams <= 7 ? 1 :
+            numTeams === 8 ? 2 :
+            numTeams <= 12 ? 3 : 4;
 
         const shuffledTeams = this.shuffle(this.teams);
         
@@ -1064,8 +1082,13 @@ export class TournamentManager {
     
     // Submit a team match result (group stage)
     submitTeamMatchResult(matchId: string, team1Score: number, team2Score: number, games?: TeamGameResult[]) {
+        if (this.state !== 'group') {
+            throw new Error("Match results can only be submitted during the group stage");
+        }
         const match = this.teamMatches.find(m => m.id === matchId);
         if (!match) throw new Error("Team match not found");
+
+        validateTeamMatchResult(team1Score, team2Score, this.getArchetype());
 
         match.team1Score = team1Score;
         match.team2Score = team2Score;
@@ -1129,36 +1152,31 @@ export class TournamentManager {
         });
     }
 
-    // Submit a single game result for a team bracket match (BO3/BO5)
+    // Submit one map of a team playoff series. Upsert + rebuild, exactly like the
+    // solo path, and the series length comes from the config rather than from the
+    // number of maps recorded so far.
     submitTeamBracketGameResult(matchId: string, gameResult: TeamGameResult) {
         const match = this.teamBracketMatches.find(m => m.id === matchId);
         if (!match) throw new Error("Team bracket match not found");
 
-        if (!match.games) {
-            match.games = [];
-            match.team1Wins = 0;
-            match.team2Wins = 0;
+        const maxGames = this.getMapsPerMatch();
+        if (!Number.isInteger(gameResult.gameNumber) || gameResult.gameNumber < 1 || gameResult.gameNumber > maxGames) {
+            throw new Error(`Game number must be between 1 and ${maxGames}`);
         }
 
-        // Don't allow more than 5 games (BO5 max)
-        if (match.games.length >= 5) {
-            throw new Error("BO5 match already has 5 games");
-        }
+        if (!match.games) match.games = [];
+        const existing = match.games.findIndex(g => g.gameNumber === gameResult.gameNumber);
+        if (existing === -1) match.games.push(gameResult);
+        else match.games[existing] = gameResult;
+        match.games.sort((a, b) => a.gameNumber - b.gameNumber);
 
-        match.games.push(gameResult);
+        match.team1Wins = match.games.filter(g => g.winnerTeamId && g.winnerTeamId === match.team1Id).length;
+        match.team2Wins = match.games.filter(g => g.winnerTeamId && g.winnerTeamId === match.team2Id).length;
 
-        // Update win counts
-        if (gameResult.winnerTeamId === match.team1Id) {
-            match.team1Wins = (match.team1Wins || 0) + 1;
-        } else if (gameResult.winnerTeamId === match.team2Id) {
-            match.team2Wins = (match.team2Wins || 0) + 1;
-        }
-
-        // Check if match is won (BO3: first to 2, BO5: first to 3)
-        const winsNeeded = match.games.length > 3 ? 3 : 2; // Detect BO5 vs BO3
-        if ((match.team1Wins || 0) >= winsNeeded) {
+        const winsNeeded = Math.ceil(maxGames / 2);
+        if (match.team1Wins >= winsNeeded) {
             this.submitTeamBracketWinner(matchId, match.team1Id!);
-        } else if ((match.team2Wins || 0) >= winsNeeded) {
+        } else if (match.team2Wins >= winsNeeded) {
             this.submitTeamBracketWinner(matchId, match.team2Id!);
         }
     }
@@ -1171,6 +1189,11 @@ export class TournamentManager {
         if (match.team1Id !== winnerTeamId && match.team2Id !== winnerTeamId) {
             throw new Error("Winner must be one of the teams in the match");
         }
+
+        // Same no-op guard as the solo path -- this is where the duplicated
+        // 3rd-place seeding actually bit, because the team modal always made a
+        // redundant winner call after submitting the series games.
+        if (match.winnerId === winnerTeamId) return;
 
         match.winnerId = winnerTeamId;
         const loserId = match.team1Id === winnerTeamId ? match.team2Id : match.team1Id;
@@ -1190,7 +1213,8 @@ export class TournamentManager {
         // If this is a semifinal, send loser to third place match
         if (match.bracketType === 'semifinals') {
             const thirdPlaceMatch = this.teamBracketMatches.find(m => m.bracketType === '3rd-place');
-            if (thirdPlaceMatch && loserId) {
+            const alreadySeeded = thirdPlaceMatch?.team1Id === loserId || thirdPlaceMatch?.team2Id === loserId;
+            if (thirdPlaceMatch && loserId && !alreadySeeded) {
                 if (!thirdPlaceMatch.team1Id) {
                     thirdPlaceMatch.team1Id = loserId;
                 } else if (!thirdPlaceMatch.team2Id) {
@@ -1237,7 +1261,16 @@ export class TournamentManager {
             const podRanked = rankings.filter(t => pod.teams.includes(t.id));
             for (const t of podRanked.slice(0, perGroup)) qualifiedTeamIds.add(t.id);
         }
-        const qualifiedTeams = rankings.filter(t => qualifiedTeamIds.has(t.id));
+        let qualifiedTeams = rankings.filter(t => qualifiedTeamIds.has(t.id));
+
+        // Seed across groups, exactly as the solo path does. Without this the
+        // first round could be an intra-group rematch of a game already played.
+        qualifiedTeams = reorderForCrossGroupMatchups(
+            qualifiedTeams,
+            this.teamPods.length,
+            (teamId) => this.teamPods.find(p => p.teams.includes(teamId))?.id ?? null,
+        );
+
         this.teamBracketMatches = buildTeamPlayoffBracket(qualifiedTeams, this.teams.length, this.teamPods.length);
         this.state = 'playoffs';
     }

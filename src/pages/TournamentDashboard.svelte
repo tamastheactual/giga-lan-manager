@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getState, addPlayer, startGroupStage, startTeamGroupStage, resetTournament, updateTournamentName, updatePlayerName, updatePlayerPhoto, removePlayer, addTeam, removeTeam, updateTeam, type GameType, type Team, GAME_CONFIGS } from '$lib/api';
-  import { getPlayerImageUrl } from '$lib/playerImages';
+  import { resolvePlayerAvatar } from '$lib/playerImages';
   import { getTeamImageUrl, fileToBase64, validateImageFile } from '$lib/teamImages';
   import { getGameLogoUrl } from '$lib/gameLogos';
   import Footer from '../components/Footer.svelte';
@@ -25,6 +25,11 @@
   let createdAt = $state<string | null>(null);
   let startedAt = $state<string | null>(null);
   let mapPool = $state<string[]>([]);
+
+  // Does this browser hold this tournament's admin key? Comes from /state, which
+  // checks the X-Admin-Key header. Viewers who arrived via a join code get false
+  // and are shown the tournament read-only.
+  let canEdit = $state(false);
 
   // Tournament settings (set when created)
   let groupStageRoundLimit = $state<number | undefined>(undefined);
@@ -371,6 +376,7 @@
     createdAt = data.createdAt || null;
     startedAt = data.startedAt || null;
     mapPool = data.mapPool || [];
+    canEdit = data.isAdmin === true;
     // Tournament settings
     groupStageRoundLimit = data.groupStageRoundLimit;
     playoffsRoundLimit = data.playoffsRoundLimit;
@@ -394,14 +400,18 @@
       return;
     }
 
-    const newPlayer = await addPlayer(tournamentId, trimmedName);
-    
-    // Set profile photo based on name match (or default to Cat)
-    const photoUrl = getPlayerImageUrl(trimmedName);
-    if (photoUrl && newPlayer?.id) {
-      await updatePlayerPhoto(tournamentId, newPlayer.id, photoUrl);
+    try {
+      await addPlayer(tournamentId, trimmedName);
+    } catch (e: any) {
+      errorMessage = e.message || 'Failed to add player.';
+      showErrorPopup = true;
+      return;
     }
-    
+
+    // No photo is persisted here on purpose. The bundled avatar used to be
+    // written to Redis as a build-hashed URL, which 404s after the next build;
+    // resolvePlayerAvatar() looks it up by name at render time instead.
+
     newPlayerName = '';
     await loadState();
 
@@ -428,7 +438,13 @@
           return;
         }
       }
-      await startTeamGroupStage(tournamentId);
+      try {
+        await startTeamGroupStage(tournamentId);
+      } catch (e: any) {
+        errorMessage = e.message || 'Failed to start the tournament.';
+        showErrorPopup = true;
+        return;
+      }
     } else {
       // Solo tournament
       if (players.length === 11 || players.length === 13) {
@@ -436,7 +452,13 @@
         showErrorPopup = true;
         return;
       }
-      await startGroupStage(tournamentId);
+      try {
+        await startGroupStage(tournamentId);
+      } catch (e: any) {
+        errorMessage = e.message || 'Failed to start the tournament.';
+        showErrorPopup = true;
+        return;
+      }
     }
     await loadState();
     window.location.href = `/tournament/${tournamentId}/groups`;
@@ -590,9 +612,7 @@
     confirmButtonText = 'Reset';
     pendingAction = async () => {
       try {
-        console.log('[Home] Resetting tournament...');
         await resetTournament(tournamentId);
-        console.log('[Home] Tournament reset, redirecting...');
         window.location.href = '/';
       } catch (error) {
         console.error('[Home] Error resetting tournament:', error);
@@ -643,7 +663,6 @@
   }
 
   function startEditingPlayer(playerId: string) {
-    console.log('[Dashboard] startEditingPlayer called for', playerId);
     const p = players.find(x => x.id === playerId);
     if (!p) {
       console.warn('[Dashboard] player not found', playerId);
@@ -761,6 +780,16 @@
   });
 </script>
 
+{#if !canEdit}
+  <div class="max-w-7xl mx-auto px-4 pt-4">
+    <div class="flex items-center gap-3 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-4 py-2.5">
+      <svg class="w-4 h-4 text-brand-cyan flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+      <span class="text-sm text-brand-cyan font-semibold">Viewing live — only the organiser can enter results.</span>
+    </div>
+  </div>
+{/if}
+
+
 <div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 py-8 px-4 flex flex-col">
   <div class="w-full max-w-6xl mx-auto space-y-8">
 
@@ -789,7 +818,7 @@
       {:else}
         <h1 class="text-2xl md:text-3xl font-black gradient-text leading-tight inline-flex items-center gap-2">
           {tournamentName}
-          {#if tournamentState === 'registration'}
+          {#if canEdit && tournamentState === 'registration'}
             <button type="button" onclick={startEditingName} class="cursor-pointer hover:opacity-80 p-1" title="Edit Name" aria-label="Edit tournament name">
               <svg class="w-5 h-5 opacity-60" fill="currentColor" viewBox="0 0 20 20"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path></svg>
             </button>
@@ -884,6 +913,7 @@
               onkeydown={(e) => e.key === 'Enter' && handleAddPlayer()}
               maxlength="20"
             />
+            {#if canEdit}
             <button
               onclick={handleAddPlayer}
               class="bg-gradient-to-r from-brand-purple to-brand-cyan hover:from-brand-cyan hover:to-brand-purple text-white font-bold px-4 py-2 text-sm rounded-lg shadow-glow-cyan transition-all duration-300 hover:scale-105 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
@@ -891,6 +921,7 @@
             >
               Add
             </button>
+            {/if}
           </div>
         </div>
       </div>
@@ -903,6 +934,7 @@
               <h3 class="text-base font-bold text-brand-orange">Teams</h3>
               <span class="text-xs text-gray-400">({teams.length} teams, {minTeamSize}-{maxTeamSize} players each)</span>
             </div>
+            {#if canEdit}
             <button
               onclick={() => openTeamModal()}
               class="bg-gradient-to-r from-brand-orange to-brand-purple hover:from-brand-purple hover:to-brand-orange text-white font-bold px-3 py-1.5 text-sm rounded-lg shadow-glow-orange transition-all duration-300 hover:scale-105 inline-flex items-center gap-1.5"
@@ -912,6 +944,7 @@
               </svg>
               Create Team
             </button>
+            {/if}
           </div>
 
           {#if teams.length === 0}
@@ -936,6 +969,7 @@
                       <h4 class="font-bold text-white text-base">{team.name}</h4>
                     </div>
                     <div class="flex gap-1">
+                      {#if canEdit}
                       <button
                         onclick={() => openTeamModal(team.id)}
                         class="text-gray-400 hover:text-brand-cyan p-1 rounded transition-colors"
@@ -945,6 +979,8 @@
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                         </svg>
                       </button>
+                      {/if}
+                      {#if canEdit}
                       <button
                         onclick={() => handleRemoveTeam(team.id)}
                         class="text-gray-400 hover:text-red-500 p-1 rounded transition-colors"
@@ -954,13 +990,14 @@
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                         </svg>
                       </button>
+                      {/if}
                     </div>
                   </div>
                   <div class="flex flex-wrap gap-1.5">
                     {#each getTeamPlayers(team) as player}
                       <div class="flex items-center gap-1 bg-space-600 rounded px-2 py-0.5">
                         <img 
-                          src={player.profilePhoto || getPlayerImageUrl(player.name)} 
+                          src={resolvePlayerAvatar(player)} 
                           alt={player.name} 
                           class="w-4 h-4 rounded-full object-cover"
                         />
@@ -988,7 +1025,7 @@
       {/if}
 
       <!-- Start Button -->
-      {#if tournamentState === 'registration'}
+      {#if canEdit && tournamentState === 'registration'}
         {#if isTeamBased}
           <!-- Team tournament start conditions -->
           {#if teams.length >= 2 && teams.every(t => t.playerIds.length >= minTeamSize)}
@@ -1105,8 +1142,7 @@
               </div>
             {:else if champion}
               <!-- Solo Champion Display -->
-              {@const isBase64Photo = champion.profilePhoto && champion.profilePhoto.startsWith('data:')}
-              {@const photoSrc = isBase64Photo ? champion.profilePhoto : getPlayerImageUrl(champion.name)}
+              {@const photoSrc = resolvePlayerAvatar(champion)}
               <div class="flex items-center gap-6 mb-6 p-4 bg-gradient-to-r from-yellow-500/20 via-yellow-400/10 to-yellow-500/20 rounded-xl border border-yellow-500/30">
                 <!-- Player Photo -->
                 <div class="relative">
@@ -1320,8 +1356,7 @@
                     {#each team.playerIds as playerId}
                       {@const teamPlayer = players.find(p => p.id === playerId)}
                       {#if teamPlayer}
-                        {@const isBase64 = teamPlayer.profilePhoto && teamPlayer.profilePhoto.startsWith('data:')}
-                        {@const playerImg = isBase64 ? teamPlayer.profilePhoto : getPlayerImageUrl(teamPlayer.name)}
+                        {@const playerImg = resolvePlayerAvatar(teamPlayer)}
                         <div class="flex items-center gap-2 px-2 py-1 bg-space-700/50 rounded-lg border border-space-600/50">
                           <img 
                             src={playerImg} 
@@ -1402,8 +1437,7 @@
               <!-- Player Avatar -->
               <div class="mb-2 relative flex justify-center {isFirst || isSecond || isThird ? 'mt-6' : ''}">
                 {#if player}
-                  {@const isBase64Photo = player.profilePhoto && player.profilePhoto.startsWith('data:')}
-                  {@const imgSrc = isBase64Photo ? player.profilePhoto : getPlayerImageUrl(player.name)}
+                  {@const imgSrc = resolvePlayerAvatar(player)}
                   <img
                     src={imgSrc}
                     alt="Profile"
@@ -1415,7 +1449,7 @@
                   />
                 {/if}
 
-                {#if tournamentState === 'registration'}
+                {#if canEdit && tournamentState === 'registration'}
                   <button
                     onclick={() => startEditingPhoto(player.id)}
                     class="absolute -bottom-1 -right-1 w-6 h-6 bg-brand-cyan rounded-full flex items-center justify-center shadow-lg hover:bg-brand-cyan/80 transition-colors"
@@ -1467,7 +1501,7 @@
                         {isThird ? 'text-orange-400' : ''}
                         {!isFirst && !isSecond && !isThird ? 'text-white' : ''}
                       ">{player.name}</h4>
-                      {#if tournamentState === 'registration'}
+                      {#if canEdit && tournamentState === 'registration'}
                         <button
                           type="button"
                           onclick={(e) => { e.stopPropagation(); startEditingPlayer(player.id); }}
@@ -1492,6 +1526,7 @@
 
     <!-- Reset Button -->
     <div class="text-center pt-8 border-t border-space-600">
+      {#if canEdit}
       <button
         onclick={requestReset}
         class="bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-red-500/30 hover:shadow-red-500/50 hover:scale-105 transition-all duration-300 border border-red-400/30"
@@ -1501,6 +1536,7 @@
         </svg>
         Reset Tournament Data
       </button>
+      {/if}
     </div>
   </div>
 </div>
@@ -1543,7 +1579,7 @@
             <p class="text-gray-400 mb-6">Select an image file to crop and use as profile photo</p>
             <input
               type="file"
-              accept="image/jpeg,image/png,image/gif,imagewebp"
+              accept="image/jpeg,image/png,image/gif,image/webp"
               onchange={handleFileSelect}
               class="hidden"
               id="photo-upload"
@@ -1879,7 +1915,7 @@
         <div class="flex gap-4">
           <!-- Team Logo Upload -->
           <div class="flex-shrink-0">
-            <label class="block text-sm font-bold text-gray-300 mb-1">Logo</label>
+            <label for="team-logo-input" class="block text-sm font-bold text-gray-300 mb-1">Logo</label>
             <div class="relative group">
               <div class="w-20 h-20 rounded-lg bg-space-700 border-2 border-dashed border-space-500 flex items-center justify-center overflow-hidden cursor-pointer hover:border-brand-orange transition-colors">
                 {#if teamLogoPreview}
@@ -1890,8 +1926,9 @@
                   </svg>
                 {/if}
                 <input
+                  id="team-logo-input"
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
                   class="absolute inset-0 opacity-0 cursor-pointer"
                   onchange={handleTeamLogoChange}
                 />
@@ -1949,7 +1986,7 @@
                     {isAssignedToOtherTeam ? 'opacity-40 cursor-not-allowed' : ''}"
                 >
                   <img 
-                    src={player.profilePhoto || getPlayerImageUrl(player.name)} 
+                    src={resolvePlayerAvatar(player)} 
                     alt={player.name} 
                     class="w-8 h-8 rounded-full object-cover border border-space-500"
                   />

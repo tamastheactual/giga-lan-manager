@@ -5,12 +5,142 @@ const API_URL = '/api';
 
 import { getArchetypeConfig } from '$shared/gameArchetypes';
 import { getEffectiveArchetype, type GameType, type GameConfig } from '$shared/gameTypes';
+import { normalizeCode } from '$shared/access';
 import type { Team, PlayerGameStats, TeamGameResult, TeamMatch, TeamPod, TeamBracketMatch } from '$shared/types';
 
 // Game types, configs, and pure helpers are the shared single source of truth,
 // re-exported so existing `$lib/api` imports keep working unchanged.
 export { GAME_CONFIGS, getGameConfig, getAllGames, getTeamModeGames, supportsTeamMode, getEffectiveArchetype } from '$shared/gameTypes';
 export type { GameType, GameConfig } from '$shared/gameTypes';
+export { normalizeCode, formatKeyForDisplay, JOIN_CODE_LENGTH } from '$shared/access';
+
+// ---------------------------------------------------------------------------
+// Per-tournament admin keys
+//
+// A tournament's admin key is the only thing that grants writes to it. The
+// server stores just a hash, so this browser's copy is the only one there is:
+// losing it means losing control of that tournament. Kept per tournament id so
+// one browser can administer several.
+// ---------------------------------------------------------------------------
+
+const ADMIN_KEY_STORE = 'gigalan.adminKeys';
+const ADMIN_TOKEN_STORE = 'gigalan.adminToken';
+
+// ---------------------------------------------------------------------------
+// The instance admin token
+//
+// One secret, held only by whoever runs this server, that permits creating
+// tournaments. Sent as X-Admin-Token on every request: there is no login
+// session and no cookie, so nothing to expire and nothing to store server-side.
+// ---------------------------------------------------------------------------
+
+export function getOwnerToken(): string | null {
+    try {
+        return localStorage.getItem(ADMIN_TOKEN_STORE);
+    } catch {
+        return null;
+    }
+}
+
+export function setOwnerToken(token: string): void {
+    try {
+        localStorage.setItem(ADMIN_TOKEN_STORE, token.trim());
+    } catch {
+        /* storage unavailable */
+    }
+}
+
+export function clearOwnerToken(): void {
+    try {
+        localStorage.removeItem(ADMIN_TOKEN_STORE);
+    } catch {
+        /* storage unavailable */
+    }
+}
+
+function readAdminKeys(): Record<string, string> {
+    try {
+        const raw = localStorage.getItem(ADMIN_KEY_STORE);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {}; // private mode, cleared storage, corrupt value -- treat as none
+    }
+}
+
+function writeAdminKeys(keys: Record<string, string>): void {
+    try {
+        localStorage.setItem(ADMIN_KEY_STORE, JSON.stringify(keys));
+    } catch {
+        /* storage unavailable: the key simply is not remembered */
+    }
+}
+
+export function getAdminKey(tournamentId: string): string | null {
+    return readAdminKeys()[tournamentId] ?? null;
+}
+
+export function rememberAdminKey(tournamentId: string, adminKey: string): void {
+    const keys = readAdminKeys();
+    keys[tournamentId] = normalizeCode(adminKey);
+    writeAdminKeys(keys);
+}
+
+export function forgetAdminKey(tournamentId: string): void {
+    const keys = readAdminKeys();
+    delete keys[tournamentId];
+    writeAdminKeys(keys);
+}
+
+/** Tournament ids this browser holds an admin key for. */
+export function administeredTournamentIds(): string[] {
+    return Object.keys(readAdminKeys());
+}
+
+// ---------------------------------------------------------------------------
+// One request helper for every call
+//
+// Replaces ~25 hand-written fetches whose error handling had drifted apart:
+// some threw on !res.ok, some returned the error body as if it were a result,
+// most did neither. All of them now fail the same way, which matters more since
+// the server validates results and can legitimately reject a submission.
+// ---------------------------------------------------------------------------
+
+interface RequestOptions {
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    body?: unknown;
+    /** Attach this tournament's admin key, if this browser holds one. */
+    tournamentId?: string;
+}
+
+async function request<T = any>(path: string, options: RequestOptions = {}): Promise<T> {
+    const { method = 'GET', body, tournamentId } = options;
+
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+    // The instance token goes on everything: it authorises creating, and it also
+    // lets the operator manage a tournament whose own admin key they mislaid.
+    const ownerToken = getOwnerToken();
+    if (ownerToken) headers['X-Admin-Token'] = ownerToken;
+
+    if (tournamentId) {
+        const adminKey = getAdminKey(tournamentId);
+        if (adminKey) headers['X-Admin-Key'] = adminKey;
+    }
+
+    const res = await fetch(`${API_URL}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+        throw new Error(data?.error || `Request failed (${res.status})`);
+    }
+    return data as T;
+}
 
 // Check if ties are possible
 export function tiesPossible(gameType: GameType, useCustomPoints?: boolean): boolean {
@@ -18,170 +148,186 @@ export function tiesPossible(gameType: GameType, useCustomPoints?: boolean): boo
     return getArchetypeConfig(archetype).tiesPossible;
 }
 
-export async function getGames(): Promise<GameConfig[]> {
-    const res = await fetch(`${API_URL}/games`);
-    return res.json();
+// ---------------------------------------------------------------------------
+// Sessions: joining by code, and instance-owner status
+// ---------------------------------------------------------------------------
+
+export interface JoinInfo {
+    id: string;
+    name: string;
+    gameType: GameType;
+    state: string;
+    joinCode: string;
+    isTeamBased: boolean;
+    playerCount: number;
 }
 
+/** Resolve a shared join code to the tournament it opens. View access only. */
+export async function joinByCode(code: string): Promise<JoinInfo> {
+    return request<JoinInfo>(`/join/${encodeURIComponent(normalizeCode(code))}`);
+}
+
+export interface AdminStatus {
+    authRequired: boolean;
+    isAdmin: boolean;
+    isOwner: boolean;
+}
+
+export async function getAdminStatus(): Promise<AdminStatus> {
+    return request<AdminStatus>('/admin/status');
+}
+
+/**
+ * Check a token with the server before storing it, so a mistyped token fails
+ * here with a clear message instead of silently on the next create.
+ */
+export async function verifyOwnerToken(token: string): Promise<void> {
+    const res = await fetch(`${API_URL}/admin/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || 'That admin token is not valid');
+    setOwnerToken(token);
+}
+
+export function signOutOwner(): void {
+    clearOwnerToken();
+}
+
+// ---------------------------------------------------------------------------
+// Tournaments
+// ---------------------------------------------------------------------------
+
+export async function getGames(): Promise<GameConfig[]> {
+    return request<GameConfig[]>('/games');
+}
+
+/** The instance owner's list. Throws 401 for anyone else. */
 export async function getTournaments() {
-    const res = await fetch(`${API_URL}/tournaments`);
-    return res.json();
+    return request('/tournaments');
+}
+
+export interface CreatedTournament {
+    id: string;
+    name: string;
+    joinCode: string;
+    /** Shown once, never retrievable again. */
+    adminKey: string;
+    isTeamBased: boolean;
 }
 
 export async function createTournament(
-    name: string, 
-    gameType: GameType, 
-    mapPool: string[] = [], 
-    groupStageRoundLimit?: number, 
+    name: string,
+    gameType: GameType,
+    mapPool: string[] = [],
+    groupStageRoundLimit?: number,
     playoffsRoundLimit?: number,
     useCustomPoints?: boolean,
     teamMode?: boolean
-) {
-    const res = await fetch(`${API_URL}/tournaments`, {
+): Promise<CreatedTournament> {
+    const created = await request<CreatedTournament>('/tournaments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode })
+        body: { name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode },
     });
-    const data = await res.json();
-    if (!res.ok) {
-        throw new Error(data.error || 'Failed to create tournament');
-    }
-    return data;
+    // The key exists only in this response -- keep it before anything can throw.
+    if (created?.id && created?.adminKey) rememberAdminKey(created.id, created.adminKey);
+    return created;
 }
 
 export async function deleteTournament(tournamentId: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}`, {
-        method: 'DELETE'
-    });
-    return res.json();
+    const result = await request(`/tournament/${tournamentId}`, { method: 'DELETE', tournamentId });
+    forgetAdminKey(tournamentId);
+    return result;
 }
 
 export async function importTournament(tournamentData: any) {
-    const res = await fetch(`${API_URL}/tournaments/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tournamentData)
-    });
-    return res.json();
+    const result = await request<{ success: boolean; id: string; name: string; joinCode: string; adminKey: string }>(
+        '/tournaments/import',
+        { method: 'POST', body: tournamentData },
+    );
+    if (result?.id && result?.adminKey) rememberAdminKey(result.id, result.adminKey);
+    return result;
 }
 
 export async function getState(tournamentId: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/state`);
-    return res.json();
+    return request(`/tournament/${tournamentId}/state`, { tournamentId });
 }
+
+export async function updateTournamentName(tournamentId: string, name: string) {
+    return request(`/tournament/${tournamentId}/name`, { method: 'PUT', body: { name }, tournamentId });
+}
+
+export async function resetTournament(tournamentId: string) {
+    return request(`/tournament/${tournamentId}/reset`, { method: 'POST', tournamentId });
+}
+
+// ---------------------------------------------------------------------------
+// Players
+// ---------------------------------------------------------------------------
 
 export async function addPlayer(tournamentId: string, name: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/players`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    });
-    return res.json();
+    return request(`/tournament/${tournamentId}/players`, { method: 'POST', body: { name }, tournamentId });
 }
 
+export async function updatePlayerName(tournamentId: string, playerId: string, name: string) {
+    return request(`/tournament/${tournamentId}/player/${playerId}`, { method: 'PUT', body: { name }, tournamentId });
+}
+
+export async function updatePlayerPhoto(tournamentId: string, playerId: string, photo: string) {
+    return request(`/tournament/${tournamentId}/player/${playerId}/photo`, { method: 'PUT', body: { photo }, tournamentId });
+}
+
+export async function removePlayer(tournamentId: string, playerId: string) {
+    return request(`/tournament/${tournamentId}/player/${playerId}`, { method: 'DELETE', tournamentId });
+}
+
+// ---------------------------------------------------------------------------
+// Group stage
+// ---------------------------------------------------------------------------
+
 export async function startGroupStage(tournamentId: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/start`, { method: 'POST' });
-    return res.json();
+    return request(`/tournament/${tournamentId}/start`, { method: 'POST', tournamentId });
 }
 
 export async function submitMatch(tournamentId: string, id: string, results: any, mapName?: string) {
     const body: any = { results };
     if (mapName) body.mapName = mapName;
-    
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/match/${id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    });
-    return res.json();
-}
-
-export async function generateBrackets(tournamentId: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/brackets`, { method: 'POST' });
-    return res.json();
-}
-
-export async function resetTournament(tournamentId: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/reset`, { method: 'POST' });
-    return res.json();
-}
-
-export async function submitBracketWinner(tournamentId: string, id: string, winnerId: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/bracket-match/${id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ winnerId })
-    });
-    return res.json();
+    return request(`/tournament/${tournamentId}/match/${id}`, { method: 'POST', body, tournamentId });
 }
 
 export async function updateGroupName(tournamentId: string, podId: string, name: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/group/${podId}/name`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    });
-    return res.json();
+    return request(`/tournament/${tournamentId}/group/${podId}/name`, { method: 'PUT', body: { name }, tournamentId });
 }
 
 export async function resetGroupData(tournamentId: string, podId: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/group/${podId}/reset`, {
-        method: 'POST'
-    });
-    return res.json();
+    return request(`/tournament/${tournamentId}/group/${podId}/reset`, { method: 'POST', tournamentId });
 }
 
-export async function updateTournamentName(tournamentId: string, name: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/name`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    });
-    return res.json();
+// ---------------------------------------------------------------------------
+// Playoffs
+// ---------------------------------------------------------------------------
+
+export async function generateBrackets(tournamentId: string) {
+    return request(`/tournament/${tournamentId}/brackets`, { method: 'POST', tournamentId });
 }
 
-export async function updatePlayerName(tournamentId: string, playerId: string, name: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/player/${playerId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    });
-    return res.json();
+export async function submitBracketWinner(tournamentId: string, id: string, winnerId: string) {
+    return request(`/tournament/${tournamentId}/bracket-match/${id}`, { method: 'POST', body: { winnerId }, tournamentId });
 }
 
-export async function updatePlayerPhoto(tournamentId: string, playerId: string, photo: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/player/${playerId}/photo`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photo })
-    });
-    return res.json();
-}
-
-export async function removePlayer(tournamentId: string, playerId: string) {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/player/${playerId}`, {
-        method: 'DELETE'
-    });
-    return res.json();
-}
-
-// Submit a single game result for BO3 bracket match
 export async function submitBracketGameResult(tournamentId: string, matchId: string, gameResult: any) {
-    const response = await fetch(`${API_URL}/tournament/${tournamentId}/bracket-match/${matchId}/game`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(gameResult)
-    });
-    if (!response.ok) throw new Error('Failed to submit game result');
-    return response.json();
+    return request(`/tournament/${tournamentId}/bracket-match/${matchId}/game`, { method: 'POST', body: gameResult, tournamentId });
 }
 
-// ========================================
-// TEAM TOURNAMENT TYPES & API
-// ========================================
-
+// ---------------------------------------------------------------------------
+// Teams
+//
 // The domain model lives in the shared single source of truth (shared/types.ts);
 // re-exported here so the pages can keep importing these from `$lib/api`.
+// ---------------------------------------------------------------------------
+
 export type { Team, PlayerGameStats, TeamGameResult, TeamMatch, TeamPod, TeamBracketMatch };
 
 export interface PlayerStats {
@@ -192,126 +338,60 @@ export interface PlayerStats {
     gamesPlayed: number;
 }
 
-
-// Add a team to a tournament
 export async function addTeam(tournamentId: string, name: string, playerIds: string[], logo?: string): Promise<Team> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/teams`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, playerIds, logo })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to add team');
-    return data;
+    return request<Team>(`/tournament/${tournamentId}/teams`, { method: 'POST', body: { name, playerIds, logo }, tournamentId });
 }
 
-// Update a team
-export async function updateTeam(tournamentId: string, teamId: string, updates: { name?: string; playerIds?: string[]; logo?: string }): Promise<Team> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team/${teamId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to update team');
-    return data;
+export async function updateTeam(
+    tournamentId: string,
+    teamId: string,
+    updates: { name?: string; playerIds?: string[]; logo?: string }
+): Promise<Team> {
+    return request<Team>(`/tournament/${tournamentId}/team/${teamId}`, { method: 'PUT', body: updates, tournamentId });
 }
 
-// Remove a team
 export async function removeTeam(tournamentId: string, teamId: string): Promise<void> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team/${teamId}`, {
-        method: 'DELETE'
-    });
-    if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to remove team');
-    }
+    await request(`/tournament/${tournamentId}/team/${teamId}`, { method: 'DELETE', tournamentId });
 }
 
-
-// Start team group stage
 export async function startTeamGroupStage(tournamentId: string): Promise<void> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/start-team`, {
-        method: 'POST'
-    });
-    if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to start team group stage');
-    }
+    await request(`/tournament/${tournamentId}/start-team`, { method: 'POST', tournamentId });
 }
 
-// Submit team match result (group stage)
 export async function submitTeamMatchResult(
-    tournamentId: string, 
-    matchId: string, 
-    team1Score: number, 
-    team2Score: number, 
+    tournamentId: string,
+    matchId: string,
+    team1Score: number,
+    team2Score: number,
     games?: TeamGameResult[]
 ): Promise<void> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-match/${matchId}`, {
+    await request(`/tournament/${tournamentId}/team-match/${matchId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team1Score, team2Score, games })
+        body: { team1Score, team2Score, games },
+        tournamentId,
     });
-    if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to submit team match result');
-    }
 }
 
-// Generate team brackets
 export async function generateTeamBrackets(tournamentId: string): Promise<void> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-brackets`, {
-        method: 'POST'
-    });
-    if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to generate team brackets');
-    }
+    await request(`/tournament/${tournamentId}/team-brackets`, { method: 'POST', tournamentId });
 }
 
-// Submit team bracket winner
 export async function submitTeamBracketWinner(tournamentId: string, matchId: string, winnerId: string): Promise<void> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-bracket-match/${matchId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ winnerId })
-    });
-    if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to submit team bracket winner');
-    }
+    await request(`/tournament/${tournamentId}/team-bracket-match/${matchId}`, { method: 'POST', body: { winnerId }, tournamentId });
 }
 
-// Submit a single game result for team bracket match
 export async function submitTeamBracketGameResult(
-    tournamentId: string, 
-    matchId: string, 
+    tournamentId: string,
+    matchId: string,
     gameResult: TeamGameResult
 ): Promise<void> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-bracket-match/${matchId}/game`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(gameResult)
-    });
-    if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to submit team bracket game result');
-    }
+    await request(`/tournament/${tournamentId}/team-bracket-match/${matchId}/game`, { method: 'POST', body: gameResult, tournamentId });
 }
 
-// Get player statistics for team tournament
 export async function getPlayerStats(tournamentId: string): Promise<PlayerStats[]> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/player-stats`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to get player stats');
-    return data;
+    return request<PlayerStats[]>(`/tournament/${tournamentId}/player-stats`, { tournamentId });
 }
 
-// Get team rankings
 export async function getTeamRankings(tournamentId: string): Promise<Team[]> {
-    const res = await fetch(`${API_URL}/tournament/${tournamentId}/team-rankings`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to get team rankings');
-    return data;
+    return request<Team[]>(`/tournament/${tournamentId}/team-rankings`, { tournamentId });
 }

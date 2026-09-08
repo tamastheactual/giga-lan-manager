@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getTournaments, createTournament, deleteTournament, importTournament, type GameType, GAME_CONFIGS } from '$lib/api';
+  import { getTournaments, createTournament, deleteTournament, importTournament, formatKeyForDisplay, type GameType, GAME_CONFIGS } from '$lib/api';
   import { getArchetypeConfig } from '$shared/gameArchetypes';
   import { getGameLogoUrl } from '$lib/gameLogos';
   import logoImg from '../assets/logo.png';
@@ -53,6 +53,42 @@
   let showImportSuccess = $state(false);
   let importedTournamentName = $state('');
   let importedTournamentId = $state('');
+  let importedJoinCode = $state('');
+  let importedAdminKey = $state('');
+
+  // Whether this visitor is the instance owner. /api/tournaments is the owner's
+  // view; everyone else reaches a tournament with a join code instead.
+  let canListTournaments = $state(true);
+
+  // Credentials handed out once, right after a tournament is created or
+  // imported. The admin key is never retrievable again.
+  let showCredentials = $state(false);
+  let credName = $state('');
+  let credId = $state('');
+  let credJoinCode = $state('');
+  let credAdminKey = $state('');
+  let copied = $state('');
+
+  const joinLink = $derived(credJoinCode ? `${window.location.origin}/t/${credJoinCode}` : '');
+
+  async function copy(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = label;
+      setTimeout(() => { if (copied === label) copied = ''; }, 1800);
+    } catch {
+      copied = '';
+    }
+  }
+
+  function openCredentials(name: string, id: string, code: string, key: string) {
+    credName = name; credId = id; credJoinCode = code; credAdminKey = key;
+    showCredentials = true;
+  }
+
+  function shareLinkFor(code: string): string {
+    return `${window.location.origin}/t/${code}`;
+  }
 
   function formatDate(dateString: string | null | undefined): string {
     if (!dateString) return 'N/A';
@@ -85,7 +121,14 @@
   }
 
   async function loadTournaments() {
-    tournaments = await getTournaments();
+    try {
+      tournaments = await getTournaments();
+      canListTournaments = true;
+    } catch {
+      // Not the instance owner: there is no list to show, only the join box.
+      tournaments = [];
+      canListTournaments = false;
+    }
   }
 
   async function handleCreateTournament() {
@@ -129,8 +172,9 @@
       showCreateForm = false;
       await loadTournaments();
 
-      // Navigate to the new tournament
-      window.location.href = `/tournament/${result.id}`;
+      // Show the join code and admin key before going anywhere -- the admin key
+      // exists only in that one response and is never retrievable again.
+      openCredentials(result.name, result.id, result.joinCode, result.adminKey);
     } catch (error: any) {
       errorMessage = error.message || 'Failed to create tournament';
       showErrorPopup = true;
@@ -200,16 +244,12 @@
         }
         
         const result = await importTournament(data);
-        
-        if (result.success) {
-          importedTournamentName = result.name || 'Unknown';
-          importedTournamentId = result.id;
-          showImportSuccess = true;
-          await loadTournaments();
-        } else {
-          errorMessage = result.error || 'Failed to import tournament';
-          showErrorPopup = true;
-        }
+        importedTournamentName = result.name || 'Unknown';
+        importedTournamentId = result.id;
+        importedJoinCode = result.joinCode;
+        importedAdminKey = result.adminKey;
+        await loadTournaments();
+        openCredentials(result.name, result.id, importedJoinCode, importedAdminKey);
       } catch (error: any) {
         errorMessage = `Import failed: ${error.message || 'Invalid JSON file'}`;
         showErrorPopup = true;
@@ -235,8 +275,25 @@
       <p class="text-gray-400 text-sm">Select or create a tournament to begin</p>
     </div>
 
+    {#if !canListTournaments}
+      <!-- Not the instance owner: the only way in is a join code. -->
+      <div class="glass rounded-2xl p-8 shadow-xl border border-cyber-green/30 text-center">
+        <h2 class="text-2xl font-black gradient-text mb-2">Got a join code?</h2>
+        <p class="text-gray-400 text-sm mb-6 max-w-md mx-auto">
+          Enter the code from the organiser to follow a tournament's brackets, standings and
+          statistics live.
+        </p>
+        <a href="/join" class="inline-block bg-cyber-green text-black font-bold px-8 py-3 rounded-xl hover:brightness-110 transition">
+          Join a tournament
+        </a>
+        <p class="text-xs text-gray-500 mt-6">
+          Running the tournament yourself? <a href="/login" class="text-brand-orange hover:text-cyber-green underline">Sign in as organiser</a>.
+        </p>
+      </div>
+    {/if}
+
     <!-- Create Tournament Section -->
-    <div class="glass rounded-lg p-6 shadow-xl border border-brand-cyan/20">
+    <div class="glass rounded-lg p-6 shadow-xl border border-brand-cyan/20" class:hidden={!canListTournaments}>
       {#if !showCreateForm}
         <div class="flex flex-wrap gap-3">
           <button
@@ -246,6 +303,13 @@
             <svg class="w-5 h-5 inline-block mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
             Create New Tournament
           </button>
+          <a
+            href="/join"
+            class="bg-space-700 hover:bg-space-600 text-gray-200 font-bold px-6 py-3 rounded-lg transition-all duration-300 hover:scale-105 inline-flex items-center"
+          >
+            <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7h3a5 5 0 010 10h-3m-6 0H6a5 5 0 010-10h3m-1 5h8"/></svg>
+            Open by code
+          </a>
           <button
             onclick={handleImportClick}
             disabled={importing}
@@ -493,6 +557,20 @@
                   </div>
                 </div>
 
+                {#if tournament.joinCode}
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="text-[10px] font-bold text-gray-500 tracking-widest">JOIN</span>
+                    <code class="px-2 py-1 rounded bg-space-700 text-cyber-green font-mono text-sm tracking-[0.2em]">{tournament.joinCode}</code>
+                    <button
+                      onclick={(e) => { e.stopPropagation(); copy(shareLinkFor(tournament.joinCode), tournament.id); }}
+                      class="text-[11px] font-bold px-2 py-1 rounded bg-space-700 text-gray-300 hover:text-cyber-green hover:bg-space-600 transition"
+                      title="Copy the shareable view-only link"
+                    >
+                      {copied === tournament.id ? 'Copied' : 'Copy link'}
+                    </button>
+                  </div>
+                {/if}
+
                 <div class="flex items-center justify-between text-sm mb-3">
                   <div class="flex items-center gap-4 text-gray-400">
                     <div class="flex items-center gap-1">
@@ -572,6 +650,20 @@
                     </button>
                   </div>
                 </div>
+
+                {#if tournament.joinCode}
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="text-[10px] font-bold text-gray-500 tracking-widest">JOIN</span>
+                    <code class="px-2 py-1 rounded bg-space-700 text-cyber-green font-mono text-sm tracking-[0.2em]">{tournament.joinCode}</code>
+                    <button
+                      onclick={(e) => { e.stopPropagation(); copy(shareLinkFor(tournament.joinCode), tournament.id); }}
+                      class="text-[11px] font-bold px-2 py-1 rounded bg-space-700 text-gray-300 hover:text-cyber-green hover:bg-space-600 transition"
+                      title="Copy the shareable view-only link"
+                    >
+                      {copied === tournament.id ? 'Copied' : 'Copy link'}
+                    </button>
+                  </div>
+                {/if}
 
                 <div class="flex items-center justify-between text-sm mb-3">
                   <div class="flex items-center gap-4 text-gray-400">
@@ -686,6 +778,62 @@
 {/if}
 
 <!-- Import Success Popup Modal -->
+{#if showCredentials}
+  <div class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="glass rounded-xl max-w-lg w-full shadow-2xl border border-cyber-green/40">
+      <div class="p-6 border-b border-space-600">
+        <h2 class="text-xl font-bold text-white">"{credName}" is ready</h2>
+        <p class="text-gray-400 text-sm mt-1">Share the code to let people watch. Keep the admin key to run it.</p>
+      </div>
+
+      <div class="p-6 space-y-6">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] font-bold text-gray-400 tracking-widest">JOIN CODE — SAFE TO SHARE</span>
+            <button onclick={() => copy(joinLink, 'link')} class="text-[11px] font-bold text-brand-cyan hover:text-cyber-green transition">
+              {copied === 'link' ? 'Copied' : 'Copy link'}
+            </button>
+          </div>
+          <div class="p-4 rounded-xl bg-space-800 border border-space-600 text-center">
+            <div class="text-3xl font-mono font-bold text-cyber-green tracking-[0.3em]">{credJoinCode}</div>
+            <div class="text-xs text-gray-500 mt-2 break-all">{joinLink}</div>
+          </div>
+          <p class="text-xs text-gray-500 mt-2">Anyone with this can follow the brackets and stats live. They cannot change anything.</p>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] font-bold text-brand-orange tracking-widest">ADMIN KEY — SHOWN ONCE</span>
+            <button onclick={() => copy(credAdminKey, 'key')} class="text-[11px] font-bold text-brand-orange hover:text-cyber-green transition">
+              {copied === 'key' ? 'Copied' : 'Copy key'}
+            </button>
+          </div>
+          <div class="p-4 rounded-xl bg-space-800 border border-brand-orange/40">
+            <div class="font-mono text-sm text-brand-orange break-all select-all">{formatKeyForDisplay(credAdminKey)}</div>
+          </div>
+          <p class="text-xs text-gray-400 mt-2">
+            This is the only thing that can enter results. It is already saved in
+            <strong class="text-gray-300">this browser</strong> — copy it somewhere safe if you might
+            run the tournament from another device. The server keeps only a hash, so it cannot be shown again.
+          </p>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-3 p-6 border-t border-space-600">
+        <button onclick={() => showCredentials = false} class="bg-gray-600 hover:bg-gray-500 text-white font-bold px-4 py-2 rounded-lg transition">
+          Stay here
+        </button>
+        <button
+          onclick={() => { showCredentials = false; navigateToTournament(credId); }}
+          class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition"
+        >
+          Open tournament
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if showImportSuccess}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showImportSuccess = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showImportSuccess = false)}>
     <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-cyber-green/30" onclick={(e) => e.stopPropagation()}>

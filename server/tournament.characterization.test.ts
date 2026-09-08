@@ -5,11 +5,12 @@ import { TournamentManager } from './tournament';
  * Characterization tests for the tournament engine.
  *
  * These lock the engine's CURRENT behavior so any refactor (e.g. splitting the
- * god-files) is caught the moment it changes an observable output. Where the
- * current behavior is a known bug (see CODE_AUDIT.md — e.g. 4-player brackets
- * skip the semifinal round, and 13 players fills a bye to two groups of 7),
- * the assertion documents the status quo, not the ideal. Those get fixed under
- * the separate correctness pass, at which point the assertion is updated.
+ * god-files) is caught the moment it changes an observable output. Some
+ * assertions document the status quo rather than the ideal -- a 4-player single
+ * group goes straight to a final instead of playing semifinals, and 13 players
+ * gets a BYE up to two groups of 7. Those are deliberate, not oversights.
+ *
+ * Defect fixes live alongside them in fixes.test.ts.
  *
  * They replace six console.log scripts that never asserted anything (always
  * exited 0), re-implemented the code they "tested", or hard-coded stale values.

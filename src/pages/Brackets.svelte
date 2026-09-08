@@ -23,6 +23,7 @@
   let mapPool = $state([]) as string[];
   let playoffsRoundLimit = $state<number | undefined>(undefined);
   let useCustomPoints = $state(false);
+  let canEdit = $state(false);
 
   // Team tournament state
   let isTeamBased = $state(false);
@@ -420,7 +421,11 @@
       });
     }
     
-    // Submit final winner
+    // Backstop only. Submitting the games above already decides the series
+    // server-side, and submitTeamBracketWinner is a no-op when the winner is
+    // unchanged -- it used to re-run the semifinal branch and seed the SAME
+    // loser into both slots of the 3rd-place match. This call still matters when
+    // a map was tied and the per-game threshold was never reached.
     await submitTeamBracketWinner(tournamentId, modalMatchId, winnerId!);
     
     // Reset modal state for this match
@@ -572,6 +577,7 @@
       mapPool = tournamentData.mapPool || [];
       playoffsRoundLimit = tournamentData.playoffsRoundLimit;
       useCustomPoints = tournamentData.useCustomPoints || false;
+      canEdit = tournamentData.isAdmin === true;
       
       // Team tournament data
       isTeamBased = tournamentData.isTeamBased || false;
@@ -635,7 +641,8 @@
   }
 
 async function handleDeclareWinner(matchId: string, winnerId: string) {
-  if (!confirm('Are you sure you want to declare this player as the winner?')) return;
+  const label = isTeamBased ? 'team' : 'player';
+  if (!confirm(`Declare this ${label} the winner of the match?`)) return;
   
   try {
     await submitBracketWinner(tournamentId, matchId, winnerId);
@@ -762,7 +769,6 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
   function getMapWinner(mapIndex: number): 'player1' | 'player2' | null {
     const scores = mapScores[mapIndex];
     if (!scores) {
-      console.log(`[Brackets] Map ${mapIndex} - no scores`);
       return null;
     }
     
@@ -772,15 +778,12 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       const maxLoserScore = winScore - 1;
       
       if (scores.player1Score === winScore && scores.player2Score <= maxLoserScore) {
-        console.log(`[Brackets] Map ${mapIndex} - player1 wins with`, scores);
         return 'player1';
       }
       if (scores.player2Score === winScore && scores.player1Score <= maxLoserScore) {
-        console.log(`[Brackets] Map ${mapIndex} - player2 wins with`, scores);
         return 'player2';
       }
       // Invalid score or incomplete
-      console.log(`[Brackets] Map ${mapIndex} - invalid/incomplete`, scores);
       return null;
     }
     
@@ -812,7 +815,6 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
   function canSubmitSeries(): boolean {
     // Must have a series winner
     const winner = getSeriesWinner();
-    console.log('[Brackets] canSubmitSeries - winner:', winner, 'series score:', getSeriesScore());
     if (winner === null) return false;
     
     // Check for duplicate maps (no two games can have the same map)
@@ -826,7 +828,6 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
       if (selectedMap) {
         // Check if this map was already selected for another game
         if (selectedMapsList.includes(selectedMap)) {
-          console.log(`[Brackets] Map ${selectedMap} selected more than once`);
           return false;
         }
         selectedMapsList.push(selectedMap);
@@ -848,12 +849,10 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           (scores.player1Score === winScore && scores.player2Score <= maxLoserScore) ||
           (scores.player2Score === winScore && scores.player1Score <= maxLoserScore);
         
-        console.log(`[Brackets] Map ${i} validation:`, scores, 'valid:', isValidMap);
         if (!isValidMap) return false;
       }
     }
     
-    console.log('[Brackets] canSubmitSeries - returning true');
     return true;
   }
 
@@ -1188,6 +1187,16 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
     }
   });
 </script>
+
+{#if !canEdit}
+  <div class="max-w-7xl mx-auto px-4 pt-4">
+    <div class="flex items-center gap-3 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-4 py-2.5">
+      <svg class="w-4 h-4 text-brand-cyan flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+      <span class="text-sm text-brand-cyan font-semibold">Viewing live — only the organiser can enter results.</span>
+    </div>
+  </div>
+{/if}
+
 
 <!-- Update the template to include loading/error states -->
 <div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3 flex flex-col">
@@ -1669,7 +1678,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                           </div>
                         {:else}
                           <!-- Normal View / Click to Edit -->
-                          {#if !match.winnerId && entity1Id && entity2Id}
+                          {#if canEdit && !match.winnerId && entity1Id && entity2Id}
                             <button
                               type="button"
                               class="w-full p-3 text-center text-sm font-bold text-brand-cyan hover:bg-brand-cyan/10 transition-all duration-300 border-b border-space-600 hover:text-brand-cyan hover:shadow-inner"
@@ -1965,7 +1974,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                                   </button>
                                 </div>
                               {:else}
-                                {#if !match3rd.winnerId && entity1Id3rd && entity2Id3rd}
+                                {#if canEdit && !match3rd.winnerId && entity1Id3rd && entity2Id3rd}
                                   <button
                                     type="button"
                                     class="w-full p-3 text-center text-sm font-bold text-brand-cyan hover:bg-brand-cyan/10 transition-all duration-300 border-b border-space-600 hover:text-brand-cyan hover:shadow-inner"
