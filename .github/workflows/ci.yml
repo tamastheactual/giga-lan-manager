@@ -9,6 +9,22 @@ jobs:
   check:
     name: Typecheck and unit tests
     runs-on: ubuntu-latest
+    # A backstop, not a target. This job takes about two minutes. Without a
+    # limit a hung step sits here until the 6h runner default, which is exactly
+    # what a Redis client retrying forever did to four runs in a row.
+    timeout-minutes: 15
+    services:
+      # The store contract suite proves the optimistic locking, and it skips any
+      # backend it cannot reach. Without a Redis here it skipped silently, so
+      # the one suite that covers concurrent writes was not running in CI.
+      redis:
+        image: redis:alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,6 +36,8 @@ jobs:
         run: npm run check
       - name: Unit tests
         run: npm test
+        env:
+          REDIS_URL: redis://localhost:6379
       - name: Production build
         run: npm run build
 
@@ -31,6 +49,7 @@ jobs:
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       redis:
         image: redis:alpine

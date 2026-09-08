@@ -21,8 +21,15 @@ interface Backend {
     make: () => TournamentStore;
 }
 
+// The probe and the real store are built differently on purpose. The probe
+// must be allowed to give up, or `init()` never rejects against a host that is
+// simply not there and the whole suite hangs at module load. That is what made
+// CI sit in_progress until the 6h runner timeout: the `check` job has no Redis
+// service, so every run parked here printing one `[redis]` line per retry.
+const PROBE = { maxRetries: 2, connectTimeoutMs: 1_000 };
+
 const candidates: Backend[] = [
-    { name: 'Redis', make: () => new RedisTournamentStore(REDIS_URL) },
+    { name: 'Redis', make: () => new RedisTournamentStore(REDIS_URL, PROBE) },
 ];
 
 if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -36,12 +43,16 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 async function reachable(backend: Backend): Promise<boolean> {
+    const probe = backend.make();
     try {
-        const probe = backend.make();
         await probe.init();
         await probe.close();
         return true;
     } catch {
+        // Drop the socket outright. `close()` sends QUIT and waits for a reply,
+        // which a client that never connected will not get, and a client left
+        // holding a retry timer keeps vitest from exiting.
+        if (probe instanceof RedisTournamentStore) probe.destroy();
         return false;
     }
 }
