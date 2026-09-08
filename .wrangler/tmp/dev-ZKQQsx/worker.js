@@ -26310,7 +26310,7 @@ var SupabaseTournamentStore = class {
 var cached = null;
 function getApp(env) {
   const adminToken = env.ADMIN_TOKEN || "";
-  const key = `${env.SUPABASE_URL}|${adminToken.length}`;
+  const key = `${env.SUPABASE_URL}|${adminToken}`;
   if (cached?.key === key) return cached.app;
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error(

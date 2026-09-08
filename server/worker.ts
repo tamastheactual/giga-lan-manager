@@ -26,8 +26,11 @@ let cached: { app: Hono; key: string } | null = null;
 
 function getApp(env: Env): Hono {
     const adminToken = env.ADMIN_TOKEN || '';
-    // Rebuild if the bindings changed under us (a redeploy with new secrets).
-    const key = `${env.SUPABASE_URL}|${adminToken.length}`;
+    // Rebuild if the bindings changed under us. Keyed on the token VALUE, not
+    // its length: every generated token is 26 characters, so a length-based key
+    // cannot tell one rotated token from another and a warm isolate would go on
+    // authenticating against the old one. The value is already in memory here.
+    const key = `${env.SUPABASE_URL}|${adminToken}`;
     if (cached?.key === key) return cached.app;
 
     if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
