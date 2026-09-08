@@ -292,9 +292,12 @@ input[type="number"] {
   letter-spacing: .18em;
   color: #7FE3F5;
 }
-.code-copy__hint { font-size: .6875rem; font-weight: 700; letter-spacing: .06em; color: #9BA5B4; text-transform: uppercase; }
+/* The affordance is an icon, not the word "Copy". The label lives in the
+   tooltip and the accessible name, so the control stops repeating itself. */
+.code-copy__icon { color: #9BA5B4; flex: none; }
+.code-copy:hover .code-copy__icon { color: #7FE3F5; }
 .code-copy.is-copied { border-color: #3ECF8E; }
-.code-copy.is-copied .code-copy__hint { color: #3ECF8E; }
+.code-copy.is-copied .code-copy__icon { color: #3ECF8E; }
 
 /* --- section headings -------------------------------------------------- */
 

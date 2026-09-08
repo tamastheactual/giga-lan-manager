@@ -15,9 +15,38 @@
   let tournaments: any[] = $state([]);
   let newTournamentName = $state('');
   let selectedGameType = $state<GameType>('cs16');
-  let map1 = $state('');
-  let map2 = $state('');
-  let map3 = $state('');
+  // The map pool was three fixed inputs, so a BO5 or a seven-map veto could
+  // not be expressed at all. It is a list now.
+  let mapPool = $state<string[]>(['', '', '']);
+
+  const MAX_MAPS = 16;
+  const filledMaps = $derived(mapPool.map((m) => m.trim()).filter((m) => m !== ''));
+  const duplicateMaps = $derived.by(() => {
+    const seen = new Set<string>();
+    const dupes = new Set<string>();
+    for (const m of filledMaps) {
+      const key = m.toLowerCase();
+      if (seen.has(key)) dupes.add(key);
+      seen.add(key);
+    }
+    return dupes;
+  });
+
+  function addMap() {
+    if (mapPool.length < MAX_MAPS) mapPool = [...mapPool, ''];
+  }
+  function removeMap(index: number) {
+    mapPool = mapPool.filter((_, i) => i !== index);
+    if (mapPool.length === 0) mapPool = [''];
+  }
+  function resetMapPool() {
+    mapPool = ['', '', ''];
+  }
+  /** Prefill from the maps the selected game already ships with. */
+  function useGameDefaultMaps() {
+    const defaults = GAME_CONFIGS[selectedGameType]?.maps ?? [];
+    mapPool = defaults.length ? [...defaults] : [''];
+  }
   let groupStageRoundLimit = $state<number>(16);
   let playoffsRoundLimit = $state<number>(10);
 
@@ -146,11 +175,8 @@
   async function handleCreateTournament() {
     if (!newTournamentName.trim()) return;
 
-    const mapPool = [map1.trim(), map2.trim(), map3.trim()].filter(m => m !== '');
-    
-    // Check for duplicate maps
-    const uniqueMaps = new Set(mapPool);
-    if (uniqueMaps.size !== mapPool.length) {
+    const maps = filledMaps;
+    if (duplicateMaps.size > 0) {
       errorMessage = 'Map pool contains duplicate maps. Each map must be unique.';
       showErrorPopup = true;
       return;
@@ -166,7 +192,7 @@
       const result = await createTournament(
         newTournamentName.trim(), 
         selectedGameType, 
-        mapPool,
+        maps,
         isRoundsBased ? groupStageRoundLimit : undefined,
         isRoundsBased ? playoffsRoundLimit : undefined,
         useCustomPoints,
@@ -174,9 +200,7 @@
       );
       newTournamentName = '';
       selectedGameType = 'cs16';
-      map1 = '';
-      map2 = '';
-      map3 = '';
+      resetMapPool();
       groupStageRoundLimit = 16;
       playoffsRoundLimit = 10;
       useCustomPoints = false;
@@ -278,13 +302,10 @@
 <div class="min-h-screen bg-space-600 py-8 px-4 flex flex-col">
   <div class="w-full max-w-6xl mx-auto space-y-8">
 
-    <!-- Header -->
-    <div class="text-center py-3 space-y-2">
-      <img src={logoImg} alt="AI Department Logo" class="h-20 w-auto mx-auto mb-2" />
-      <h1 class="text-2xl md:text-3xl font-black gradient-text leading-tight">
-        TOURNAMENT LOBBY
-      </h1>
-      <p class="text-gray-400 text-sm">Select or create a tournament to begin</p>
+    <!-- Header. The logo and wordmark already sit in the nav on every page, so
+         repeating them here just pushed the actual content below the fold. -->
+    <div class="pt-6 pb-4">
+      <h1 class="text-2xl font-black text-ink leading-tight">Tournament lobby</h1>
     </div>
 
     {#if !canListTournaments}
@@ -397,7 +418,7 @@
               Create
             </button>
             <button
-              onclick={() => { showCreateForm = false; newTournamentName = ''; selectedGameType = 'cs16'; map1 = ''; map2 = ''; map3 = ''; useCustomPoints = false; teamMode = false; }}
+              onclick={() => { showCreateForm = false; newTournamentName = ''; selectedGameType = 'cs16'; resetMapPool(); useCustomPoints = false; teamMode = false; }}
               class="bg-gray-600 hover:bg-gray-500 text-white font-bold px-4 py-2 text-sm rounded-lg transition-all duration-300"
             >
               Cancel
@@ -406,30 +427,59 @@
 
           <!-- Map Pool (Optional) -->
           <div class="space-y-2">
-            <span class="text-sm text-gray-400">Map Pool</span>
-            <div class="grid grid-cols-3 gap-2">
-              <input
-                type="text"
-                bind:value={map1}
-                placeholder="Map 1 (e.g., de_dust2)"
-                class="px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
-                maxlength="30"
-              />
-              <input
-                type="text"
-                bind:value={map2}
-                placeholder="Map 2 (e.g., de_inferno)"
-                class="px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
-                maxlength="30"
-              />
-              <input
-                type="text"
-                bind:value={map3}
-                placeholder="Map 3 (e.g., de_nuke)"
-                class="px-3 py-2 text-sm bg-space-700 border-2 border-space-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan text-white placeholder-gray-500 transition-all shadow-lg"
-                maxlength="30"
-              />
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <span class="text-sm text-ink-muted">
+                Map pool
+                <span class="text-ink-faint">({filledMaps.length} {filledMaps.length === 1 ? 'map' : 'maps'})</span>
+              </span>
+              <div class="flex items-center gap-2">
+                <button type="button" onclick={useGameDefaultMaps} class="btn btn-ghost !px-2.5 !py-1.5 !text-xs">
+                  Use {GAME_CONFIGS[selectedGameType]?.shortName ?? 'game'} defaults
+                </button>
+                <button type="button" onclick={resetMapPool} class="btn btn-ghost !px-2.5 !py-1.5 !text-xs">Clear</button>
+              </div>
             </div>
+
+            <div class="space-y-2">
+              {#each mapPool as _, i (i)}
+                {@const isDupe = mapPool[i].trim() !== '' && duplicateMaps.has(mapPool[i].trim().toLowerCase())}
+                <div class="flex items-center gap-2">
+                  <span class="w-6 text-xs text-ink-faint tabular-nums text-right">{i + 1}</span>
+                  <input
+                    type="text"
+                    bind:value={mapPool[i]}
+                    placeholder="Map name"
+                    maxlength="40"
+                    class="flex-1 px-3 py-2 text-sm bg-space-700 border rounded-lg focus:outline-none focus:ring-2 text-white placeholder-ink-faint transition-all
+                      {isDupe ? 'border-loss focus:ring-loss/50' : 'border-space-600 focus:ring-accent/50 focus:border-accent'}"
+                  />
+                  <button
+                    type="button"
+                    onclick={() => removeMap(i)}
+                    class="btn btn-ghost !px-2 !py-1.5"
+                    aria-label="Remove map {i + 1}"
+                    title="Remove this map"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                  </button>
+                </div>
+              {/each}
+            </div>
+
+            {#if duplicateMaps.size > 0}
+              <p class="text-xs text-loss">Each map must be unique.</p>
+            {/if}
+
+            <button
+              type="button"
+              onclick={addMap}
+              disabled={mapPool.length >= MAX_MAPS}
+              class="btn btn-secondary !py-1.5 !text-xs w-full"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+              Add map
+            </button>
+            <p class="text-xs text-ink-faint">Leave empty to let the organiser pick a map per match.</p>
           </div>
 
           <!-- Scoring Options -->
@@ -573,19 +623,19 @@
                       class:is-copied={copied === `code:${tournament.joinCode}`}
                       onclick={(e) => copyCode(e, tournament.joinCode)}
                       title="Copy the join code"
+                      aria-label="Copy join code {tournament.joinCode}"
                     >
                       <span class="code-copy__value">{tournament.joinCode}</span>
-                      <span class="code-copy__hint">
-                        {copied === `code:${tournament.joinCode}` ? 'Copied' : 'Copy'}
-                      </span>
+                      {#if copied === `code:${tournament.joinCode}`}<svg class="w-4 h-4 code-copy__icon" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>{:else}<svg class="w-4 h-4 code-copy__icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>{/if}
                     </button>
                     <button
                       type="button"
-                      class="btn btn-ghost !px-2.5 !py-1.5 !text-xs"
+                      class="btn btn-ghost !px-2 !py-1.5 {copied === `link:${tournament.joinCode}` ? '!text-win' : ''}"
                       onclick={(e) => copyLink(e, tournament.joinCode)}
                       title="Copy the shareable view-only link"
+                      aria-label="Copy the shareable link for {tournament.name}"
                     >
-                      {copied === `link:${tournament.joinCode}` ? 'Link copied' : 'Copy link'}
+                      {#if copied === `link:${tournament.joinCode}`}<svg class="w-4 h-4 code-copy__icon" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>{:else}<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" d="M15 7h3a5 5 0 010 10h-3m-6 0H6a5 5 0 010-10h3m-1 5h8"/></svg>{/if}
                     </button>
                   </div>
                 {/if}
@@ -597,7 +647,7 @@
                       {tournament.playerCount}
                     </div>
                     {#if tournament.gameType && GAME_CONFIGS[tournament.gameType as GameType]}
-                      <div class="text-brand-cyan text-xs font-medium">
+                      <div class="text-ink-muted text-xs font-medium">
                         {GAME_CONFIGS[tournament.gameType as GameType].shortName}
                       </div>
                     {/if}
@@ -677,19 +727,19 @@
                       class:is-copied={copied === `code:${tournament.joinCode}`}
                       onclick={(e) => copyCode(e, tournament.joinCode)}
                       title="Copy the join code"
+                      aria-label="Copy join code {tournament.joinCode}"
                     >
                       <span class="code-copy__value">{tournament.joinCode}</span>
-                      <span class="code-copy__hint">
-                        {copied === `code:${tournament.joinCode}` ? 'Copied' : 'Copy'}
-                      </span>
+                      {#if copied === `code:${tournament.joinCode}`}<svg class="w-4 h-4 code-copy__icon" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>{:else}<svg class="w-4 h-4 code-copy__icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>{/if}
                     </button>
                     <button
                       type="button"
-                      class="btn btn-ghost !px-2.5 !py-1.5 !text-xs"
+                      class="btn btn-ghost !px-2 !py-1.5 {copied === `link:${tournament.joinCode}` ? '!text-win' : ''}"
                       onclick={(e) => copyLink(e, tournament.joinCode)}
                       title="Copy the shareable view-only link"
+                      aria-label="Copy the shareable link for {tournament.name}"
                     >
-                      {copied === `link:${tournament.joinCode}` ? 'Link copied' : 'Copy link'}
+                      {#if copied === `link:${tournament.joinCode}`}<svg class="w-4 h-4 code-copy__icon" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>{:else}<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" d="M15 7h3a5 5 0 010 10h-3m-6 0H6a5 5 0 010-10h3m-1 5h8"/></svg>{/if}
                     </button>
                   </div>
                 {/if}

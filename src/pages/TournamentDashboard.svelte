@@ -697,16 +697,10 @@
     }
   }
 
-  function getPlayerGradient(index: number) {
-    const gradients = [
-      'from-accent to-deep',
-      'from-deep to-deep',
-      'from-win to-win',
-      'from-ember to-loss',
-      'from-gold to-ember',
-      'from-deep to-deep',
-    ];
-    return gradients[index % gradients.length];
+  // Positions outside the podium carry no colour. A rotating palette gave
+  // 4th a red wash and 5th a gold one, implying a distinction that is not there.
+  function getPlayerGradient(_index: number) {
+    return 'bg-white/[0.03]';
   }
 
   // Simple Photo Editing Functions
@@ -825,7 +819,7 @@
           {/if}
         </h1>
       {/if}
-      <p class="text-gray-400 text-sm">TOURNAMENT COMMAND CENTER</p>
+
     </div>
 
     <!-- Game Info Banner -->
@@ -1283,7 +1277,7 @@
               {:else if isThird}
                 <div class="absolute inset-0 bg-ember/20 transition-opacity"></div>
               {:else}
-                <div class="absolute inset-0 bg-gradient-to-br {getPlayerGradient(index)} opacity-10 group-hover:opacity-20 transition-opacity"></div>
+                <div class="absolute inset-0 {getPlayerGradient(index)}"></div>
               {/if}
               
               <!-- Rank/Number Badge -->
@@ -1291,7 +1285,7 @@
                 {isChampion ? 'bg-gold text-space-900 border-gold' : ''}
                 {isSecond ? 'bg-space-600 text-space-900 border-gray-200' : ''}
                 {isThird ? 'bg-ember text-white border-ember' : ''}
-                {!isChampion && !isSecond && !isThird ? 'bg-space-700 text-cyber-blue border-space-600' : ''}
+                {!isChampion && !isSecond && !isThird ? 'bg-space-700 text-ink-muted border-space-600' : ''}
               ">
                 {isCompleted ? team.rank : index + 1}
               </div>
@@ -1414,7 +1408,7 @@
               {:else if isThird}
                 <div class="absolute inset-0 bg-ember/20 group-hover:opacity-100 transition-opacity"></div>
               {:else}
-                <div class="absolute inset-0 bg-gradient-to-br {getPlayerGradient(index)} opacity-10 group-hover:opacity-20 transition-opacity"></div>
+                <div class="absolute inset-0 {getPlayerGradient(index)}"></div>
               {/if}
 
               <!-- Rank/Number Badge -->
