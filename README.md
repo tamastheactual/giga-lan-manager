@@ -125,7 +125,9 @@ regardless.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection string (used when Supabase is not configured) |
+| `SUPABASE_URL` | *(unset)* | Supabase project URL. Set both this and the key to use Postgres |
+| `SUPABASE_SERVICE_ROLE_KEY` | *(unset)* | Service role key. **Server only** — never ship it to a browser |
 | `ADMIN_TOKEN` | *(unset)* | The secret that permits creating tournaments. `npm run gen-token` |
 | `ADMIN_PASSWORD` | *(unset)* | Deprecated alias for `ADMIN_TOKEN` |
 | `NODE_ENV` | — | `production` in the Docker runtime image |
@@ -148,6 +150,7 @@ npm run test:e2e       # Playwright, drives the real built app
 
 npm run start:server   # serve the built SPA + API on :3000
 npm run gen-token      # generate an instance ADMIN_TOKEN
+npm run migrate:supabase  # copy tournaments from Redis into Supabase
 ```
 
 ## Tournament flow
@@ -241,7 +244,8 @@ shared/           single source of truth, imported by BOTH sides
   access.ts         join codes and admin keys (Web Crypto, no Node built-ins)
 
 server/
-  index.ts          Express routes, Redis persistence, admin auth
+  index.ts          Express routes and admin auth
+  store/            persistence: the interface, Redis and Supabase, locking
   tournament.ts     TournamentManager: all state and rules
   brackets.ts       pure bracket builders (seeded entrants -> matches)
 
@@ -257,12 +261,52 @@ The client imports `shared/` through the `$shared` Vite alias; the server import
 it relatively. Don't fork it — the two copies that predated it had already
 drifted apart.
 
-**State** lives in an in-memory `Map` of `TournamentManager` instances, written
-to Redis as one JSON value per tournament on every mutation and reloaded at boot.
+## Storage
 
-> **Do not run more than one app instance against one Redis.** Each instance
-> loads state once at boot and serves from memory, so a second instance would
-> serve a stale snapshot and overwrite the first one's writes.
+Persistence sits behind a store interface (`server/store/`), so the same code
+runs on either backend:
+
+| Backend | When | Notes |
+| --- | --- | --- |
+| **Redis** | default | Needs no cloud project. Good for local work |
+| **Supabase** | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set | Postgres; the target for edge deployment |
+
+Nothing is cached between requests. Every route loads the tournament it needs,
+mutates it and writes it back, so the process holds no authoritative state and
+**more than one instance can run** — which was not true before, when an
+in-memory `Map` was the source of truth and a second instance would have served
+a stale snapshot and overwritten the first one's writes.
+
+Because every write is a whole-tournament read-modify-write, two people
+submitting results at the same moment would lose one. Writes therefore go
+through `withTournament()`, which asserts the version it read and replays the
+mutation against fresh state on conflict. `server/store/contract.test.ts` holds
+both backends to identical behaviour, including ten concurrent writers all
+landing.
+
+### Setting up Supabase
+
+```bash
+# 1. apply the schema to a new project
+supabase db execute --file supabase/schema.sql   # or paste it into the SQL editor
+
+# 2. bring existing tournaments across (join codes and admin keys are preserved)
+REDIS_URL=redis://localhost:6379 \
+SUPABASE_URL=https://xxxx.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=... \
+npm run migrate:supabase -- --dry-run     # then again without --dry-run
+
+# 3. point the server at it
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run start:server
+```
+
+The migration is re-runnable — anything already present is skipped — so keep the
+Redis data until the new instance is confirmed working.
+
+Both tables have RLS enabled with **no permissive policy**, so the anon and
+publishable keys can read nothing. The API talks to Postgres as the service role
+and enforces access itself; without that lockdown, publishing the anon key would
+publish every `admin_key_hash`.
 
 ## API
 
@@ -338,6 +382,7 @@ npm run test:e2e  # Playwright: the real built app in a browser (needs Redis)
 | `server/fixes.test.ts` | Regression tests for each fixed defect |
 | `shared/statistics.test.ts` | The pure statistics aggregation |
 | `shared/access.test.ts` | Code generation, normalisation, key hashing, path matching |
+| `server/store/contract.test.ts` | The store contract and optimistic locking, run against a live Redis |
 | `e2e/smoke.spec.ts` | Creation and credentials, the join flow, key enforcement, the stats page, team avatars |
 
 CI (`.github/workflows/ci.yml`) runs `npm run check`, `npm test` and the build on

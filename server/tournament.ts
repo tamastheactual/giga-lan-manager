@@ -86,6 +86,51 @@ export class TournamentManager {
     }
     
     /**
+     * Rebuild a tournament from its persisted form.
+     *
+     * Replaces `Object.assign(new TournamentManager(...), data)`, which copied
+     * whatever the stored blob happened to contain -- including fields that no
+     * longer exist and a `state` that was never checked against the state
+     * machine. Every collection is coerced to an array so one malformed record
+     * cannot crash the load of all the others.
+     */
+    static fromJSON(data: any): TournamentManager {
+        if (!data || typeof data !== 'object' || typeof data.id !== 'string') {
+            throw new Error('Not a tournament record');
+        }
+
+        const t = new TournamentManager(
+            data.id,
+            typeof data.name === 'string' ? data.name : 'Untitled',
+            data.gameType,
+            Array.isArray(data.mapPool) ? data.mapPool : [],
+            typeof data.groupStageRoundLimit === 'number' ? data.groupStageRoundLimit : undefined,
+            typeof data.playoffsRoundLimit === 'number' ? data.playoffsRoundLimit : undefined,
+            data.useCustomPoints === true,
+            data.isTeamBased === true,
+        );
+
+        const VALID_STATES = ['registration', 'group', 'playoffs', 'completed'] as const;
+        t.state = VALID_STATES.includes(data.state) ? data.state : 'registration';
+        if (typeof data.createdAt === 'string') t.createdAt = data.createdAt;
+        if (typeof data.startedAt === 'string') t.startedAt = data.startedAt;
+        if (typeof data.joinCode === 'string') t.joinCode = data.joinCode;
+        if (typeof data.adminKeyHash === 'string') t.adminKeyHash = data.adminKeyHash;
+
+        const asArray = (v: any) => (Array.isArray(v) ? v : []);
+        t.players = asArray(data.players);
+        t.pods = asArray(data.pods);
+        t.matches = asArray(data.matches);
+        t.bracketMatches = asArray(data.bracketMatches);
+        t.teams = asArray(data.teams);
+        t.teamPods = asArray(data.teamPods);
+        t.teamMatches = asArray(data.teamMatches);
+        t.teamBracketMatches = asArray(data.teamBracketMatches);
+
+        return t;
+    }
+
+    /**
      * Give this tournament a fresh join code and admin key, returning the
      * plaintext admin key ONCE. The key itself is never stored.
      *

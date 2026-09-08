@@ -1,5 +1,4 @@
 import express from 'express';
-import { createClient } from 'redis';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -14,89 +13,82 @@ import {
     looksLowEntropy,
     timingSafeEqualHex,
 } from '../shared/access.js';
+import {
+    createStore,
+    withTournament,
+    requireTournament,
+    TournamentNotFoundError,
+    VersionConflictError,
+    RedisTournamentStore,
+    type TournamentStore,
+} from './store/index.js';
 
 const app = express();
 const port = 3000;
 
-// Redis Client
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const redisClient = createClient({ url: redisUrl });
+// Persistence lives behind a store: Redis locally, Supabase when configured.
+// Nothing is cached between requests, so this process holds no authoritative
+// state and more than one of it can run.
+const store: TournamentStore = createStore();
 
-redisClient.on('error', (err) => console.log('Redis Client Error', err));
-
-const tournaments: Map<string, TournamentManager> = new Map();
-// joinCode -> tournamentId. Rebuilt at boot and kept in step on create/delete.
-const joinCodes: Map<string, string> = new Map();
-
-// Every code ever issued, including those of deleted tournaments. A code is
-// never reissued: a bookmarked /t/<code> link must go stale rather than quietly
-// resolve to somebody else's tournament later.
-const usedJoinCodes: Set<string> = new Set();
-const USED_CODES_KEY = 'joincodes:used';
-
-/** A join code that has never been issued before. */
-function freshJoinCode(): string {
+/** A join code that has never been issued before, live or retired. */
+async function freshJoinCode(): Promise<string> {
     for (let i = 0; i < 100; i++) {
         const code = generateJoinCode();
-        if (!usedJoinCodes.has(code)) return code;
+        if (!(await store.isJoinCodeTaken(code))) return code;
     }
     throw new Error('Could not allocate a unique join code');
 }
 
-/** Claim a code: reserve it in memory and record it as spent, durably. */
-async function claimJoinCode(code: string, tournamentId: string): Promise<void> {
-    joinCodes.set(code, tournamentId);
-    usedJoinCodes.add(code);
-    await redisClient.sAdd(USED_CODES_KEY, code);
+/**
+ * Turn a thrown store or engine error into the right status.
+ *
+ * A version conflict that survived withTournament's retries means sustained
+ * contention, not a client mistake, so it is a 409 the caller can retry -- not
+ * the 400 that would tell them their request was malformed.
+ */
+function respondWithError(res: express.Response, err: unknown): void {
+    if (err instanceof TournamentNotFoundError) {
+        res.status(404).json({ error: 'Tournament not found' });
+    } else if (err instanceof VersionConflictError) {
+        res.status(409).json({ error: 'Someone else was editing this. Please try again.' });
+    } else {
+        res.status(400).json({ error: (err as Error)?.message || 'Request failed' });
+    }
 }
 
 (async () => {
-  await redisClient.connect();
-  console.log('Connected to Redis');
+    await store.init();
 
-  // Codes spent by tournaments that may since have been deleted.
-  for (const code of await redisClient.sMembers(USED_CODES_KEY)) usedJoinCodes.add(code);
+    // Records written before per-tournament access have no credentials. Only the
+    // Redis store can hold those -- the Supabase schema requires both columns --
+    // so this runs once, on the way out of the old world.
+    if (store instanceof RedisTournamentStore) {
+        for (const tournament of await store.allTournaments()) {
+            let dirty = tournament.fillMissingMaps();
 
-  // Load tournament list from Redis
-  const tournamentIds = await redisClient.sMembers('tournaments:list');
-  for (const id of tournamentIds) {
-    const state = await redisClient.get(`tournament:${id}`);
-    if (state) {
-      const data = JSON.parse(state);
-      const tournament = new TournamentManager(data.id, data.name, data.gameType, data.mapPool);
-      // Copy all properties from persisted data, including createdAt
-      Object.assign(tournament, data);
-      tournaments.set(id, tournament);
-      let dirty = false;
+            if (!tournament.joinCode || !tournament.adminKeyHash) {
+                const adminKey = await tournament.issueAccess(await freshJoinCode());
+                console.log(
+                    `[migrate] "${tournament.name}" -> join code ${tournament.joinCode}, ` +
+                    `admin key ${adminKey}`,
+                );
+                dirty = true;
+            }
+            await store.claimCode(tournament.joinCode, tournament.id);
 
-      // Back-fill maps for matches recorded before maps were tracked, and SAVE
-      // the result -- leaving it unsaved meant it was recomputed every boot.
-      if (tournament.fillMissingMaps()) dirty = true;
-
-      // Tournaments created before per-tournament access get credentials now.
-      // The generated admin key is printed once, because nobody else has it --
-      // a holder of the instance admin token can also manage it regardless.
-      if (!tournament.joinCode || !tournament.adminKeyHash) {
-        const adminKey = await tournament.issueAccess(freshJoinCode());
-        console.log(
-          `[migrate] "${tournament.name}" -> join code ${tournament.joinCode}, admin key ${adminKey}`,
-        );
-        dirty = true;
-      }
-      await claimJoinCode(tournament.joinCode, id);
-
-      if (dirty) await redisClient.set(`tournament:${id}`, JSON.stringify(tournament));
-      console.log(`Loaded tournament: ${data.name} (${id}) - join ${tournament.joinCode}`);
+            if (dirty) {
+                const current = await store.load(tournament.id);
+                if (current) await store.update(tournament, current.version);
+            }
+        }
     }
-  }
-})();
 
-const saveState = async (tournamentId: string) => {
-    const tournament = tournaments.get(tournamentId);
-    if (tournament) {
-        await redisClient.set(`tournament:${tournamentId}`, JSON.stringify(tournament));
-    }
-};
+    console.log('[store] ready');
+})().catch((err) => {
+    console.error('[store] failed to start:', err.message);
+    process.exit(1);
+});
 
 // No CORS middleware: the SPA and the API are same-origin in production (Express
 // serves both) and in dev (Vite proxies /api -> :3000). A wildcard
@@ -232,10 +224,10 @@ const MUTATING = ['POST', 'PUT', 'DELETE', 'PATCH'];
 /** Does this request carry write access to `tournamentId`? */
 async function canWriteTournament(req: express.Request, tournamentId: string): Promise<boolean> {
     if (await isInstanceOwner(req)) return true; // instance owner is a superuser
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return false;
     const supplied = req.header('x-admin-key');
-    return typeof supplied === 'string' && (await tournament.isAdminKey(supplied));
+    if (typeof supplied !== 'string' || supplied.length === 0) return false;
+    const loaded = await store.load(tournamentId);
+    return loaded !== null && (await loaded.tournament.isAdminKey(supplied));
 }
 
 app.use('/api', async (req, res, next) => {
@@ -270,34 +262,24 @@ app.get('/api/tournaments', async (req, res) => {
   if (ADMIN_TOKEN && !(await isInstanceOwner(req))) {
     return res.status(401).json({ error: 'A valid admin token is required' });
   }
-  const tournamentList = Array.from(tournaments.values()).map(t => ({
-    id: t.id,
-    name: t.name,
-    state: t.state,
-    playerCount: t.players.length,
-    gameType: t.gameType,
-    createdAt: t.createdAt,
-    startedAt: t.startedAt,
-    isTeamBased: t.isTeamBased,
-    joinCode: t.joinCode
-  }));
-  res.json(tournamentList);
+  // Summary columns only: the lobby never pulls the match documents.
+  res.json(await store.listSummaries());
 });
 
 // Resolve a shared join code to the tournament it opens. Public and rate
 // limited: the code is only ~30 bits, so it must not be freely guessable.
-app.get('/api/join/:code', (req, res) => {
+app.get('/api/join/:code', async (req, res) => {
   const ip = req.ip || 'unknown';
   if (joinLimiter.limited(ip)) {
     return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
   }
   const code = normalizeCode(req.params.code);
-  const tournamentId = joinCodes.get(code);
-  const tournament = tournamentId ? tournaments.get(tournamentId) : undefined;
-  if (!tournament) {
+  const loaded = await store.loadByJoinCode(code);
+  if (!loaded) {
     joinLimiter.recordFailure(ip);
     return res.status(404).json({ error: 'No tournament with that code' });
   }
+  const tournament = loaded.tournament;
   joinLimiter.clear(ip);
   res.json({
     id: tournament.id,
@@ -321,40 +303,35 @@ app.post('/api/tournaments', async (req, res) => {
   if (!gameType || !GAME_CONFIGS[gameType as GameType]) {
     return res.status(400).json({ error: 'Valid game type is required' });
   }
-  // Check for unique tournament name
-  const existingNames = Array.from(tournaments.values()).map(t => t.name.toLowerCase());
-  if (existingNames.includes(name.trim().toLowerCase())) {
+  if (await store.isNameTaken(name)) {
     return res.status(400).json({ error: 'A tournament with this name already exists' });
   }
-  const id = uuidv4();
-  const tournament = new TournamentManager(id, name, gameType as GameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode);
-  // The plaintext admin key exists only in this response. Only its hash is kept.
-  const adminKey = await tournament.issueAccess(freshJoinCode());
-  tournaments.set(id, tournament);
-  await claimJoinCode(tournament.joinCode, id);
-  await redisClient.sAdd('tournaments:list', id);
-  await saveState(id);
-  res.json({
-    id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints,
-    isTeamBased: tournament.isTeamBased,
-    joinCode: tournament.joinCode,
-    adminKey, // shown once -- never retrievable again
-  });
+  try {
+    const id = uuidv4();
+    const tournament = new TournamentManager(id, name, gameType as GameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints, teamMode);
+    // The plaintext admin key exists only in this response. Only its hash is kept.
+    const adminKey = await tournament.issueAccess(await freshJoinCode());
+    await store.insert(tournament);
+    res.json({
+      id, name, gameType, mapPool, groupStageRoundLimit, playoffsRoundLimit, useCustomPoints,
+      isTeamBased: tournament.isTeamBased,
+      joinCode: tournament.joinCode,
+      adminKey, // shown once -- never retrievable again
+    });
+  } catch (e: any) {
+    respondWithError(res, e);
+  }
 });
 
 // Delete a tournament
 app.delete('/api/tournament/:tournamentId', async (req, res) => {
     const { tournamentId } = req.params;
-    if (!tournaments.has(tournamentId)) {
-        return res.status(404).json({ error: 'Tournament not found' });
-    }
-
     try {
-        const doomed = tournaments.get(tournamentId);
-        if (doomed?.joinCode) joinCodes.delete(doomed.joinCode);
-        tournaments.delete(tournamentId);
-        await redisClient.sRem('tournaments:list', tournamentId);
-        await redisClient.del(`tournament:${tournamentId}`);
+        if (!(await store.load(tournamentId))) {
+            return res.status(404).json({ error: 'Tournament not found' });
+        }
+        // The row goes; the join code stays retired, so it is never reissued.
+        await store.remove(tournamentId);
         res.json({ success: true, message: `Tournament ${tournamentId} deleted.` });
     } catch (e: any) {
         res.status(500).json({ error: 'Failed to delete tournament', details: e.message });
@@ -374,7 +351,7 @@ app.post('/api/tournaments/import', async (req, res) => {
         // Never trust a client-supplied Redis key: require a UUID, else mint one.
         const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         let id = importData.tournamentId || importData.id;
-        if (typeof id !== 'string' || !UUID_RE.test(id) || tournaments.has(id)) {
+        if (typeof id !== 'string' || !UUID_RE.test(id) || (await store.load(id)) !== null) {
             id = uuidv4();
         }
         
@@ -410,11 +387,8 @@ app.post('/api/tournaments/import', async (req, res) => {
         
         // Always mint fresh credentials. An exported JSON file must never carry
         // working admin access to whoever happens to receive it.
-        const adminKey = await tournament.issueAccess(freshJoinCode());
-        tournaments.set(id, tournament);
-        await claimJoinCode(tournament.joinCode, id);
-        await redisClient.sAdd('tournaments:list', id);
-        await saveState(id);
+        const adminKey = await tournament.issueAccess(await freshJoinCode());
+        await store.insert(tournament);
 
         res.json({
             success: true,
@@ -432,8 +406,9 @@ app.post('/api/tournaments/import', async (req, res) => {
 // Get tournament state
 app.get('/api/tournament/:tournamentId/state', async (req, res) => {
   const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+  const loaded = await store.load(tournamentId);
+  if (!loaded) return res.status(404).json({ error: 'Tournament not found' });
+  const tournament = loaded.tournament;
 
   res.json({
     id: tournament.id,
@@ -477,101 +452,94 @@ app.get('/api/tournament/:tournamentId/state', async (req, res) => {
 
 app.post('/api/tournament/:tournamentId/players', async (req, res) => {
     const { tournamentId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
-    const player = tournament.addPlayer(name);
-    await saveState(tournamentId);
-    res.json(player);
+    const { result } = await withTournament(store, tournamentId, (tournament) => {
+        return tournament.addPlayer(name);
+    });
+    res.json(result);
 });
 
 app.post('/api/tournament/:tournamentId/start', async (req, res) => {
     const { tournamentId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     try {
-        tournament.startGroupStage();
-        await saveState(tournamentId);
+        await withTournament(store, tournamentId, (tournament) => {
+            tournament.startGroupStage();
+        });
         res.json({ success: true });
     } catch (e: any) {
-        res.status(400).json({ error: e.message });
+        respondWithError(res, e);
     }
 });
 
 app.post('/api/tournament/:tournamentId/match/:id', async (req, res) => {
     const { tournamentId, id } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     const { results, mapName } = req.body;
     try {
-        tournament.submitMatchResult(id, results, mapName);
-        await saveState(tournamentId);
+        await withTournament(store, tournamentId, (tournament) => {
+            tournament.submitMatchResult(id, results, mapName);
+        });
         res.json({ success: true });
     } catch (e: any) {
-        res.status(400).json({ error: e.message });
+        respondWithError(res, e);
     }
 });
 
 app.post('/api/tournament/:tournamentId/brackets', async (req, res) => {
     const { tournamentId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     try {
         // Automatically detect team vs solo tournament and call appropriate method
-        if (tournament.isTeamBased) {
+        await withTournament(store, tournamentId, (tournament) => {
+            if (tournament.isTeamBased) {
             tournament.generateTeamBrackets();
-        } else {
+            } else {
             tournament.generateBrackets();
-        }
-        await saveState(tournamentId);
+            }
+        });
         res.json({ success: true });
     } catch (e: any) {
-        res.status(400).json({ error: e.message });
+        respondWithError(res, e);
     }
 });
 
 app.post('/api/tournament/:tournamentId/bracket-match/:id', async (req, res) => {
     const { tournamentId, id } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     const { winnerId } = req.body;
     try {
-        tournament.submitBracketWinner(id, winnerId);
-        await saveState(tournamentId);
+        await withTournament(store, tournamentId, (tournament) => {
+            tournament.submitBracketWinner(id, winnerId);
+        });
         res.json({ success: true });
     } catch (e: any) {
-        res.status(400).json({ error: e.message });
+        respondWithError(res, e);
     }
 });
 
 // Submit a single game result for BO3 bracket match
 app.post('/api/tournament/:tournamentId/bracket-match/:id/game', async (req, res) => {
     const { tournamentId, id } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
     const { gameNumber, mapName, player1Score, player2Score, winnerId } = req.body;
     try {
-        tournament.submitBracketGameResult(id, {
+        await withTournament(store, tournamentId, (tournament) => {
+            tournament.submitBracketGameResult(id, {
             gameNumber,
             mapName,
             player1Score,
             player2Score,
             winnerId
+            });
         });
-        await saveState(tournamentId);
         res.json({ success: true });
     } catch (e: any) {
-        res.status(400).json({ error: e.message });
+        respondWithError(res, e);
     }
 });
 
 app.post('/api/tournament/:tournamentId/reset', async (req, res) => {
     const { tournamentId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-    tournament.reset();
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.reset();
+    });
     res.json({ success: true });
 });
 
@@ -579,15 +547,13 @@ app.post('/api/tournament/:tournamentId/reset', async (req, res) => {
 app.put('/api/tournament/:tournamentId/name', async (req, res) => {
     const { tournamentId } = req.params;
     const { name } = req.body;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-
     try {
-        tournament.updateTournamentName(name);
-        await saveState(tournamentId);
+        await withTournament(store, tournamentId, (tournament) => {
+            tournament.updateTournamentName(name);
+        });
         res.json({ success: true });
     } catch (e: any) {
-        res.status(400).json({ error: e.message });
+        respondWithError(res, e);
     }
 });
 
@@ -595,30 +561,26 @@ app.put('/api/tournament/:tournamentId/name', async (req, res) => {
 app.put('/api/tournament/:tournamentId/group/:podId/name', async (req, res) => {
     const { tournamentId, podId } = req.params;
     const { name } = req.body;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-
     try {
-        tournament.updateGroupName(podId, name);
-        await saveState(tournamentId);
+        await withTournament(store, tournamentId, (tournament) => {
+            tournament.updateGroupName(podId, name);
+        });
         res.json({ success: true });
     } catch (e: any) {
-        res.status(400).json({ error: e.message });
+        respondWithError(res, e);
     }
 });
 
 // Reset group data
 app.post('/api/tournament/:tournamentId/group/:podId/reset', async (req, res) => {
     const { tournamentId, podId } = req.params;
-    const tournament = tournaments.get(tournamentId);
-    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
-
     try {
-        tournament.resetGroupData(podId);
-        await saveState(tournamentId);
+        await withTournament(store, tournamentId, (tournament) => {
+            tournament.resetGroupData(podId);
+        });
         res.json({ success: true });
     } catch (e: any) {
-        res.status(400).json({ error: e.message });
+        respondWithError(res, e);
     }
 });
 
@@ -626,14 +588,13 @@ app.post('/api/tournament/:tournamentId/group/:podId/reset', async (req, res) =>
 app.put('/api/tournament/:tournamentId/player/:playerId', async (req, res) => {
   const { tournamentId, playerId } = req.params;
   const { name } = req.body;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   try {
-    tournament.updatePlayerName(playerId, name);
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.updatePlayerName(playerId, name);
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
@@ -641,28 +602,26 @@ app.put('/api/tournament/:tournamentId/player/:playerId', async (req, res) => {
 app.put('/api/tournament/:tournamentId/player/:playerId/photo', async (req, res) => {
   const { tournamentId, playerId } = req.params;
   const { photo } = req.body;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   try {
-    tournament.updatePlayerPhoto(playerId, photo);
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.updatePlayerPhoto(playerId, photo);
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Remove player
 app.delete('/api/tournament/:tournamentId/player/:playerId', async (req, res) => {
   const { tournamentId, playerId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   try {
-    tournament.removePlayer(playerId);
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.removePlayer(playerId);
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
@@ -678,8 +637,6 @@ app.get('/api/team-games', (req, res) => {
 // Add a team to a tournament
 app.post('/api/tournament/:tournamentId/teams', async (req, res) => {
   const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   const { name, playerIds, logo } = req.body;
   if (!name) return res.status(400).json({ error: 'Team name is required' });
@@ -688,43 +645,42 @@ app.post('/api/tournament/:tournamentId/teams', async (req, res) => {
   }
   
   try {
-    const team = tournament.addTeam(name, playerIds, logo);
-    await saveState(tournamentId);
-    res.json(team);
+    const { result } = await withTournament(store, tournamentId, (tournament) => {
+        return tournament.addTeam(name, playerIds, logo);
+    });
+    res.json(result);
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Update a team
 app.put('/api/tournament/:tournamentId/team/:teamId', async (req, res) => {
   const { tournamentId, teamId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   const { name, playerIds, logo } = req.body;
   
   try {
-    const team = tournament.updateTeam(teamId, { name, playerIds, logo });
-    await saveState(tournamentId);
-    res.json(team);
+    const { result } = await withTournament(store, tournamentId, (tournament) => {
+        return tournament.updateTeam(teamId, { name, playerIds, logo });
+    });
+    res.json(result);
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Remove a team
 app.delete('/api/tournament/:tournamentId/team/:teamId', async (req, res) => {
   const { tournamentId, teamId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   try {
-    tournament.removeTeam(teamId);
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.removeTeam(teamId);
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
@@ -732,87 +688,80 @@ app.delete('/api/tournament/:tournamentId/team/:teamId', async (req, res) => {
 app.put('/api/tournament/:tournamentId/team/:teamId/logo', async (req, res) => {
   const { tournamentId, teamId } = req.params;
   const { logo } = req.body;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   try {
-    tournament.updateTeam(teamId, { logo });
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.updateTeam(teamId, { logo });
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Start team group stage
 app.post('/api/tournament/:tournamentId/start-team', async (req, res) => {
   const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   try {
-    tournament.startTeamGroupStage();
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.startTeamGroupStage();
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Submit team match result (group stage)
 app.post('/api/tournament/:tournamentId/team-match/:id', async (req, res) => {
   const { tournamentId, id } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   const { team1Score, team2Score, games } = req.body;
   
   try {
-    tournament.submitTeamMatchResult(id, team1Score, team2Score, games);
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.submitTeamMatchResult(id, team1Score, team2Score, games);
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Generate team brackets
 app.post('/api/tournament/:tournamentId/team-brackets', async (req, res) => {
   const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   try {
-    tournament.generateTeamBrackets();
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.generateTeamBrackets();
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Submit team bracket winner
 app.post('/api/tournament/:tournamentId/team-bracket-match/:id', async (req, res) => {
   const { tournamentId, id } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   const { winnerId } = req.body;
   
   try {
-    tournament.submitTeamBracketWinner(id, winnerId);
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.submitTeamBracketWinner(id, winnerId);
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Submit a single game result for team bracket match (BO3/BO5)
 app.post('/api/tournament/:tournamentId/team-bracket-match/:id/game', async (req, res) => {
   const { tournamentId, id } = req.params;
-  const tournament = tournaments.get(tournamentId);
-  if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   const { gameNumber, mapName, team1Score, team2Score, winnerTeamId, playerStats } = req.body;
   
@@ -825,18 +774,19 @@ app.post('/api/tournament/:tournamentId/team-bracket-match/:id/game', async (req
       winnerTeamId,
       playerStats: playerStats || []
     };
-    tournament.submitTeamBracketGameResult(id, gameResult);
-    await saveState(tournamentId);
+    await withTournament(store, tournamentId, (tournament) => {
+        tournament.submitTeamBracketGameResult(id, gameResult);
+    });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    respondWithError(res, e);
   }
 });
 
 // Get player statistics for team tournament
-app.get('/api/tournament/:tournamentId/player-stats', (req, res) => {
+app.get('/api/tournament/:tournamentId/player-stats', async (req, res) => {
   const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
+  const tournament = await store.load(tournamentId).then((l) => l?.tournament);
   if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   if (!tournament.isTeamBased) {
@@ -854,9 +804,9 @@ app.get('/api/tournament/:tournamentId/player-stats', (req, res) => {
 });
 
 // Get team rankings
-app.get('/api/tournament/:tournamentId/team-rankings', (req, res) => {
+app.get('/api/tournament/:tournamentId/team-rankings', async (req, res) => {
   const { tournamentId } = req.params;
-  const tournament = tournaments.get(tournamentId);
+  const tournament = await store.load(tournamentId).then((l) => l?.tournament);
   if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
   
   if (!tournament.isTeamBased) {
