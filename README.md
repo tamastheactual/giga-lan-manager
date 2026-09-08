@@ -303,6 +303,12 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run start:server
 The migration is re-runnable — anything already present is skipped — so keep the
 Redis data until the new instance is confirmed working.
 
+**Expect Postgres to be slower than Redis**, because every request is now an
+HTTP round trip rather than a local socket. Measured against a live project:
+~60-120 ms to read a tournament, ~270 ms to write one (a write is two round
+trips — load, then the version-checked update). Fine for entering results;
+worth knowing before assuming the app got slower for some other reason.
+
 Both tables have RLS enabled with **no permissive policy**, so the anon and
 publishable keys can read nothing. The API talks to Postgres as the service role
 and enforces access itself; without that lockdown, publishing the anon key would
