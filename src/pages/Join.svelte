@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { joinByCode, normalizeCode, JOIN_CODE_LENGTH } from '$lib/api';
-  import logoImg from '../assets/logo.png';
+  import logoImg from '../assets/logo.svg';
   import Footer from '../components/Footer.svelte';
 
   // A code from the URL (/t/7K2QMX) is resolved immediately; without one we

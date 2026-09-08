@@ -1,6 +1,6 @@
 <script>
   import './app.css';
-  import logoImg from './assets/logo.png';
+  import logoImg from './assets/logo.svg';
   import { onMount } from 'svelte';
   import { getAdminStatus, signOutOwner } from '$lib/api';
   let { children, tournamentId } = $props();

@@ -41,7 +41,7 @@
     [key: string]: any;
   }
   import Footer from '../components/Footer.svelte';
-  import logoImg from '../assets/logo.png';
+  import logoImg from '../assets/logo.svg';
 
   Chart.register(...registerables);
 

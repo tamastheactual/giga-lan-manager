@@ -3,7 +3,6 @@
   import { getTournaments, createTournament, deleteTournament, importTournament, formatKeyForDisplay, type GameType, GAME_CONFIGS } from '$lib/api';
   import { getArchetypeConfig } from '$shared/gameArchetypes';
   import { getGameLogoUrl } from '$lib/gameLogos';
-  import logoImg from '../assets/logo.png';
   import Footer from '../components/Footer.svelte';
 
   // Get logo path from config and resolve via Vite
@@ -574,7 +573,7 @@
               : 'Nothing running right now.'}
           </p>
         {:else}
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
             {#each getActiveTournaments() as tournament}
               <div
                 role="button"
@@ -586,12 +585,15 @@
                 <div class="flex items-center justify-between mb-3">
                   <div class="flex items-center gap-3 min-w-0">
                     {#if tournament.gameType && GAME_CONFIGS[tournament.gameType as GameType]}
-                      <img 
-                        src={getGameLogo(tournament.gameType as GameType)} 
-                        alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
-                        class="w-16 h-10 object-contain flex-shrink-0"
-                        onerror={(e) => (e.target as HTMLImageElement).style.display = 'none'}
-                      />
+                      <span class="flex-shrink-0 inline-flex items-center justify-center w-[72px] h-12 rounded-lg
+                        {GAME_CONFIGS[tournament.gameType as GameType]?.logoTone === 'dark' ? 'bg-white/90' : 'bg-white/5'}">
+                        <img
+                          src={getGameLogo(tournament.gameType as GameType)}
+                          alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
+                          class="max-w-[64px] max-h-9 object-contain"
+                          onerror={(e) => (e.target as HTMLImageElement).style.display = 'none'}
+                        />
+                      </span>
                     {/if}
                     <h3 class="text-base font-bold text-ink leading-snug">{tournament.name}</h3>
                   </div>
@@ -681,7 +683,7 @@
             <h2 class="section-title">Finished</h2>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
             {#each getFinishedTournaments() as tournament}
               <div
                 role="button"
@@ -693,12 +695,15 @@
                 <div class="flex items-center justify-between mb-3">
                   <div class="flex items-center gap-3 min-w-0">
                     {#if tournament.gameType && GAME_CONFIGS[tournament.gameType as GameType]}
-                      <img 
-                        src={getGameLogo(tournament.gameType as GameType)} 
-                        alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
-                        class="w-16 h-10 object-contain flex-shrink-0"
-                        onerror={(e) => (e.target as HTMLImageElement).style.display = 'none'}
-                      />
+                      <span class="flex-shrink-0 inline-flex items-center justify-center w-[72px] h-12 rounded-lg
+                        {GAME_CONFIGS[tournament.gameType as GameType]?.logoTone === 'dark' ? 'bg-white/90' : 'bg-white/5'}">
+                        <img
+                          src={getGameLogo(tournament.gameType as GameType)}
+                          alt={GAME_CONFIGS[tournament.gameType as GameType]?.shortName || 'Game'}
+                          class="max-w-[64px] max-h-9 object-contain"
+                          onerror={(e) => (e.target as HTMLImageElement).style.display = 'none'}
+                        />
+                      </span>
                     {/if}
                     <h3 class="text-base font-bold text-ink leading-snug">{tournament.name}</h3>
                   </div>
