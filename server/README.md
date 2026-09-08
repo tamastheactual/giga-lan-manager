@@ -6,7 +6,7 @@ for setup, environment variables and the full route table.
 ```
 server/
 ├── index.ts        Express routes, admin auth, Redis persistence
-├── tournament.ts   TournamentManager — all tournament state and rules
+├── tournament.ts   TournamentManager - all tournament state and rules
 ├── brackets.ts     pure bracket builders
 ├── tournament.characterization.test.ts
 └── fixes.test.ts   regression tests for fixed defects
@@ -43,12 +43,12 @@ generateBrackets()           // group → playoffs
 generateTeamBrackets()
 reset()                      // → registration, clears solo AND team data
 
-// entrants — registration phase only
+// entrants - registration phase only
 addPlayer(name) / removePlayer(id) / updatePlayerName(id, name)
 updatePlayerPhoto(id, photo)              // data URL, 2 MB cap
 addTeam(name, playerIds, logo?) / updateTeam(id, updates) / removeTeam(id)
 
-// results — group phase only
+// results - group phase only
 submitMatchResult(matchId, results, mapName?)
 submitTeamMatchResult(matchId, team1Score, team2Score, games?)
 resetGroupData(podId) / updateGroupName(podId, name)
@@ -70,7 +70,7 @@ getGameConfig() / getArchetype()
 - **Aggregates are rebuilt, never incremented.** `submitMatchResult` recomputes
   every player's totals from the completed matches, and the bracket series score
   is recomputed from `match.games`. Resubmitting or correcting a result is
-  therefore idempotent — no double counting.
+  therefore idempotent - no double counting.
 - **Phase guards are real.** Adding entrants, editing teams and submitting group
   results are rejected outside the phase that owns them. Editing a group result
   after the bracket is seeded would silently rewrite the standings the bracket
@@ -85,7 +85,7 @@ getGameConfig() / getArchetype()
   calls the winner endpoint; without the guard the second pass seeded the same
   loser into both slots of the 3rd-place match.
 - **Map back-fill is deterministic.** `fillMissingMaps()` derives a map from the
-  match id rather than at random, and the boot loader persists the result — it
+  match id rather than at random, and the boot loader persists the result - it
   used to pick differently on every restart and never save.
 
 ## Bracket builders

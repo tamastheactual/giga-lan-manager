@@ -9,7 +9,7 @@
   onMount(async () => {
     try {
       auth = await getAdminStatus();
-    } catch (e) { /* status unavailable — leave auth hidden */ }
+    } catch (e) { /* status unavailable - leave auth hidden */ }
   });
   function signOut() {
     // No session to destroy: forget the token this browser holds.

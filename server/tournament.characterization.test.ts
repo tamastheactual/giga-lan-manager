@@ -67,7 +67,7 @@ function advance(
 }
 
 // ---------- group stage ----------
-describe('group stage — pod sizes (characterization)', () => {
+describe('group stage - pod sizes (characterization)', () => {
   const expected: Record<number, number[]> = {
     4: [4], 5: [5], 6: [3, 3], 7: [7], 8: [4, 4], 9: [3, 3, 3], 10: [5, 5],
     11: [4, 4, 4], 12: [4, 4, 4], 13: [7, 7], 14: [7, 7], 15: [5, 5, 5], 16: [4, 4, 4, 4],
@@ -80,7 +80,7 @@ describe('group stage — pod sizes (characterization)', () => {
   }
 });
 
-describe('group stage — round-robin completeness (invariant)', () => {
+describe('group stage - round-robin completeness (invariant)', () => {
   for (const n of [4, 6, 8, 9, 12, 16]) {
     it(`${n} players: each player faces every group-mate exactly once`, () => {
       const t = soloTournament(n);
@@ -102,7 +102,7 @@ describe('group stage — round-robin completeness (invariant)', () => {
 });
 
 // ---------- playoffs ----------
-describe('playoffs — bracket structure (characterization)', () => {
+describe('playoffs - bracket structure (characterization)', () => {
   const expected: Record<number, { players: number; types: Record<string, number>; total: number }> = {
     4:  { players: 4, types: { finals: 1, '3rd-place': 1 }, total: 2 },
     6:  { players: 4, types: { semifinals: 2, finals: 1, '3rd-place': 1 }, total: 4 },
@@ -125,7 +125,7 @@ describe('playoffs — bracket structure (characterization)', () => {
   }
 });
 
-describe('playoffs — end to end produces a champion', () => {
+describe('playoffs - end to end produces a champion', () => {
   it('an 8-player tournament plays to completion', () => {
     const t = soloTournament(8);
     playGroups(t);

@@ -275,7 +275,7 @@
   onMount(loadTournaments);
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 py-8 px-4 flex flex-col">
+<div class="min-h-screen bg-space-600 py-8 px-4 flex flex-col">
   <div class="w-full max-w-6xl mx-auto space-y-8">
 
     <!-- Header -->
@@ -391,7 +391,7 @@
             />
             <button
               onclick={handleCreateTournament}
-              class="bg-gradient-to-r from-brand-purple to-brand-cyan hover:from-brand-cyan hover:to-brand-purple text-white font-bold px-4 py-2 text-sm rounded-lg shadow-glow-cyan transition-all duration-300 hover:scale-105 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              class="bg-space-600  text-white font-bold px-4 py-2 text-sm rounded-lg shadow-glow-cyan transition-all duration-300 hover:scale-105 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
               disabled={!newTournamentName.trim()}
             >
               Create
@@ -521,7 +521,7 @@
           <div class="glass rounded-xl p-8 text-center shadow-xl">
             <p class="text-gray-400 text-sm">
               {canListTournaments
-                ? 'No active tournaments yet — create one above.'
+                ? 'No active tournaments yet - create one above.'
                 : 'Nothing running right now.'}
             </p>
           </div>
@@ -557,7 +557,7 @@
                     </span>
                     <button
                       onclick={(e) => requestDeleteTournament(e, tournament.id)}
-                      class="p-1.5 rounded-full bg-red-600/20 text-red-400 hover:bg-red-500/40 hover:text-red-300 transition-all"
+                      class="p-1.5 rounded-full bg-loss/20 text-loss hover:bg-loss/40 hover:text-loss transition-all"
                       title="Delete Tournament"
                     >
                       <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
@@ -661,7 +661,7 @@
                     </span>
                     <button
                       onclick={(e) => requestDeleteTournament(e, tournament.id)}
-                      class="p-1.5 rounded-full bg-red-600/20 text-red-400 hover:bg-red-500/40 hover:text-red-300 transition-all"
+                      class="p-1.5 rounded-full bg-loss/20 text-loss hover:bg-loss/40 hover:text-loss transition-all"
                       title="Delete Tournament"
                     >
                       <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
@@ -737,11 +737,11 @@
 <!-- Confirmation Popup Modal -->
 {#if showConfirmPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && cancelConfirmation()} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && cancelConfirmation()}>
-    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-loss/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
-        <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
-          <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <div class="w-12 h-12 rounded-full bg-loss/20 flex items-center justify-center">
+          <svg class="w-6 h-6 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
           </svg>
         </div>
@@ -763,7 +763,7 @@
           </button>
           <button
             onclick={executeConfirmedAction}
-            class="bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:scale-105 transition-all duration-300"
+            class="bg-loss hover:bg-loss text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:scale-105 transition-all duration-300"
           >
             Delete
           </button>
@@ -776,11 +776,11 @@
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
-    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-loss/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
-        <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
-          <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <div class="w-12 h-12 rounded-full bg-loss/20 flex items-center justify-center">
+          <svg class="w-6 h-6 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </div>
@@ -796,7 +796,7 @@
         <div class="flex justify-end">
           <button
             onclick={() => showErrorPopup = false}
-            class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
+            class="bg-space-600 text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
           >
             Got it
           </button>
@@ -818,7 +818,7 @@
       <div class="p-6 space-y-6">
         <div>
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[11px] font-bold text-gray-400 tracking-widest">JOIN CODE — SAFE TO SHARE</span>
+            <span class="text-[11px] font-bold text-gray-400 tracking-widest">JOIN CODE - SAFE TO SHARE</span>
             <button onclick={() => copy(joinLink, 'link')} class="text-[11px] font-bold text-brand-cyan hover:text-cyber-green transition">
               {copied === 'link' ? 'Copied' : 'Copy link'}
             </button>
@@ -840,7 +840,7 @@
 
         <div>
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[11px] font-bold text-brand-orange tracking-widest">ADMIN KEY — SHOWN ONCE</span>
+            <span class="text-[11px] font-bold text-brand-orange tracking-widest">ADMIN KEY - SHOWN ONCE</span>
             <button onclick={() => copy(credAdminKey, 'key')} class="text-[11px] font-bold text-brand-orange hover:text-cyber-green transition">
               {copied === 'key' ? 'Copied' : 'Copy key'}
             </button>
@@ -850,7 +850,7 @@
           </div>
           <p class="text-xs text-gray-400 mt-2">
             This is the only thing that can enter results. It is already saved in
-            <strong class="text-gray-300">this browser</strong> — copy it somewhere safe if you might
+            <strong class="text-gray-300">this browser</strong> - copy it somewhere safe if you might
             run the tournament from another device. The server keeps only a hash, so it cannot be shown again.
           </p>
         </div>
@@ -862,7 +862,7 @@
         </button>
         <button
           onclick={() => { showCredentials = false; navigateToTournament(credId); }}
-          class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition"
+          class="bg-space-600 text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition"
         >
           Open tournament
         </button>
@@ -876,8 +876,8 @@
     <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-cyber-green/30" onclick={(e) => e.stopPropagation()}>
       <!-- Modal Header -->
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
-        <div class="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
-          <svg class="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <div class="w-12 h-12 rounded-full bg-win/20 flex items-center justify-center">
+          <svg class="w-6 h-6 text-win" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
           </svg>
         </div>
@@ -899,7 +899,7 @@
           </button>
           <button
             onclick={goToImportedTournament}
-            class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
+            class="bg-space-600 text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
           >
             View Tournament
           </button>

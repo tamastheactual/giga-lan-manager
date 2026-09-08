@@ -189,7 +189,7 @@ input[type="number"] {
  * Added because every page had been inventing its own buttons: one row in the
  * lobby held a purple->cyan gradient, a bare text link and a cyan->green
  * gradient, all as peers. Three treatments for three equal actions reads as
- * three unrelated things. One primary style, one secondary, one quiet — and
+ * three unrelated things. One primary style, one secondary, one quiet - and
  * the accent means "interactive" rather than "look here".
  * ======================================================================== */
 
@@ -304,4 +304,16 @@ input[type="number"] {
   letter-spacing: .12em;
   text-transform: uppercase;
   color: #9BA5B4;
+}
+
+/* A divider between two inline facts. Replaces the bullet characters that were
+   used as separators; a hairline reads as structure rather than as content. */
+.sep {
+  display: inline-block;
+  width: 1px;
+  height: 0.7em;
+  vertical-align: -0.05em;
+  margin: 0 0.6rem;
+  background: currentColor;
+  opacity: .28;
 }

@@ -124,13 +124,13 @@ export const GAME_CONFIGS: Record<GameType, GameConfig> = {
         playoffs: {
             format: 'BO3',
             mapsPerMatch: 3,
-            description: 'MR12 per map — first to win 2 maps',
+            description: 'MR12 per map - first to win 2 maps',
             maxDuration: '~2 hours',
             maxScorePerMap: 7
         },
         rules: [
-            'Bomb mode (defuse) — attack/defense sides swap at halftime',
-            'Group Stage: MR12 — first to 7 rounds, win by 2',
+            'Bomb mode (defuse) - attack/defense sides swap at halftime',
+            'Group Stage: MR12 - first to 7 rounds, win by 2',
             'Playoffs: Best of 3 maps',
             'Standard operator bans + map veto',
             'Tiebreaker: Total rounds won'

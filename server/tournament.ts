@@ -9,7 +9,7 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB decoded
 
 // Accept a bundled-asset path (e.g. /players/Cat.jpg) or a bounded data:image
 // URL. Rejects oversized or non-image blobs so a client cannot inflate a stored
-// record — every save serializes the whole tournament into one Redis value.
+// record - every save serializes the whole tournament into one Redis value.
 function validateImage(value: string | undefined, field: string): void {
     if (!value) return; // undefined/empty clears the image
     if (value.startsWith('/')) {

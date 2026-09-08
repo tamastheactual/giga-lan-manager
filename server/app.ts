@@ -19,7 +19,7 @@ import {
 } from '../shared/access.js';
 // Imported from the specific modules, NOT from ./store/index.js: that barrel
 // re-exports the Redis store, and a bundler following it would pull the whole
-// Redis client — and its node:dns / node:events dependencies — into the
+// Redis client - and its node:dns / node:events dependencies - into the
 // Cloudflare Worker bundle, which then fails to build.
 import { withTournament, TournamentNotFoundError } from './store/withTournament.js';
 import { VersionConflictError, type TournamentStore } from './store/types.js';
@@ -68,7 +68,7 @@ function makeRateLimiter(maxAttempts: number) {
 export function reportTokenHealth(adminToken: string): void {
     if (!adminToken) {
         console.warn(
-            '[auth] No ADMIN_TOKEN set — ANYONE who can reach this server can create tournaments.\n' +
+            '[auth] No ADMIN_TOKEN set - ANYONE who can reach this server can create tournaments.\n' +
             '       Generate one with `npm run gen-token` and set ADMIN_TOKEN.\n' +
             '       (Writing to an existing tournament still always needs its own admin key.)',
         );

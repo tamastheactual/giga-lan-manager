@@ -8,7 +8,7 @@ export default {
     extend: {
       colors: {
         /* -------------------------------------------------------------
-         * SURFACES — a cool near-black ramp.
+         * SURFACES - a cool near-black ramp.
          *
          * Replaces the navy-blue gradient ground. Depth now comes from small
          * lightness steps and 1px hairlines rather than coloured glow, which
@@ -23,7 +23,7 @@ export default {
         },
 
         /* -------------------------------------------------------------
-         * ACCENT — the logo cyan, retuned for legibility on near-black.
+         * ACCENT - the logo cyan, retuned for legibility on near-black.
          * One hue carries every interactive and branded element.
          * ----------------------------------------------------------- */
         'accent': {
@@ -53,7 +53,7 @@ export default {
          * Legacy aliases, remapped onto the palette above.
          *
          * The names are misleading and predate it: `cyber-green` is CYAN,
-         * `cyber-pink` is ORANGE, `cyber-blue` is PURPLE — reaching for
+         * `cyber-pink` is ORANGE, `cyber-blue` is PURPLE - reaching for
          * "green" silently produced cyan, which is a good part of why the UI
          * drifted. Kept so the ~320 existing usages re-skin automatically;
          * prefer accent / ember / deep / win / loss in new markup.

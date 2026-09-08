@@ -313,7 +313,7 @@ export function reorderForCrossGroupMatchups<T extends { id: string }>(
 }
 
 // ============================================================================
-// Team brackets — identical shapes to the solo builders, keyed by team1Id/
+// Team brackets - identical shapes to the solo builders, keyed by team1Id/
 // team2Id. generateTeamBrackets() runs the same cross-group reorder as the solo
 // path before seeding these, so the first round is not an intra-group rematch.
 // ============================================================================

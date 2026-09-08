@@ -37,7 +37,7 @@ works; it also means every move between pages refetches the bundle and state.
 
 Svelte 5 runes throughout: `$state` for local state, `$derived` / `$derived.by`
 for computed values, `$effect` for side effects, `$props` for component inputs.
-Pages load through `$lib/api` on mount and reload after each mutation — the
+Pages load through `$lib/api` on mount and reload after each mutation - the
 server is always the source of truth.
 
 ## Where the logic lives
@@ -46,17 +46,16 @@ Scoring rules, game configs and statistics aggregation are **not** in the
 components: they are in [`shared/`](../shared) so the server enforces the same
 rules and the pure functions can be unit-tested.
 
-- `shared/gameArchetypes.ts` — what a score means for a given game
-- `shared/validation.ts` — what a valid result looks like
-- `shared/statistics.ts` — score aggregation, placement, head-to-head, match
+- `shared/gameArchetypes.ts` - what a score means for a given game
+- `shared/validation.ts` - what a valid result looks like
+- `shared/statistics.ts` - score aggregation, placement, head-to-head, match
   history, advanced stats. `Statistics.svelte` imports these and only renders.
 
 ## Avatars
 
 `resolvePlayerAvatar(player)` is the one way to pick a player image. An uploaded
 photo (stored as a data URL) wins; anything else falls back to a lookup by name
-in `playerImages.ts`. Bundled asset URLs are deliberately never persisted —
-their Vite content hash changes on every production build.
+in `playerImages.ts`. Bundled asset URLs are deliberately never persisted - their Vite content hash changes on every production build.
 
 ## Design system
 

@@ -66,7 +66,7 @@
       />
 
       {#if error}
-        <p class="text-red-400 text-sm mt-3">{error}</p>
+        <p class="text-loss text-sm mt-3">{error}</p>
       {/if}
 
       <button

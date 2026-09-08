@@ -34,3 +34,6 @@ playwright-report
 
 # Local Worker secrets for `wrangler dev` — never commit
 .dev.vars
+
+# wrangler build/dev artefacts
+.wrangler

@@ -6,10 +6,10 @@
 //
 // Two credentials, because they have very different exposure:
 //
-//   joinCode  — 6 chars, read-only. Gets shouted across a room, pasted into
+//   joinCode - 6 chars, read-only. Gets shouted across a room, pasted into
 //               chat and read off a projector, so it is short; short means
 //               guessable, so it must never grant writes. Rate-limit lookups.
-//   adminKey  — 128 bits, read-write. Never displayed publicly, shown once at
+//   adminKey - 128 bits, read-write. Never displayed publicly, shown once at
 //               creation, stored only as a hash. Grants control of ONE
 //               tournament, not the instance.
 

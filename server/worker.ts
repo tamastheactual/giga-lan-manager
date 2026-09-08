@@ -1,7 +1,7 @@
 // Cloudflare Worker entrypoint.
 //
 // The counterpart to server/index.ts: same API, different host. Everything
-// platform-specific is here — reading bindings instead of process.env, and
+// platform-specific is here - reading bindings instead of process.env, and
 // leaving static assets to Workers Assets rather than serving them from disk.
 //
 // server/app.ts is imported unchanged; if this file ever needs to reach into

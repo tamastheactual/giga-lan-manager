@@ -674,13 +674,13 @@
   <div class="max-w-7xl mx-auto px-4 pt-4">
     <div class="flex items-center gap-3 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-4 py-2.5">
       <svg class="w-4 h-4 text-brand-cyan flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-      <span class="text-sm text-brand-cyan font-semibold">Viewing live — only the organiser can enter results.</span>
+      <span class="text-sm text-brand-cyan font-semibold">Viewing live - only the organiser can enter results.</span>
     </div>
   </div>
 {/if}
 
 
-<div class="min-h-screen bg-gradient-to-br from-space-900 via-space-800 to-space-900 text-gaming-text px-3 py-3 flex flex-col">
+<div class="min-h-screen bg-space-600 text-gaming-text px-3 py-3 flex flex-col">
   <div class="max-w-6xl mx-auto w-full">
     
     <!-- Header -->
@@ -690,7 +690,7 @@
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
           Back
         </a>
-        <div class="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+        <div class="text-sm font-bold text-accent uppercase tracking-wider mb-1 flex items-center gap-2">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
           </svg>
@@ -701,7 +701,7 @@
       {#if canEdit && tournamentState === 'group' && (isTeamBased ? teamMatches.every((m: any) => m.completed) : matches.every(m => m.completed))}
         <button 
           onclick={handleGenerateBrackets}
-          class="bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold text-xs py-1.5 px-4 rounded-lg shadow-glow-orange hover:scale-105 transition-transform flex items-center gap-1.5"
+          class="bg-space-600 text-white font-bold text-xs py-1.5 px-4 rounded-lg shadow-glow-orange hover:scale-105 transition-transform flex items-center gap-1.5"
         >
           Playoffs
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
@@ -725,7 +725,7 @@
             </p>
             <a 
               href={`/tournament/${tournamentId}/brackets`}
-              class="inline-flex items-center gap-2 bg-gradient-to-r from-brand-orange to-brand-purple text-white font-bold py-2 px-6 rounded-lg hover:scale-105 transition-transform"
+              class="inline-flex items-center gap-2 bg-space-600 text-white font-bold py-2 px-6 rounded-lg hover:scale-105 transition-transform"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               Go to Playoffs
@@ -812,7 +812,7 @@
               {#if canEdit}
               <button
                 onclick={() => handleResetGroup(groupId)}
-                class="px-2 py-1 text-xs bg-gradient-to-r from-red-600 to-orange-500 text-white rounded-lg font-bold shadow-md shadow-red-500/20 hover:shadow-red-500/40 hover:scale-105 transition-all duration-300 border border-red-400/30"
+                class="px-2 py-1 text-xs bg-loss/15 text-white rounded-lg font-bold shadow-md shadow-loss/20 hover:shadow-loss/40 hover:scale-105 transition-all duration-300 border border-loss/30"
                 title="Reset group data"
               >
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -838,9 +838,9 @@
               </thead>
               <tbody>
                 {#each groupPlayers as entity, index (entity.id)}
-                  <tr class="{isTeamBased ? 'border-b border-space-500' : 'border-b border-space-700/50'} hover:bg-space-700/30 transition-colors {index === 0 && isTeamBased ? 'bg-gradient-to-r from-yellow-500/10 to-transparent' : index === 1 && isTeamBased ? 'bg-gradient-to-r from-gray-400/10 to-transparent' : ''}">
+                  <tr class="{isTeamBased ? 'border-b border-space-500' : 'border-b border-space-700/50'} hover:bg-space-700/30 transition-colors {index === 0 && isTeamBased ? 'bg-gold' : index === 1 && isTeamBased ? 'bg-space-600' : ''}">
                     <td class="py-2 px-2">
-                      <div class="{isTeamBased ? 'w-6 h-6 text-sm' : 'w-4 h-4 text-xs'} rounded-full flex items-center justify-center font-bold {index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-space-900 shadow-lg shadow-yellow-500/30' : index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-space-900' : index === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-800 text-white' : 'bg-space-600 text-gray-400'}">
+                      <div class="{isTeamBased ? 'w-6 h-6 text-sm' : 'w-4 h-4 text-xs'} rounded-full flex items-center justify-center font-bold {index === 0 ? 'bg-gold text-space-900 shadow-lg shadow-gold/30' : index === 1 ? 'bg-space-600 text-space-900' : index === 2 ? 'bg-gold text-white' : 'bg-space-600 text-gray-400'}">
                         {index + 1}
                       </div>
                     </td>
@@ -878,7 +878,7 @@
                                 <span class="text-gray-400 text-xs font-medium">K/D</span>
                                 <span class="text-cyber-green font-bold text-sm">{stats.kills}</span>
                                 <span class="text-gray-500">/</span>
-                                <span class="text-red-400 font-bold text-sm">{stats.deaths}</span>
+                                <span class="text-loss font-bold text-sm">{stats.deaths}</span>
                                 {#if stats.gamesPlayed > 0}
                                   <span class="text-brand-cyan text-xs font-semibold">({stats.kdRatio.toFixed(2)})</span>
                                 {/if}
@@ -924,7 +924,7 @@
               <!-- Header with status -->
               <div class="bg-space-700/80 px-3 py-1.5 flex items-center justify-between border-b border-space-600">
                 <span class="text-xs font-bold text-gray-400">{scoreLabel}</span>
-                <div class="flex items-center gap-1 text-xs font-bold {status === 'complete' ? 'text-brand-cyan' : status === 'live' ? 'text-yellow-500' : 'text-gray-500'}">
+                <div class="flex items-center gap-1 text-xs font-bold {status === 'complete' ? 'text-brand-cyan' : status === 'live' ? 'text-gold' : 'text-gray-500'}">
                   {#if status === 'complete'}
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                   {:else if status === 'live'}
@@ -970,7 +970,7 @@
                       {#if tieAllowed}
                         <button
                           onclick={() => setWinner(match.id, 'tie')}
-                          class="w-14 h-14 rounded-lg font-black text-xl transition-all {scores.player1Score === scores.player2Score && scores.player1Score > 0 ? 'bg-yellow-500 text-black' : 'bg-space-600 hover:bg-space-500 text-gray-400 border-2 border-space-500 hover:border-yellow-500'}"
+                          class="w-14 h-14 rounded-lg font-black text-xl transition-all {scores.player1Score === scores.player2Score && scores.player1Score > 0 ? 'bg-gold text-black' : 'bg-space-600 hover:bg-space-500 text-gray-400 border-2 border-space-500 hover:border-gold'}"
                         >
                           T
                         </button>
@@ -985,17 +985,17 @@
                       </button>
                     {:else}
                       <!-- Completed Win-Only Match -->
-                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player1' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-yellow-500/50 text-yellow-300' : 'bg-space-700 text-gray-500'}">
+                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player1' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-gold/50 text-gold' : 'bg-space-700 text-gray-500'}">
                         {result === 'player1' ? 'W' : result === 'tie' ? 'T' : 'L'}
                       </div>
                       {#if tieAllowed}
-                        <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'tie' ? 'bg-yellow-500 text-black' : 'bg-space-700 text-gray-600'}">
+                        <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'tie' ? 'bg-gold text-black' : 'bg-space-700 text-gray-600'}">
                           {result === 'tie' ? 'T' : 'vs'}
                         </div>
                       {:else}
                         <span class="text-gray-500 font-bold">:</span>
                       {/if}
-                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player2' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-yellow-500/50 text-yellow-300' : 'bg-space-700 text-gray-500'}">
+                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player2' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-gold/50 text-gold' : 'bg-space-700 text-gray-500'}">
                         {result === 'player2' ? 'W' : result === 'tie' ? 'T' : 'L'}
                       </div>
                     {/if}
@@ -1021,7 +1021,7 @@
                     <!-- VS / Result -->
                     <div class="flex-shrink-0 w-12 text-center">
                       {#if result === 'tie'}
-                        <span class="text-yellow-500 font-black text-sm">TIE</span>
+                        <span class="text-gold font-black text-sm">TIE</span>
                       {:else if match.completed}
                         <span class="text-gray-600 font-bold text-lg">:</span>
                       {:else}
@@ -1097,7 +1097,7 @@
                               {#if match.completed}
                                 <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-cyber-green font-bold">{matchPlayerStats[match.id]?.[player.id]?.kills || 0}</span>
                                 <span class="text-gray-500 font-bold">/</span>
-                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-red-400 font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
+                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-loss font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
                               {:else}
                                 <input
                                   type="number"
@@ -1117,7 +1117,7 @@
                                   min="0"
                                   max="999"
                                   placeholder="D"
-                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-loss/30 rounded text-center text-loss font-bold focus:border-loss focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                   value={matchPlayerStats[match.id]?.[player.id]?.deaths || 0}
                                   onchange={(e) => {
                                     updatePlayerKD(match.id, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value));
@@ -1141,7 +1141,7 @@
                               {#if match.completed}
                                 <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-cyber-green font-bold">{matchPlayerStats[match.id]?.[player.id]?.kills || 0}</span>
                                 <span class="text-gray-500 font-bold">/</span>
-                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-red-400 font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
+                                <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-loss font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
                               {:else}
                                 <input
                                   type="number"
@@ -1161,7 +1161,7 @@
                                   min="0"
                                   max="999"
                                   placeholder="D"
-                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-red-400/30 rounded text-center text-red-400 font-bold focus:border-red-400 focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  class="w-11 px-1 py-1 text-sm bg-space-600 border border-loss/30 rounded text-center text-loss font-bold focus:border-loss focus:outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                   value={matchPlayerStats[match.id]?.[player.id]?.deaths || 0}
                                   onchange={(e) => {
                                     updatePlayerKD(match.id, player.id, 'deaths', parseInt((e.target as HTMLInputElement).value));
@@ -1183,14 +1183,14 @@
                     {#if isTeamBased}
                       <button 
                         onclick={() => submitTeamMatch(match.id, match)}
-                        class="w-full bg-gradient-to-r from-brand-cyan to-cyber-blue text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
+                        class="w-full bg-space-600 text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
                       >
                         Submit Result ({scores.player1Score} - {scores.player2Score})
                       </button>
                     {:else}
                       <button 
                         onclick={() => submitMatchResult(match.id, match)}
-                        class="w-full bg-gradient-to-r from-brand-cyan to-cyber-blue text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
+                        class="w-full bg-space-600 text-white font-bold py-2 px-3 rounded-lg text-sm hover:scale-102 transition-all shadow-lg shadow-brand-cyan/20"
                       >
                         Submit Result ({scores.player1Score} - {scores.player2Score})
                       </button>
@@ -1199,7 +1199,7 @@
                 {:else if !match.completed && (scores.player1Score > 0 || scores.player2Score > 0)}
                   {@const validationError = getValidationError(match.id)}
                   {#if validationError}
-                    <div class="mt-3 pt-3 border-t border-space-600 text-center text-xs text-yellow-500">
+                    <div class="mt-3 pt-3 border-t border-space-600 text-center text-xs text-gold">
                       {validationError}
                     </div>
                   {/if}
@@ -1216,7 +1216,7 @@
       {#if canEdit}
       <button
         onclick={() => handleResetTournament()}
-        class="bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-red-500/30 hover:shadow-red-500/50 hover:scale-105 transition-all duration-300 border border-red-400/30"
+        class="bg-loss/15 text-white font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-loss/30 hover:shadow-loss/50 hover:scale-105 transition-all duration-300 border border-loss/30"
       >
         <svg class="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
@@ -1234,10 +1234,10 @@
 <!-- Error Popup Modal -->
 {#if showErrorPopup}
   <div role="button" tabindex="0" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showErrorPopup = false)} onkeydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && e.target === e.currentTarget && (showErrorPopup = false)}>
-    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-red-500/30" onclick={(e) => e.stopPropagation()}>
+    <div role="presentation" class="glass rounded-xl max-w-md w-full shadow-2xl border border-loss/30" onclick={(e) => e.stopPropagation()}>
       <div class="flex items-center gap-3 p-6 border-b border-space-600">
-        <div class="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
-          <svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <div class="w-12 h-12 rounded-full bg-loss/20 flex items-center justify-center">
+          <svg class="w-6 h-6 text-loss" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </div>
@@ -1251,7 +1251,7 @@
         <div class="flex justify-end">
           <button
             onclick={() => showErrorPopup = false}
-            class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
+            class="bg-space-600 text-white font-bold px-6 py-2 rounded-lg shadow-glow-cyan hover:scale-105 transition-all duration-300"
           >
             Got it
           </button>
@@ -1287,7 +1287,7 @@
           </button>
           <button
             onclick={executeConfirmedAction}
-            class="bg-gradient-to-r from-brand-purple to-brand-cyan text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:scale-105 transition-all duration-300"
+            class="bg-space-600 text-white font-bold px-6 py-2 rounded-lg shadow-lg hover:scale-105 transition-all duration-300"
           >
             {confirmButtonText}
           </button>

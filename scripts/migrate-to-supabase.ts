@@ -47,13 +47,13 @@ for (const tournament of tournaments) {
     if (!tournament.joinCode || !tournament.adminKeyHash) {
         // The server mints these at boot; running it once against Redis first
         // means nobody loses access on the way over.
-        console.log(`  SKIP  ${label} — no credentials yet; start the server against Redis once first`);
+        console.log(`  SKIP  ${label} - no credentials yet; start the server against Redis once first`);
         skipped++;
         continue;
     }
 
     if (await target.load(tournament.id)) {
-        console.log(`  SKIP  ${label} — already in Supabase`);
+        console.log(`  SKIP  ${label} - already in Supabase`);
         skipped++;
         continue;
     }
@@ -69,7 +69,7 @@ for (const tournament of tournaments) {
         console.log(`  OK    ${label} (${tournament.players.length} players, ${tournament.state})`);
         migrated++;
     } catch (err) {
-        console.error(`  FAIL  ${label} — ${(err as Error).message}`);
+        console.error(`  FAIL  ${label} - ${(err as Error).message}`);
         failed++;
     }
 }

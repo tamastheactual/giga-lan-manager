@@ -45,14 +45,14 @@
       type="password"
       bind:value={token}
       onkeydown={(e) => e.key === 'Enter' && submit()}
-      placeholder="••••••••••••••••••••••••••"
+      placeholder="Paste your admin token"
       autocomplete="off"
       spellcheck="false"
       class="w-full p-3 rounded-xl bg-space-700 text-white font-mono border border-space-600 focus:border-cyber-green outline-none"
     />
 
     {#if error}
-      <p class="text-red-400 text-sm mt-3">{error}</p>
+      <p class="text-loss text-sm mt-3">{error}</p>
     {/if}
 
     <button

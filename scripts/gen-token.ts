@@ -19,7 +19,7 @@ console.log(`
 
     ADMIN_TOKEN=${token}
 
-  Then open this once in the browser you organise from — it stores the token
+  Then open this once in the browser you organise from - it stores the token
   and strips it back out of the URL:
 
     https://your-host/admin/${token}

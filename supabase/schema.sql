@@ -1,4 +1,4 @@
--- GigaLAN Manager — Supabase / Postgres schema
+-- GigaLAN Manager - Supabase / Postgres schema
 --
 -- Run once against a new project:
 --   supabase db execute --file supabase/schema.sql

@@ -36,7 +36,7 @@ together, right after creation.
 
 | | What it is | What it does | Share it? |
 | --- | --- | --- | --- |
-| **Join code** | 6 characters, e.g. `7K2QMX` | Opens `/t/7K2QMX` — a live, read-only view of the brackets, standings and statistics | **Yes.** That is the point |
+| **Join code** | 6 characters, e.g. `7K2QMX` | Opens `/t/7K2QMX` - a live, read-only view of the brackets, standings and statistics | **Yes.** That is the point |
 | **Admin key** | 26 characters, 128 bits | Enters results and changes anything in that one tournament | **No.** Only to a co-organiser |
 
 They are split because they have very different exposure. A code short enough to
@@ -46,14 +46,14 @@ The admin key is never displayed publicly, so it can be long.
 **Sharing.** Hand out `https://your-host/t/7K2QMX`, or the code itself for
 `/join`. Anyone with it watches live and can change nothing.
 
-**Revisiting.** The join link is permanent — bookmark it. Codes stay valid for
+**Revisiting.** The join link is permanent - bookmark it. Codes stay valid for
 finished tournaments, so past events remain browsable. A code is never reissued,
 even after the tournament it belonged to is deleted: an old bookmark goes stale
 rather than silently opening somebody else's tournament.
 
 **Keeping control.** The admin key is saved in the creator's browser
 (`localStorage`) automatically, so that browser just works. The server stores
-only a SHA-256 hash, so the key can never be shown again — copy it if you might
+only a SHA-256 hash, so the key can never be shown again - copy it if you might
 run the tournament from another device.
 
 Codes are Crockford base32 (no `I`, `L`, `O` or `U`), and input is normalised:
@@ -72,7 +72,7 @@ Three levels, and they are independent:
 
 ### Locking down who can create tournaments
 
-Generate a token — 128 bits, not something you invent:
+Generate a token - 128 bits, not something you invent:
 
 ```bash
 npm run gen-token
@@ -98,7 +98,7 @@ That browser stores the token and strips it back out of the URL. From then on it
 can create tournaments and nothing else can. You can also paste the token at
 `/login`, which is easier on a phone.
 
-There is **no login session and no cookie** — the token is sent as an
+There is **no login session and no cookie** - the token is sent as an
 `X-Admin-Token` header on each request. Nothing expires, and there is no session
 store to keep. Failed token checks are rate-limited to 10 per 15 minutes per
 address.
@@ -106,7 +106,7 @@ address.
 Leave `ADMIN_TOKEN` unset and anyone who can reach the server may create
 tournaments; the server warns loudly at boot, and again if the token you did set
 looks guessable. **Writing to an existing tournament always needs that
-tournament's own admin key either way** — an open instance never means an open
+tournament's own admin key either way** - an open instance never means an open
 tournament.
 
 > The token lives in `localStorage`, like the per-tournament admin keys. That is
@@ -127,10 +127,10 @@ regardless.
 | --- | --- | --- |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection string (used when Supabase is not configured) |
 | `SUPABASE_URL` | *(unset)* | Supabase project URL. Set both this and the key to use Postgres |
-| `SUPABASE_SERVICE_ROLE_KEY` | *(unset)* | Service role key. **Server only** — never ship it to a browser |
+| `SUPABASE_SERVICE_ROLE_KEY` | *(unset)* | Service role key. **Server only** - never ship it to a browser |
 | `ADMIN_TOKEN` | *(unset)* | The secret that permits creating tournaments. `npm run gen-token` |
 | `ADMIN_PASSWORD` | *(unset)* | Deprecated alias for `ADMIN_TOKEN` |
-| `NODE_ENV` | — | `production` in the Docker runtime image |
+| `NODE_ENV` | - | `production` in the Docker runtime image |
 
 ## Scripts
 
@@ -166,7 +166,7 @@ and group names can all be edited. A player belongs to at most one team.
 
 | Entrants | Format |
 | --- | --- |
-| 2 | Straight to a single Grand Final — no group stage |
+| 2 | Straight to a single Grand Final - no group stage |
 | 3 | One round-robin group; the top 2 contest the final |
 | 4+ | Groups, then playoffs (see below) |
 
@@ -174,7 +174,7 @@ and group names can all be edited. A player belongs to at most one team.
 
 ### 2. Group stage
 
-A **complete round-robin** inside each group — every entrant plays every other
+A **complete round-robin** inside each group - every entrant plays every other
 group member exactly once, spread across rounds. Win 3 points, draw 1, loss 0.
 
 | Players | Groups |
@@ -193,13 +193,13 @@ then fewer losses, then score differential, then name.
 Single elimination. Qualification is **top-K from each group**, not a global
 top-N, so a strong group's lower seed can't displace a weak group's winner.
 Seeding then interleaves across groups so the first round isn't a rematch of a
-game already played — in both solo and team mode.
+game already played - in both solo and team mode.
 
 | Qualifiers | Shape |
 | --- | --- |
-| 4 (from one group) | Grand Final + 3rd-place match — everyone already played |
+| 4 (from one group) | Grand Final + 3rd-place match - everyone already played |
 | 4 (from several groups) | Semifinals → Final + 3rd place |
-| 6 | Top 2 seeds bye to the semis; seeds 3–6 play quarterfinals |
+| 6 | Top 2 seeds bye to the semis; seeds 3-6 play quarterfinals |
 | 8 | Quarterfinals (1v8, 4v5, 2v7, 3v6) → Semifinals → Final + 3rd place |
 
 Playoff matches are best-of-3 by default (`playoffs.mapsPerMatch` per game).
@@ -246,7 +246,7 @@ shared/           single source of truth, imported by BOTH sides
   access.ts         join codes and admin keys (Web Crypto, no Node built-ins)
 
 server/
-  app.ts            the whole API as a Hono app — no Node built-ins
+  app.ts            the whole API as a Hono app - no Node built-ins
   index.ts          Node entrypoint: env, static files, HTTP listener
   worker.ts         Cloudflare entrypoint: bindings, Workers Assets
   store/            persistence: the interface, Redis and Supabase, locking
@@ -262,7 +262,7 @@ src/
 ```
 
 The client imports `shared/` through the `$shared` Vite alias; the server imports
-it relatively. Don't fork it — the two copies that predated it had already
+it relatively. Don't fork it - the two copies that predated it had already
 drifted apart.
 
 ## Storage
@@ -277,7 +277,7 @@ runs on either backend:
 
 Nothing is cached between requests. Every route loads the tournament it needs,
 mutates it and writes it back, so the process holds no authoritative state and
-**more than one instance can run** — which was not true before, when an
+**more than one instance can run** - which was not true before, when an
 in-memory `Map` was the source of truth and a second instance would have served
 a stale snapshot and overwritten the first one's writes.
 
@@ -304,13 +304,13 @@ npm run migrate:supabase -- --dry-run     # then again without --dry-run
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run start:server
 ```
 
-The migration is re-runnable — anything already present is skipped — so keep the
+The migration is re-runnable - anything already present is skipped - so keep the
 Redis data until the new instance is confirmed working.
 
 **Expect Postgres to be slower than Redis**, because every request is now an
 HTTP round trip rather than a local socket. Measured against a live project:
 ~60-120 ms to read a tournament, ~270 ms to write one (a write is two round
-trips — load, then the version-checked update). Fine for entering results;
+trips - load, then the version-checked update). Fine for entering results;
 worth knowing before assuming the app got slower for some other reason.
 
 Both tables have RLS enabled with **no permissive policy**, so the anon and
@@ -324,7 +324,7 @@ publish every `admin_key_hash`.
 
 
 The API is a Hono app (`server/app.ts`) with no Node built-ins, so the Worker
-mounts exactly the same routes the Node server does — `server/index.ts` and
+mounts exactly the same routes the Node server does - `server/index.ts` and
 `server/worker.ts` differ only in how they read configuration and serve assets.
 
 ```bash
@@ -359,7 +359,7 @@ npm run build && npx wrangler deploy --dry-run
 > `backup.sh` works, but anything scripting the API needs a normal user agent.
 
 > **Do not import `server/store/index.js` from `app.ts` or `worker.ts`.** That
-> barrel re-exports the Redis store, and the bundler follows it — pulling the
+> barrel re-exports the Redis store, and the bundler follows it - pulling the
 > Redis client and its `node:dns` / `node:events` dependencies into the Worker,
 > which then fails to build. Import `./store/supabase.js`, `./store/types.js`
 > and `./store/withTournament.js` directly.
@@ -377,7 +377,7 @@ as a master key on any tournament. No cookies are used.
 
 | Method | Route | |
 | --- | --- | --- |
-| POST | `/api/admin/verify` | `{ token }` — check the instance token before storing it |
+| POST | `/api/admin/verify` | `{ token }` - check the instance token before storing it |
 | GET | `/api/admin/status` | `{ authRequired, isAdmin, isOwner }` |
 | GET | `/api/join/:code` | Resolve a join code to its tournament. Public, rate limited |
 
@@ -387,7 +387,7 @@ as a master key on any tournament. No cookies are used.
 | GET | `/api/health` | |
 | GET | `/api/games` | all game configs |
 | GET | `/api/team-games` | games supporting team mode |
-| GET | `/api/tournaments` | list — **instance owner only** |
+| GET | `/api/tournaments` | list - **instance owner only** |
 | POST | `/api/tournaments` | `{ name, gameType, mapPool?, ... }` → returns `joinCode` and `adminKey` (once) |
 | POST | `/api/tournaments/import` | restore from an exported JSON state; always mints **fresh** credentials |
 | DELETE | `/api/tournament/:id` | |
@@ -400,7 +400,7 @@ as a master key on any tournament. No cookies are used.
 | --- | --- | --- |
 | POST | `/api/tournament/:id/players` | `{ name }` |
 | PUT | `/api/tournament/:id/player/:pid` | `{ name }` |
-| PUT | `/api/tournament/:id/player/:pid/photo` | `{ photo }` — data URL, 2 MB cap |
+| PUT | `/api/tournament/:id/player/:pid/photo` | `{ photo }` - data URL, 2 MB cap |
 | DELETE | `/api/tournament/:id/player/:pid` | also clears them from their team |
 | POST | `/api/tournament/:id/teams` | `{ name, playerIds, logo? }` |
 | PUT | `/api/tournament/:id/team/:tid` | `{ name?, playerIds?, logo? }` |
