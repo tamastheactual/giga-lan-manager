@@ -81,6 +81,18 @@
     }
   }
 
+  // Two things people actually want: the code (to read out) and the link (to
+  // paste). Both are one click, and the whole block is the target rather than
+  // a few pixels of text beside it.
+  function copyCode(e: MouseEvent, code: string) {
+    e.stopPropagation();
+    copy(code, `code:${code}`);
+  }
+  function copyLink(e: MouseEvent, code: string) {
+    e.stopPropagation();
+    copy(shareLinkFor(code), `link:${code}`);
+  }
+
   function openCredentials(name: string, id: string, code: string, key: string) {
     credName = name; credId = id; credJoinCode = code; credAdminKey = key;
     showCredentials = true;
@@ -293,28 +305,18 @@
     {/if}
 
     <!-- Create Tournament Section -->
-    <div class="glass rounded-lg p-6 shadow-xl border border-brand-cyan/20" class:hidden={!canListTournaments}>
+    <div class="glass rounded-lg p-6 shadow-xl border border-white/10" class:hidden={!canListTournaments}>
       {#if !showCreateForm}
         <div class="flex flex-wrap gap-3">
-          <button
-            onclick={() => showCreateForm = true}
-            class="bg-gradient-to-r from-brand-purple to-brand-cyan hover:from-brand-cyan hover:to-brand-purple text-white font-bold px-6 py-3 rounded-lg shadow-glow-cyan transition-all duration-300 hover:scale-105 hover:shadow-xl"
-          >
+          <button onclick={() => showCreateForm = true} class="btn btn-primary">
             <svg class="w-5 h-5 inline-block mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
             Create New Tournament
           </button>
-          <a
-            href="/join"
-            class="bg-space-700 hover:bg-space-600 text-gray-200 font-bold px-6 py-3 rounded-lg transition-all duration-300 hover:scale-105 inline-flex items-center"
-          >
+          <a href="/join" class="btn btn-secondary">
             <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7h3a5 5 0 010 10h-3m-6 0H6a5 5 0 010-10h3m-1 5h8"/></svg>
             Open by code
           </a>
-          <button
-            onclick={handleImportClick}
-            disabled={importing}
-            class="bg-gradient-to-r from-cyber-green to-brand-cyan hover:from-brand-cyan hover:to-cyber-green text-space-900 font-bold px-6 py-3 rounded-lg shadow-glow-green transition-all duration-300 hover:scale-105 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <button onclick={handleImportClick} disabled={importing} class="btn btn-secondary">
             {#if importing}
               <svg class="w-5 h-5 inline-block mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -512,13 +514,16 @@
       <!-- Active Tournaments Section -->
       <div class="space-y-4">
         <div class="inline-block">
-          <h2 class="text-xl font-bold bg-gradient-to-r from-brand-cyan to-cyber-blue bg-clip-text text-transparent pb-1">Active Tournaments</h2>
-          <div class="h-1 bg-gradient-to-r from-brand-cyan to-cyber-blue rounded-full"></div>
+          <h2 class="section-title">Active</h2>
         </div>
 
         {#if getActiveTournaments().length === 0}
           <div class="glass rounded-xl p-8 text-center shadow-xl">
-            <p class="text-gray-400 text-sm">No active tournaments. Create your first one above!</p>
+            <p class="text-gray-400 text-sm">
+              {canListTournaments
+                ? 'No active tournaments yet — create one above.'
+                : 'Nothing running right now.'}
+            </p>
           </div>
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -540,12 +545,15 @@
                         onerror={(e) => (e.target as HTMLImageElement).style.display = 'none'}
                       />
                     {/if}
-                    <h3 class="text-lg font-bold text-white truncate">{tournament.name}</h3>
+                    <h3 class="text-base font-bold text-ink leading-snug">{tournament.name}</h3>
                   </div>
 
                   <div class="flex items-center gap-2">
-                    <span class="px-2 py-1 bg-brand-cyan/20 border border-brand-cyan rounded text-brand-cyan font-bold text-xs uppercase">
-                      {tournament.state}
+                    <span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border
+                      {tournament.state === 'completed'
+                        ? 'bg-white/5 text-ink-muted border-white/10'
+                        : 'bg-win/10 text-win border-win/30'}">
+                      {tournament.state === 'completed' ? 'Finished' : tournament.state}
                     </span>
                     <button
                       onclick={(e) => requestDeleteTournament(e, tournament.id)}
@@ -558,15 +566,26 @@
                 </div>
 
                 {#if tournament.joinCode}
-                  <div class="flex items-center gap-2 mb-3">
-                    <span class="text-[10px] font-bold text-gray-500 tracking-widest">JOIN</span>
-                    <code class="px-2 py-1 rounded bg-space-700 text-cyber-green font-mono text-sm tracking-[0.2em]">{tournament.joinCode}</code>
+                  <div class="flex items-center gap-2 mb-3 flex-wrap">
                     <button
-                      onclick={(e) => { e.stopPropagation(); copy(shareLinkFor(tournament.joinCode), tournament.id); }}
-                      class="text-[11px] font-bold px-2 py-1 rounded bg-space-700 text-gray-300 hover:text-cyber-green hover:bg-space-600 transition"
+                      type="button"
+                      class="code-copy"
+                      class:is-copied={copied === `code:${tournament.joinCode}`}
+                      onclick={(e) => copyCode(e, tournament.joinCode)}
+                      title="Copy the join code"
+                    >
+                      <span class="code-copy__value">{tournament.joinCode}</span>
+                      <span class="code-copy__hint">
+                        {copied === `code:${tournament.joinCode}` ? 'Copied' : 'Copy'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost !px-2.5 !py-1.5 !text-xs"
+                      onclick={(e) => copyLink(e, tournament.joinCode)}
                       title="Copy the shareable view-only link"
                     >
-                      {copied === tournament.id ? 'Copied' : 'Copy link'}
+                      {copied === `link:${tournament.joinCode}` ? 'Link copied' : 'Copy link'}
                     </button>
                   </div>
                 {/if}
@@ -583,7 +602,7 @@
                       </div>
                     {/if}
                     <!-- Team/1v1 indicator -->
-                    <div class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold {tournament.isTeamBased ? 'bg-brand-orange/20 text-brand-orange' : 'bg-brand-purple/20 text-brand-purple'}">
+                    <div class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold {tournament.isTeamBased ? 'bg-brand-orange/20 text-brand-orange' : 'bg-white/5 text-ink-faint'}">
                       {#if tournament.isTeamBased}
                         <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
                         TEAM
@@ -611,8 +630,7 @@
       {#if getFinishedTournaments().length > 0}
         <div class="space-y-4">
           <div class="inline-block">
-            <h2 class="text-xl font-bold bg-gradient-to-r from-cyber-green to-brand-cyan bg-clip-text text-transparent pb-1">Finished Tournaments</h2>
-            <div class="h-1 bg-gradient-to-r from-cyber-green to-brand-cyan rounded-full"></div>
+            <h2 class="section-title">Finished</h2>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -634,11 +652,11 @@
                         onerror={(e) => (e.target as HTMLImageElement).style.display = 'none'}
                       />
                     {/if}
-                    <h3 class="text-lg font-bold text-white truncate">{tournament.name}</h3>
+                    <h3 class="text-base font-bold text-ink leading-snug">{tournament.name}</h3>
                   </div>
 
                   <div class="flex items-center gap-2">
-                    <span class="px-2 py-1 bg-cyber-green/20 border border-cyber-green rounded text-cyber-green font-bold text-xs uppercase">
+                    <span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-white/5 text-ink-muted border border-white/10">
                       Finished
                     </span>
                     <button
@@ -652,15 +670,26 @@
                 </div>
 
                 {#if tournament.joinCode}
-                  <div class="flex items-center gap-2 mb-3">
-                    <span class="text-[10px] font-bold text-gray-500 tracking-widest">JOIN</span>
-                    <code class="px-2 py-1 rounded bg-space-700 text-cyber-green font-mono text-sm tracking-[0.2em]">{tournament.joinCode}</code>
+                  <div class="flex items-center gap-2 mb-3 flex-wrap">
                     <button
-                      onclick={(e) => { e.stopPropagation(); copy(shareLinkFor(tournament.joinCode), tournament.id); }}
-                      class="text-[11px] font-bold px-2 py-1 rounded bg-space-700 text-gray-300 hover:text-cyber-green hover:bg-space-600 transition"
+                      type="button"
+                      class="code-copy"
+                      class:is-copied={copied === `code:${tournament.joinCode}`}
+                      onclick={(e) => copyCode(e, tournament.joinCode)}
+                      title="Copy the join code"
+                    >
+                      <span class="code-copy__value">{tournament.joinCode}</span>
+                      <span class="code-copy__hint">
+                        {copied === `code:${tournament.joinCode}` ? 'Copied' : 'Copy'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost !px-2.5 !py-1.5 !text-xs"
+                      onclick={(e) => copyLink(e, tournament.joinCode)}
                       title="Copy the shareable view-only link"
                     >
-                      {copied === tournament.id ? 'Copied' : 'Copy link'}
+                      {copied === `link:${tournament.joinCode}` ? 'Link copied' : 'Copy link'}
                     </button>
                   </div>
                 {/if}
@@ -677,7 +706,7 @@
                       </div>
                     {/if}
                     <!-- Team/1v1 indicator -->
-                    <div class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold {tournament.isTeamBased ? 'bg-brand-orange/20 text-brand-orange' : 'bg-brand-purple/20 text-brand-purple'}">
+                    <div class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold {tournament.isTeamBased ? 'bg-brand-orange/20 text-brand-orange' : 'bg-white/5 text-ink-faint'}">
                       {#if tournament.isTeamBased}
                         <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
                         TEAM
@@ -794,10 +823,18 @@
               {copied === 'link' ? 'Copied' : 'Copy link'}
             </button>
           </div>
-          <div class="p-4 rounded-xl bg-space-800 border border-space-600 text-center">
-            <div class="text-3xl font-mono font-bold text-cyber-green tracking-[0.3em]">{credJoinCode}</div>
-            <div class="text-xs text-gray-500 mt-2 break-all">{joinLink}</div>
-          </div>
+          <button
+            type="button"
+            class="w-full p-4 rounded-xl bg-space-900 border border-space-500 text-center hover:border-accent transition-colors"
+            onclick={() => copy(credJoinCode, 'cred-code')}
+            title="Copy the join code"
+          >
+            <div class="text-3xl font-mono font-bold text-accent-soft tracking-[0.3em]">{credJoinCode}</div>
+            <div class="text-[11px] font-bold tracking-wider uppercase mt-2 {copied === 'cred-code' ? 'text-win' : 'text-ink-faint'}">
+              {copied === 'cred-code' ? 'Code copied' : 'Click to copy the code'}
+            </div>
+          </button>
+          <div class="text-xs text-ink-faint mt-2 break-all">{joinLink}</div>
           <p class="text-xs text-gray-500 mt-2">Anyone with this can follow the brackets and stats live. They cannot change anything.</p>
         </div>
 
@@ -852,7 +889,7 @@
       
       <!-- Modal Content -->
       <div class="p-6">
-        <p class="text-gray-300 mb-6">Tournament "<span class="text-brand-cyan font-semibold">{importedTournamentName}</span>" has been successfully imported!</p>
+        <p class="text-gray-300 mb-6">Tournament "<span class="text-ink-muted font-semibold">{importedTournamentName}</span>" has been successfully imported!</p>
         <div class="flex justify-end gap-3">
           <button
             onclick={() => showImportSuccess = false}

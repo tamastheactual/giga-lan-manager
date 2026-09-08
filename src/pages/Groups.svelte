@@ -86,7 +86,8 @@
   // Group name editing functions
   function startEditingGroup(groupId: string, currentName: string) {
     editingGroupId = groupId;
-    editingGroupName = currentName || `Group ${groupId}`;
+    // currentName already comes from getGroupDisplayName, so it is a letter.
+    editingGroupName = currentName || getGroupDisplayName(groupId);
   }
 
   function cancelEditingGroup() {
@@ -139,12 +140,14 @@
   }
 
   function getGroupDisplayName(groupId: string) {
-    if (isTeamBased) {
-      const pod = teamPods.find((p: any) => p.id === groupId);
-      return pod?.name || `Group ${groupId}`;
-    }
-    const pod = pods.find(p => p.id === groupId);
-    return pod?.name || `Group ${groupId}`;
+    // Falls back to the pod's POSITION, not its id. Solo pods are never given a
+    // name (only team pods are), so the old `Group ${groupId}` fallback printed
+    // a raw UUID as the heading of every group table in every solo tournament.
+    const list: { id: string; name?: string }[] = isTeamBased ? teamPods : pods;
+    const index = list.findIndex((p) => p.id === groupId);
+    const pod = index === -1 ? undefined : list[index];
+    if (pod?.name) return pod.name;
+    return index === -1 ? 'Group' : `Group ${String.fromCharCode(65 + index)}`;
   }
   
   // Reactive derived values using $derived.by for proper reactivity with state arrays
@@ -851,14 +854,14 @@
                         <span class="{isTeamBased ? 'font-bold' : ''}">{entity.name}</span>
                       </div>
                     </td>                    
-                    <td class="text-center py-2 px-2 text-gray-400 {isTeamBased ? 'text-base' : ''}">{(entity.wins || 0) + (entity.draws || 0) + (entity.losses || 0)}</td>
-                    <td class="text-center py-2 px-2 text-cyber-green font-bold {isTeamBased ? 'text-base' : ''}">{entity.wins || 0}</td>
-                    <td class="text-center py-2 px-2 text-yellow-500 font-bold {isTeamBased ? 'text-base' : ''}">{entity.draws || 0}</td>
-                    <td class="text-center py-2 px-2 text-red-400 font-bold {isTeamBased ? 'text-base' : ''}">{entity.losses || 0}</td>
+                    <td class="text-center py-2 px-2 text-ink-faint tabular-nums {isTeamBased ? 'text-base' : ''}">{(entity.wins || 0) + (entity.draws || 0) + (entity.losses || 0)}</td>
+                    <td class="text-center py-2 px-2 text-win font-bold tabular-nums {isTeamBased ? 'text-base' : ''}">{entity.wins || 0}</td>
+                    <td class="text-center py-2 px-2 font-bold tabular-nums {(entity.draws || 0) === 0 ? 'text-ink-faint' : 'text-draw'} {isTeamBased ? 'text-base' : ''}">{entity.draws || 0}</td>
+                    <td class="text-center py-2 px-2 font-bold tabular-nums {(entity.losses || 0) === 0 ? 'text-ink-faint' : 'text-loss'} {isTeamBased ? 'text-base' : ''}">{entity.losses || 0}</td>
                     {#if !isWinOnly}
-                      <td class="text-center py-2 px-2 text-brand-cyan font-bold {isTeamBased ? 'text-base' : ''}" title="{scoreLabel}">{entity.totalGameScore || entity.roundDiff || 0}</td>
+                      <td class="text-center py-2 px-2 text-ink-muted font-medium tabular-nums {isTeamBased ? 'text-base' : ''}" title="{scoreLabel}">{entity.totalGameScore || entity.roundDiff || 0}</td>
                     {/if}
-                    <td class="text-center py-2 px-2 text-cyber-green font-black {isTeamBased ? 'text-lg' : ''}">{entity.points || 0}</td>
+                    <td class="text-center py-2 px-2 text-ink font-black tabular-nums {isTeamBased ? 'text-lg' : ''}">{entity.points || 0}</td>
                   </tr>
                   <!-- For team tournaments, show expanded player stats under each team -->
                   {#if isTeamBased && entity.members}
@@ -949,7 +952,7 @@
                   </div>
                 {:else if match.mapName}
                   <div class="mb-3 text-center">
-                    <span class="text-xs px-2 py-1 bg-brand-cyan/20 text-brand-cyan rounded-full">{match.mapName}</span>
+                    <span class="text-xs px-2 py-1 bg-white/5 text-ink-muted rounded-full font-medium">{match.mapName}</span>
                   </div>
                 {/if}
                 
@@ -1011,7 +1014,7 @@
                           class="w-full text-center text-3xl font-black bg-space-600 border-2 {result === 'player1' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-2 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                         />
                       {:else}
-                        <div class="text-3xl font-black {result === 'player1' ? 'text-cyber-green' : result === 'player2' ? 'text-gray-500' : 'text-yellow-500'}">{scores.player1Score}</div>
+                        <div class="text-3xl font-black tabular-nums {result === 'player1' ? 'text-ink' : result === 'player2' ? 'text-ink-faint' : 'text-draw'}">{scores.player1Score}</div>
                       {/if}
                     </div>
                     
@@ -1039,7 +1042,7 @@
                           class="w-full text-center text-3xl font-black bg-space-600 border-2 {result === 'player2' ? 'border-cyber-green' : 'border-space-500'} rounded-lg py-2 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-cyan appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                         />
                       {:else}
-                        <div class="text-3xl font-black {result === 'player2' ? 'text-cyber-green' : result === 'player1' ? 'text-gray-500' : 'text-yellow-500'}">{scores.player2Score}</div>
+                        <div class="text-3xl font-black tabular-nums {result === 'player2' ? 'text-ink' : result === 'player1' ? 'text-ink-faint' : 'text-draw'}">{scores.player2Score}</div>
                       {/if}
                     </div>
                   {/if}
