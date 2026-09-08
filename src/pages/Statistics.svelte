@@ -1838,7 +1838,7 @@
       ctx.textBaseline = 'middle';
       ctx.fillText(stat.value, x + boxWidth/2, y + boxHeight/2 - 8);
       
-      // Stat label (text-[10px] text-gray-500 uppercase) - properly centered
+      // Stat label (text-[10px] text-ink-faint uppercase) - properly centered
       ctx.fillStyle = '#6b7280';
       ctx.font = 'bold 9px system-ui, -apple-system, sans-serif';
       ctx.fillText(stat.label, x + boxWidth/2, y + boxHeight/2 + 12);
@@ -2680,7 +2680,7 @@
       {#if tournamentData}
         <button
           onclick={exportTournamentData}
-          class="flex items-center gap-2 px-4 py-2 bg-space-600 text-space-900 font-bold rounded-lg hover:opacity-90 transition-opacity shadow-lg"
+          class="flex items-center gap-2 px-4 py-2 bg-space-600 text-ink font-bold rounded-lg hover:bg-space-500 transition-colors shadow-lg"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -2764,9 +2764,9 @@
                       <td class="py-3 px-2">
                         <div class="w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm
                           {index === 0 ? 'bg-gold text-space-900' :
-                           index === 1 ? 'bg-space-600 text-space-900' :
-                           index === 2 ? 'bg-ember text-space-900' :
-                           'bg-space-600 text-gray-400'}">
+                           index === 1 ? 'bg-silver text-space-900' :
+                           index === 2 ? 'bg-bronze text-space-900' :
+                           'bg-space-600 text-ink-muted'}">
                           {index + 1}
                         </div>
                       </td>
@@ -2802,11 +2802,11 @@
             </div>
           {:else}
             <div class="text-center py-8 text-gray-400">
-              <svg class="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-12 h-12 mx-auto mb-3 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
               </svg>
               <p>No player stats recorded yet</p>
-              <p class="text-sm text-gray-500 mt-1">K/D stats will appear after matches are played</p>
+              <p class="text-sm text-ink-faint mt-1">K/D stats will appear after matches are played</p>
             </div>
           {/if}
         </div>
@@ -2885,7 +2885,7 @@
               <div class="text-xs text-gray-400 uppercase tracking-wider">Players</div>
             </div>
             <div class="bg-space-600 rounded-lg p-4 text-center border border-white/10">
-              <div class="text-3xl font-black text-brand-purple">{teamAnalysis.totalMapsPlayed}</div>
+              <div class="text-3xl font-black text-deep-soft">{teamAnalysis.totalMapsPlayed}</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Maps Played</div>
             </div>
             <div class="bg-win/15 rounded-lg p-4 text-center border border-win/30">
@@ -3047,9 +3047,9 @@
                       <td class="py-3 px-2">
                         <div class="w-7 h-7 rounded-full flex items-center justify-center font-bold text-sm
                           {index === 0 ? 'bg-gold text-space-900' :
-                           index === 1 ? 'bg-space-600 text-space-900' :
-                           index === 2 ? 'bg-ember text-space-900' :
-                           'bg-space-600 text-gray-400'}">
+                           index === 1 ? 'bg-silver text-space-900' :
+                           index === 2 ? 'bg-bronze text-space-900' :
+                           'bg-space-600 text-ink-muted'}">
                           {index + 1}
                         </div>
                       </td>
@@ -3088,11 +3088,11 @@
             </div>
           {:else}
             <div class="text-center py-8 text-gray-400">
-              <svg class="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-12 h-12 mx-auto mb-3 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
               </svg>
               <p>No team stats recorded yet</p>
-              <p class="text-sm text-gray-500 mt-1">Team stats will appear after matches are played</p>
+              <p class="text-sm text-ink-faint mt-1">Team stats will appear after matches are played</p>
             </div>
           {/if}
         </div>
@@ -3150,13 +3150,13 @@
                       <span class="font-bold text-white text-sm">{h2h.team1Name}</span>
                       <div class="text-2xl font-black {h2h.team1Wins > h2h.team2Wins ? 'text-cyber-green' : h2h.team1Wins < h2h.team2Wins ? 'text-loss' : 'text-gold'}">{h2h.team1Wins}</div>
                     </div>
-                    <div class="px-4 text-gray-500 text-sm">vs</div>
+                    <div class="px-4 text-ink-faint text-sm">vs</div>
                     <div class="flex-1 text-center">
                       <span class="font-bold text-white text-sm">{h2h.team2Name}</span>
                       <div class="text-2xl font-black {h2h.team2Wins > h2h.team1Wins ? 'text-cyber-green' : h2h.team2Wins < h2h.team1Wins ? 'text-loss' : 'text-gold'}">{h2h.team2Wins}</div>
                     </div>
                   </div>
-                  <div class="text-center text-xs text-gray-500 mt-2">{h2h.totalGames} game{h2h.totalGames !== 1 ? 's' : ''} played</div>
+                  <div class="text-center text-xs text-ink-faint mt-2">{h2h.totalGames} game{h2h.totalGames !== 1 ? 's' : ''} played</div>
                 </div>
               {/each}
             </div>
@@ -3233,9 +3233,9 @@
                   <div class="text-white font-bold">{mapData.teamName}</div>
                   <div class="flex items-center gap-2 mt-2 text-sm">
                     <span class="text-cyber-green">{mapData.wins}W</span>
-                    <span class="text-gray-500">/</span>
+                    <span class="text-ink-faint">/</span>
                     <span class="text-loss">{mapData.losses}L</span>
-                    <span class="text-gray-500">|</span>
+                    <span class="text-ink-faint">|</span>
                     <span class="font-bold {mapData.winRate >= 75 ? 'text-cyber-green' : mapData.winRate >= 50 ? 'text-gold' : 'text-loss'}">{mapData.winRate}%</span>
                   </div>
                 </div>
@@ -3284,7 +3284,7 @@
       {#if isTeamBased && statsView === 'players' && mvpHighlights}
         <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-            <svg class="w-6 h-6 text-brand-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-6 h-6 text-deep-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
             </svg>
             Player Highlights
@@ -3582,7 +3582,7 @@
                 </div>
                 <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-gray-600/30">
                   <span class="text-gray-400 font-bold">{mvpHighlights.worstKD.kd.toFixed(2)} K/D</span>
-                  <span class="text-gray-500">{mvpHighlights.worstKD.kills}K / {mvpHighlights.worstKD.deaths}D</span>
+                  <span class="text-ink-faint">{mvpHighlights.worstKD.kills}K / {mvpHighlights.worstKD.deaths}D</span>
                 </div>
               </div>
             {/if}
@@ -3602,8 +3602,8 @@
                   <div class="bg-space-700/50 rounded-lg p-3 border border-space-600">
                     <div class="text-xs font-bold text-brand-cyan mb-1 truncate">{mapMVP.mapName}</div>
                     <div class="text-white font-bold text-sm truncate">{mapMVP.playerName}</div>
-                    <div class="text-xs text-gray-500 truncate">{mapMVP.teamName}</div>
-                    <div class="text-xs text-brand-purple font-bold mt-1">{mapMVP.kd} K/D ({mapMVP.kills}-{mapMVP.deaths})</div>
+                    <div class="text-xs text-ink-faint truncate">{mapMVP.teamName}</div>
+                    <div class="text-xs text-deep-soft font-bold mt-1">{mapMVP.kd} K/D ({mapMVP.kills}-{mapMVP.deaths})</div>
                   </div>
                 {/each}
               </div>
@@ -3635,8 +3635,8 @@
                     <div class="text-white font-bold text-sm truncate">{leader.playerName}</div>
                     <div class="flex items-center gap-2 mt-2">
                       <span class="text-lg font-black text-brand-orange">{leader.kills}</span>
-                      <span class="text-xs text-gray-500">kills</span>
-                      <span class="text-xs text-brand-purple ml-auto">{leader.kd.toFixed(2)} K/D</span>
+                      <span class="text-xs text-ink-faint">kills</span>
+                      <span class="text-xs text-deep-soft ml-auto">{leader.kd.toFixed(2)} K/D</span>
                     </div>
                   </div>
                 {/each}
@@ -3696,7 +3696,7 @@
                 <span class="text-gold font-bold">{soloPlayerHighlights.champion.winRate}% Win Rate</span>
                 <span class="text-gray-400">{soloPlayerHighlights.champion.matchesWon}W - {soloPlayerHighlights.champion.matchesLost}L</span>
                 {#if soloPlayerHighlights.runnerUp}
-                  <span class="text-gray-500">|</span>
+                  <span class="text-ink-faint">|</span>
                   <span class="text-gray-400">
                     Defeated <span class="text-gray-200 font-bold">{soloPlayerHighlights.runnerUp.name}</span> in Finals
                   </span>
@@ -3726,7 +3726,7 @@
               <div class="text-xs text-gray-400 uppercase tracking-wider">Total Matches</div>
             </div>
             <div class="bg-space-700/50 rounded-lg p-4 text-center border border-white/10">
-              <div class="text-3xl font-black text-brand-purple">{matchStats.completedMatches}</div>
+              <div class="text-3xl font-black text-deep-soft">{matchStats.completedMatches}</div>
               <div class="text-xs text-gray-400 uppercase tracking-wider">Completed</div>
             </div>
             <div class="bg-space-700/50 rounded-lg p-4 text-center border border-win/20">
@@ -3760,12 +3760,12 @@
                 </div>
                 <div class="space-y-1">
                   {#each advancedStats.mostDominantList.slice(0, 5) as performance}
-                    <div class="flex items-center justify-between bg-loss/20 rounded px-2 py-0.5">
+                    <div class="flex items-center justify-between bg-space-900/40 rounded px-2 py-0.5">
                       <div class="text-white text-xs truncate flex-1">
                         {performance.player} vs {performance.opponent}
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
-                        <span class="text-xs text-gray-400">{performance.score}</span>
+                        <span class="text-xs text-ink-muted">{performance.score}</span>
                         <span class="text-xs text-loss font-bold">+{performance.margin}</span>
                       </div>
                     </div>
@@ -3785,12 +3785,12 @@
                 </div>
                 <div class="space-y-1">
                   {#each advancedStats.closestMatches.slice(0, 5) as match}
-                    <div class="flex items-center justify-between bg-gold/20 rounded px-2 py-0.5">
+                    <div class="flex items-center justify-between bg-space-900/40 rounded px-2 py-0.5">
                       <div class="text-white text-xs truncate flex-1">
                         {match.winner} vs {match.loser}
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
-                        <span class="text-xs text-gray-400">{match.score}</span>
+                        <span class="text-xs text-ink-muted">{match.score}</span>
                         <span class="text-xs text-gold font-bold">±{match.margin}</span>
                       </div>
                     </div>
@@ -3830,10 +3830,10 @@
             <!-- Bracket Stats -->
             <div class="bg-space-600 rounded-lg p-4 border border-white/10">
               <div class="flex items-center gap-2 mb-2">
-                <svg class="w-4 h-4 text-brand-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg class="w-4 h-4 text-deep-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
                 </svg>
-                <div class="text-xs font-bold text-brand-purple uppercase">Playoffs</div>
+                <div class="text-xs font-bold text-deep-soft uppercase">Playoffs</div>
               </div>
               <div class="text-white font-bold text-2xl mb-1">{matchStats.bracketSeries || 0}</div>
               <div class="text-xs text-gray-400">{matchStats.bracketMatches || 0} maps played</div>
@@ -3846,7 +3846,7 @@
       {#if !isTeamBased && soloPlayerHighlights}
         <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <h2 class="text-xl font-bold mb-4 text-white flex items-center gap-2">
-            <svg class="w-6 h-6 text-brand-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-6 h-6 text-deep-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
             </svg>
             Player Highlights
@@ -4172,7 +4172,7 @@
                 </div>
                 <div class="flex gap-3 text-sm mt-3 pt-2 border-t border-gray-600/20">
                   <span class="text-gray-400 font-bold">{soloPlayerHighlights.worstPerformer.winRate}% Win Rate</span>
-                  <span class="text-gray-500">{soloPlayerHighlights.worstPerformer.matchesWon}W-{soloPlayerHighlights.worstPerformer.matchesLost}L</span>
+                  <span class="text-ink-faint">{soloPlayerHighlights.worstPerformer.matchesWon}W-{soloPlayerHighlights.worstPerformer.matchesLost}L</span>
                 </div>
               </div>
             {/if}
@@ -4196,9 +4196,9 @@
               <!-- Rank -->
               <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0
                 {index === 0 ? 'bg-gold text-space-900' :
-                 index === 1 ? 'bg-space-600 text-space-900' :
-                 index === 2 ? 'bg-ember text-space-900' :
-                 'bg-space-600 text-gray-400'}">
+                 index === 1 ? 'bg-silver text-space-900' :
+                 index === 2 ? 'bg-bronze text-space-900' :
+                 'bg-space-600 text-ink-muted'}">
                 {index + 1}
               </div>
 
@@ -4232,7 +4232,7 @@
                       </span>
                     {/if}
                     {#if player.consistencyScore !== undefined}
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-purple/20 text-brand-purple border border-white/10">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-purple/20 text-deep-soft border border-white/10">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                         </svg>
@@ -4463,15 +4463,15 @@
                             </div>
                             <div class="w-16 text-center flex-shrink-0">
                               {#if match.result === 'win'}
-                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-win/20 text-win border border-win/50">
+                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-win/[0.12] text-win border border-win/50">
                                   WIN
                                 </span>
                               {:else if match.result === 'loss'}
-                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-loss/20 text-loss border border-loss/50">
+                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-loss/[0.12] text-loss border border-loss/50">
                                   LOSS
                                 </span>
                               {:else}
-                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-gold/20 text-gold border border-gold/50">
+                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold bg-gold/[0.12] text-gold border border-gold/50">
                                   TIE
                                 </span>
                               {/if}
@@ -4493,7 +4493,7 @@
         <div class="glass-card rounded-xl p-6 mb-6 border border-white/10">
           <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h2 class="text-xl font-bold text-white flex items-center gap-2">
-              <svg class="w-6 h-6 text-brand-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-6 h-6 text-deep-soft" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
               </svg>
               Player Progression
@@ -4524,7 +4524,7 @@
       {/if}
     {:else}
       <div class="glass rounded-lg p-12 text-center">
-        <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-16 h-16 mx-auto mb-4 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>
         <p class="text-gray-400">No tournament data available</p>
@@ -4642,7 +4642,7 @@
                     </div>
                   </div>
                   <div class="text-right">
-                    <div class="text-[10px] text-gray-500 uppercase tracking-wider">Tournament</div>
+                    <div class="text-[10px] text-ink-faint uppercase tracking-wider">Tournament</div>
                     <div class="text-xs text-white font-semibold truncate max-w-[120px]">{tournamentData?.name || 'Tournament'}</div>
                   </div>
                 </div>
@@ -4725,7 +4725,7 @@
                   {#each previewStats as stat}
                     <div class="bg-space-800/80 rounded-lg p-3 text-center border border-space-700/50">
                       <div class="text-xl font-black {stat.colorClass} truncate">{stat.value}</div>
-                      <div class="text-[10px] text-gray-500 uppercase tracking-wider font-bold">{stat.label}</div>
+                      <div class="text-[10px] text-ink-faint uppercase tracking-wider font-bold">{stat.label}</div>
                     </div>
                   {/each}
                 </div>
@@ -4736,11 +4736,11 @@
                 <div class="flex items-center gap-2">
                   <span class="text-[10px] text-gray-400 font-semibold">{gameConfig?.name || 'Game'}</span>
                   <span class="sep" aria-hidden="true"></span>
-                  <span class="text-[10px] text-gray-500">{isTeamBased ? 'Team Tournament' : '1v1 Tournament'}</span>
+                  <span class="text-[10px] text-ink-faint">{isTeamBased ? 'Team Tournament' : '1v1 Tournament'}</span>
                 </div>
                 <div class="flex items-center gap-1.5">
                   <img src={logoImg} alt="AI Dept" class="w-3.5 h-3.5 opacity-70" />
-                  <span class="text-[10px] text-gray-500">AI Department</span>
+                  <span class="text-[10px] text-ink-faint">AI Department</span>
                 </div>
               </div>
             </div>

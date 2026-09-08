@@ -63,7 +63,7 @@
       {busy ? 'Checking…' : 'Continue'}
     </button>
 
-    <p class="text-xs text-gray-500 mt-6">
+    <p class="text-xs text-ink-faint mt-6">
       Only looking to watch a tournament? You want a
       <a href="/join" class="text-brand-cyan hover:text-cyber-green underline">join code</a> instead.
     </p>

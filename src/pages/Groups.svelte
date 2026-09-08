@@ -741,7 +741,7 @@
         {#each availableRounds as round}
           <button 
             onclick={() => currentRound = round}
-            class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded {currentRound === round ? 'bg-brand-cyan/20 text-brand-cyan' : 'text-gray-500 hover:bg-space-700'} transition-all"
+            class="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded {currentRound === round ? 'bg-brand-cyan/20 text-brand-cyan' : 'text-ink-faint hover:bg-space-700'} transition-all"
           >
             <div class="w-6 h-6 rounded-full border {(isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round)) ? 'bg-brand-cyan border-brand-cyan text-space-900' : currentRound === round ? 'border-brand-cyan' : 'border-gray-600'} flex items-center justify-center font-bold text-xs">
               {#if isTeamBased ? isTeamRoundComplete(round) : isRoundComplete(round)}
@@ -759,7 +759,7 @@
     <!-- Group Tables Section -->
     <div class="mb-4">
       <h2 class="text-base font-bold mb-2 text-white flex items-center gap-1.5">
-        <svg class="w-4 h-4 text-cyber-blue" fill="currentColor" viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+        <svg class="w-4 h-4 text-accent" fill="currentColor" viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
         Group Tables
       </h2>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -798,7 +798,7 @@
                 </div>
               {:else}
                 <div class="flex items-center gap-2 flex-1">
-                  <span class="text-xs font-bold text-cyber-blue hover:text-cyber-green transition-colors">
+                  <span class="text-xs font-bold text-ink-muted">
                     {getGroupDisplayName(groupId)}
                   </span>
                   {#if tournamentState === 'registration'}
@@ -842,9 +842,9 @@
               </thead>
               <tbody>
                 {#each groupPlayers as entity, index (entity.id)}
-                  <tr class="{isTeamBased ? 'border-b border-space-500' : 'border-b border-space-700/50'} hover:bg-space-700/30 transition-colors {index === 0 && isTeamBased ? 'bg-gold' : index === 1 && isTeamBased ? 'bg-space-600' : ''}">
+                  <tr class="{isTeamBased ? 'border-b border-space-500' : 'border-b border-space-700/50'} hover:bg-space-700/30 transition-colors {index === 0 && isTeamBased ? 'bg-gold/[0.10]' : index === 1 && isTeamBased ? 'bg-silver/[0.08]' : ''}">
                     <td class="py-2 px-2">
-                      <div class="{isTeamBased ? 'w-6 h-6 text-sm' : 'w-4 h-4 text-xs'} rounded-full flex items-center justify-center font-bold {index === 0 ? 'bg-gold text-space-900 shadow-lg shadow-gold/30' : index === 1 ? 'bg-space-600 text-space-900' : index === 2 ? 'bg-gold text-white' : 'bg-space-600 text-gray-400'}">
+                      <div class="{isTeamBased ? 'w-6 h-6 text-sm' : 'w-4 h-4 text-xs'} rounded-full flex items-center justify-center font-bold {index === 0 ? 'bg-gold text-space-900 shadow-lg shadow-gold/30' : index === 1 ? 'bg-silver text-space-900' : index === 2 ? 'bg-bronze text-space-900' : 'bg-space-600 text-ink-muted'}">
                         {index + 1}
                       </div>
                     </td>
@@ -881,7 +881,7 @@
                                 <span class="text-gray-200 text-sm font-medium flex-1 truncate">{player.name}</span>
                                 <span class="text-gray-400 text-xs font-medium">K/D</span>
                                 <span class="text-cyber-green font-bold text-sm">{stats.kills}</span>
-                                <span class="text-gray-500">/</span>
+                                <span class="text-ink-faint">/</span>
                                 <span class="text-loss font-bold text-sm">{stats.deaths}</span>
                                 {#if stats.gamesPlayed > 0}
                                   <span class="text-brand-cyan text-xs font-semibold">({stats.kdRatio.toFixed(2)})</span>
@@ -928,7 +928,7 @@
               <!-- Header with status -->
               <div class="bg-space-700/80 px-3 py-1.5 flex items-center justify-between border-b border-space-600">
                 <span class="text-xs font-bold text-gray-400">{scoreLabel}</span>
-                <div class="flex items-center gap-1 text-xs font-bold {status === 'complete' ? 'text-brand-cyan' : status === 'live' ? 'text-gold' : 'text-gray-500'}">
+                <div class="flex items-center gap-1 text-xs font-bold {status === 'complete' ? 'text-brand-cyan' : status === 'live' ? 'text-gold' : 'text-ink-faint'}">
                   {#if status === 'complete'}
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                   {:else if status === 'live'}
@@ -979,7 +979,7 @@
                           T
                         </button>
                       {:else}
-                        <span class="text-gray-500 font-bold">:</span>
+                        <span class="text-ink-faint font-bold">:</span>
                       {/if}
                       <button
                         onclick={() => setWinner(match.id, 'player2')}
@@ -989,17 +989,17 @@
                       </button>
                     {:else}
                       <!-- Completed Win-Only Match -->
-                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player1' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-gold/50 text-gold' : 'bg-space-700 text-gray-500'}">
+                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player1' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-draw/15 text-draw' : 'bg-space-700 text-ink-faint'}">
                         {result === 'player1' ? 'W' : result === 'tie' ? 'T' : 'L'}
                       </div>
                       {#if tieAllowed}
-                        <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'tie' ? 'bg-gold text-black' : 'bg-space-700 text-gray-600'}">
+                        <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'tie' ? 'bg-draw text-space-900' : 'bg-space-700 text-ink-faint'}">
                           {result === 'tie' ? 'T' : 'vs'}
                         </div>
                       {:else}
-                        <span class="text-gray-500 font-bold">:</span>
+                        <span class="text-ink-faint font-bold">:</span>
                       {/if}
-                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player2' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-gold/50 text-gold' : 'bg-space-700 text-gray-500'}">
+                      <div class="w-14 h-14 rounded-lg flex items-center justify-center font-black text-xl {result === 'player2' ? 'bg-cyber-green text-black' : result === 'tie' ? 'bg-draw/15 text-draw' : 'bg-space-700 text-ink-faint'}">
                         {result === 'player2' ? 'W' : result === 'tie' ? 'T' : 'L'}
                       </div>
                     {/if}
@@ -1027,9 +1027,9 @@
                       {#if result === 'tie'}
                         <span class="text-gold font-black text-sm">TIE</span>
                       {:else if match.completed}
-                        <span class="text-gray-600 font-bold text-lg">:</span>
+                        <span class="text-ink-faint font-bold text-lg">:</span>
                       {:else}
-                        <span class="text-gray-500 font-bold text-sm">VS</span>
+                        <span class="text-ink-faint font-bold text-sm">VS</span>
                       {/if}
                     </div>
                     
@@ -1092,7 +1092,7 @@
                     <div class="grid grid-cols-2 gap-3">
                       <!-- Team 1 Players -->
                       <div class="bg-brand-purple/10 rounded-lg p-2 border border-brand-purple/20">
-                        <div class="text-xs font-bold text-brand-purple mb-2 border-b border-brand-purple/20 pb-1">{entity1Name}</div>
+                        <div class="text-xs font-bold text-deep-soft mb-2 border-b border-brand-purple/20 pb-1">{entity1Name}</div>
                         {#each team1Players as player (player.id)}
                           <div class="flex items-center gap-2 mb-1.5">
                             <img src={getPlayerImageUrl(player.name)} alt="" class="w-5 h-5 rounded-full flex-shrink-0" />
@@ -1100,7 +1100,7 @@
                             <div class="flex items-center gap-0.5">
                               {#if match.completed}
                                 <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-cyber-green font-bold">{matchPlayerStats[match.id]?.[player.id]?.kills || 0}</span>
-                                <span class="text-gray-500 font-bold">/</span>
+                                <span class="text-ink-faint font-bold">/</span>
                                 <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-loss font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
                               {:else}
                                 <input
@@ -1115,7 +1115,7 @@
                                     (e.target as HTMLInputElement).value = String(matchPlayerStats[match.id]?.[player.id]?.kills || 0);
                                   }}
                                 />
-                                <span class="text-gray-500 font-bold">/</span>
+                                <span class="text-ink-faint font-bold">/</span>
                                 <input
                                   type="number"
                                   min="0"
@@ -1144,7 +1144,7 @@
                             <div class="flex items-center gap-0.5">
                               {#if match.completed}
                                 <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-cyber-green font-bold">{matchPlayerStats[match.id]?.[player.id]?.kills || 0}</span>
-                                <span class="text-gray-500 font-bold">/</span>
+                                <span class="text-ink-faint font-bold">/</span>
                                 <span class="w-11 px-1 py-1 text-sm bg-space-700 rounded text-center text-loss font-bold">{matchPlayerStats[match.id]?.[player.id]?.deaths || 0}</span>
                               {:else}
                                 <input
@@ -1159,7 +1159,7 @@
                                     (e.target as HTMLInputElement).value = String(matchPlayerStats[match.id]?.[player.id]?.kills || 0);
                                   }}
                                 />
-                                <span class="text-gray-500 font-bold">/</span>
+                                <span class="text-ink-faint font-bold">/</span>
                                 <input
                                   type="number"
                                   min="0"

@@ -318,7 +318,7 @@
         <a href="/join" class="inline-block bg-cyber-green text-black font-bold px-8 py-3 rounded-xl hover:brightness-110 transition">
           Join a Tournament
         </a>
-        <p class="text-xs text-gray-500 mt-6">
+        <p class="text-xs text-ink-faint mt-6">
           Running the tournament yourself? <a href="/login" class="text-brand-orange hover:text-cyber-green underline">Sign in as organiser</a>.
         </p>
       </div>
@@ -382,7 +382,7 @@
                         }}
                       />
                       <div class="w-14 h-14 rounded bg-space-600 items-center justify-center absolute" style="display: none;">
-                        <span class="text-xl font-bold text-gray-500">{gameConfig.shortName.substring(0, 2).toUpperCase()}</span>
+                        <span class="text-xl font-bold text-ink-faint">{gameConfig.shortName.substring(0, 2).toUpperCase()}</span>
                       </div>
                     </div>
                     <div class="text-xs text-gray-300 text-center leading-tight line-clamp-2 min-h-[2rem] font-medium">{gameConfig.name}</div>
@@ -491,7 +491,7 @@
               </label>
               <div>
                 <span class="text-sm text-gray-300">Use Custom Points</span>
-                <p class="text-xs text-gray-500">
+                <p class="text-xs text-ink-faint">
                   {#if useCustomPoints}
                     Override default scoring
                   {:else}
@@ -510,7 +510,7 @@
                 </label>
                 <div>
                   <span class="text-sm text-gray-300">Team Tournament</span>
-                  <p class="text-xs text-gray-500">
+                  <p class="text-xs text-ink-faint">
                     {#if teamMode}
                       Teams compete ({GAME_CONFIGS[selectedGameType].minTeamSize}-{GAME_CONFIGS[selectedGameType].maxTeamSize} players per team)
                     {:else}
@@ -527,7 +527,7 @@
                 <span class="text-sm text-gray-400">Round Limits ({GAME_CONFIGS[selectedGameType].shortName})</span>
                 <div class="grid grid-cols-2 gap-3">
                   <div>
-                    <label for="group-stage-limit" class="block text-xs text-gray-500 mb-1">Group Stage (first to)</label>
+                    <label for="group-stage-limit" class="block text-xs text-ink-faint mb-1">Group Stage (first to)</label>
                     <input
                       id="group-stage-limit"
                       type="number"
@@ -539,7 +539,7 @@
                     />
                   </div>
                   <div>
-                    <label for="playoffs-limit" class="block text-xs text-gray-500 mb-1">Playoffs (first to)</label>
+                    <label for="playoffs-limit" class="block text-xs text-ink-faint mb-1">Playoffs (first to)</label>
                     <input
                       id="playoffs-limit"
                       type="number"
@@ -664,7 +664,7 @@
                   </div>
                 </div>
 
-                <div class="flex items-center gap-1 text-xs text-gray-500 border-t border-space-600 pt-2">
+                <div class="flex items-center gap-1 text-xs text-ink-faint border-t border-space-600 pt-2">
                   <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                   </svg>
@@ -771,7 +771,7 @@
                   </div>
                 </div>
 
-                <div class="flex items-center gap-1 text-xs text-gray-500 border-t border-space-600 pt-2">
+                <div class="flex items-center gap-1 text-xs text-ink-faint border-t border-space-600 pt-2">
                   <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                   </svg>
@@ -888,7 +888,7 @@
             </div>
           </button>
           <div class="text-xs text-ink-faint mt-2 break-all">{joinLink}</div>
-          <p class="text-xs text-gray-500 mt-2">Anyone with this can follow the brackets and stats live. They cannot change anything.</p>
+          <p class="text-xs text-ink-faint mt-2">Anyone with this can follow the brackets and stats live. They cannot change anything.</p>
         </div>
 
         <div>

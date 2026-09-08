@@ -76,7 +76,7 @@
         Open Tournament
       </button>
 
-      <p class="text-xs text-gray-500 mt-5 text-center">
+      <p class="text-xs text-ink-faint mt-5 text-center">
         A join code gives you a live view. Only the organiser can enter results.
       </p>
     {/if}

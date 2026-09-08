@@ -841,10 +841,10 @@
           </div>
           <button
             onclick={() => showRulesModal = true}
-            class="bg-brand-purple/20 border border-brand-purple text-brand-purple hover:bg-brand-purple hover:text-white font-bold px-4 py-2 rounded-lg transition-all duration-300"
+            class="btn btn-secondary"
           >
-            <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-            VIEW RULES
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+            View Rules
           </button>
         </div>
         <div class="flex items-center gap-6 text-xs text-gray-400 border-t border-space-600 pt-2 mt-2">
@@ -897,7 +897,7 @@
 
         <!-- Add Player Input -->
         <div class="glass rounded-lg p-4 shadow-xl border border-cyber-blue/20">
-          <h3 class="text-base font-bold mb-3 text-cyber-blue">Add Player</h3>
+          <h3 class="text-base font-bold mb-3 text-ink">Add Player</h3>
           <div class="flex gap-2">
             <input
               type="text"
@@ -1094,7 +1094,7 @@
               <!-- Team Champion Display -->
               {@const teamLogoSrc = championTeam.logo || getTeamImageUrl(championTeam.name)}
               {@const championStats = getFullTeamStats(championTeam.id)}
-              <div class="flex items-center gap-6 mb-6 p-4 bg-gold/15 rounded-xl border border-gold/30">
+              <div class="flex items-center gap-6 mb-6 p-4 bg-gold/[0.08] rounded-xl border border-gold/30">
                 <!-- Team Logo -->
                 <div class="relative">
                   <img 
@@ -1103,7 +1103,7 @@
                     class="w-20 h-20 rounded-xl object-cover ring-4 ring-gold shadow-lg shadow-gold/50"
                   />
                   <div class="absolute -top-2 -right-2 w-8 h-8 bg-gold rounded-full flex items-center justify-center shadow-lg">
-                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/></svg>
+                    <svg class="w-5 h-5 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/></svg>
                   </div>
                 </div>
                 
@@ -1117,7 +1117,7 @@
                     {#each championTeam.playerIds as playerId}
                       {@const teamPlayer = players.find(p => p.id === playerId)}
                       {#if teamPlayer}
-                        <span class="px-2 py-1 bg-gold/20 text-gold text-xs font-medium rounded-full border border-gold/30">
+                        <span class="px-2 py-1 bg-space-900/50 text-ink text-xs font-medium rounded-full border border-gold/30">
                           {teamPlayer.name}
                         </span>
                       {/if}
@@ -1137,7 +1137,7 @@
             {:else if champion}
               <!-- Solo Champion Display -->
               {@const photoSrc = resolvePlayerAvatar(champion)}
-              <div class="flex items-center gap-6 mb-6 p-4 bg-gold/15 rounded-xl border border-gold/30">
+              <div class="flex items-center gap-6 mb-6 p-4 bg-gold/[0.08] rounded-xl border border-gold/30">
                 <!-- Player Photo -->
                 <div class="relative">
                   <img 
@@ -1146,7 +1146,7 @@
                     class="w-20 h-20 rounded-full object-cover ring-4 ring-gold shadow-lg shadow-gold/50"
                   />
                   <div class="absolute -top-2 -right-2 w-8 h-8 bg-gold rounded-full flex items-center justify-center shadow-lg">
-                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/></svg>
+                    <svg class="w-5 h-5 text-space-900" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/></svg>
                   </div>
                 </div>
                 
@@ -1267,11 +1267,11 @@
             <div class="glass rounded-xl p-4 shadow-xl hover:scale-102 transition-all duration-300 card-entrance relative overflow-hidden group
               {isChampion ? 'ring-4 ring-gold shadow-2xl shadow-gold/50' : ''}
               {isSecond ? 'ring-4 ring-gray-400 shadow-2xl shadow-gray-400/50' : ''}
-              {isThird ? 'ring-4 ring-ember shadow-2xl shadow-ember/50' : ''}
+              {isThird ? 'ring-4 ring-bronze shadow-2xl shadow-bronze/50' : ''}
             " style="animation-delay: {index * 50}ms">
               <!-- Background Gradient -->
               {#if isChampion}
-                <div class="absolute inset-0 bg-gold/20 transition-opacity"></div>
+                <div class="absolute inset-0 bg-gold/[0.08] transition-opacity"></div>
               {:else if isSecond}
                 <div class="absolute inset-0 bg-white/5 opacity-100 transition-opacity"></div>
               {:else if isThird}
@@ -1283,8 +1283,8 @@
               <!-- Rank/Number Badge -->
               <div class="absolute top-2 right-2 w-10 h-10 rounded-full flex items-center justify-center text-base font-black border-2
                 {isChampion ? 'bg-gold text-space-900 border-gold' : ''}
-                {isSecond ? 'bg-space-600 text-space-900 border-gray-200' : ''}
-                {isThird ? 'bg-ember text-white border-ember' : ''}
+                {isSecond ? 'bg-silver text-space-900 border-silver' : ''}
+                {isThird ? 'bg-bronze text-space-900 border-bronze' : ''}
                 {!isChampion && !isSecond && !isThird ? 'bg-space-700 text-ink-muted border-space-600' : ''}
               ">
                 {isCompleted ? team.rank : index + 1}
@@ -1293,7 +1293,7 @@
               <!-- Status Badge -->
               {#if isCompleted}
                 {#if isChampion}
-                  <div class="absolute top-2 left-2 px-2 py-0.5 bg-gold/90 backdrop-blur-sm text-gold text-xs font-black rounded-full border border-gold">
+                  <div class="absolute top-2 left-2 px-2 py-0.5 bg-gold text-space-900 text-xs font-black rounded-full border border-gold">
                     CHAMPIONS
                   </div>
                 {:else if isSecond}
@@ -1321,7 +1321,7 @@
                     class="w-16 h-16 rounded-xl object-cover flex-shrink-0
                       {isChampion ? 'ring-4 ring-gold shadow-lg shadow-gold/50' : ''}
                       {isSecond ? 'ring-4 ring-gray-400 shadow-lg shadow-gray-400/50' : ''}
-                      {isThird ? 'ring-4 ring-ember shadow-lg shadow-ember/50' : ''}
+                      {isThird ? 'ring-4 ring-bronze shadow-lg shadow-bronze/50' : ''}
                     "
                   />
                   
@@ -1345,7 +1345,7 @@
                 
                 <!-- Team Members with Photos -->
                 <div class="border-t border-space-600/50 pt-3">
-                  <p class="text-xs text-gray-500 uppercase tracking-wider mb-2">Team Members</p>
+                  <p class="text-xs text-ink-faint uppercase tracking-wider mb-2">Team Members</p>
                   <div class="flex flex-wrap gap-2">
                     {#each team.playerIds as playerId}
                       {@const teamPlayer = players.find(p => p.id === playerId)}
@@ -1398,15 +1398,15 @@
             <div class="glass rounded-lg p-3 shadow-xl hover:scale-105 transition-all duration-300 card-entrance relative overflow-hidden group
               {isFirst ? 'ring-4 ring-gold shadow-2xl shadow-gold/50' : ''}
               {isSecond ? 'ring-4 ring-gray-400 shadow-2xl shadow-gray-400/50' : ''}
-              {isThird ? 'ring-4 ring-ember shadow-2xl shadow-ember/50' : ''}
+              {isThird ? 'ring-4 ring-bronze shadow-2xl shadow-bronze/50' : ''}
             " style="animation-delay: {index * 50}ms">
               <!-- Background Gradient -->
               {#if isFirst}
-                <div class="absolute inset-0 bg-gold/20 group-hover:opacity-100 transition-opacity"></div>
+                <div class="absolute inset-0 bg-gold/[0.08] group-hover:opacity-100 transition-opacity"></div>
               {:else if isSecond}
                 <div class="absolute inset-0 bg-white/5 opacity-100 group-hover:opacity-100 transition-opacity"></div>
               {:else if isThird}
-                <div class="absolute inset-0 bg-ember/20 group-hover:opacity-100 transition-opacity"></div>
+                <div class="absolute inset-0 bg-bronze/[0.08] group-hover:opacity-100 transition-opacity"></div>
               {:else}
                 <div class="absolute inset-0 {getPlayerGradient(index)}"></div>
               {/if}
@@ -1414,16 +1414,16 @@
               <!-- Rank/Number Badge -->
               <div class="absolute top-1.5 right-1.5 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black border-2
                 {isFirst ? 'bg-gold text-space-900 border-gold' : ''}
-                {isSecond ? 'bg-space-600 text-space-900 border-gray-200' : ''}
-                {isThird ? 'bg-ember text-white border-ember' : ''}
-                {!isFirst && !isSecond && !isThird ? 'bg-space-700 text-cyber-blue border-space-600' : ''}
+                {isSecond ? 'bg-silver text-space-900 border-silver' : ''}
+                {isThird ? 'bg-bronze text-space-900 border-bronze' : ''}
+                {!isFirst && !isSecond && !isThird ? 'bg-space-700 text-ink-muted border-space-600' : ''}
               ">
                 {displayIndex}
               </div>
 
               <!-- Champion Badge for 1st place -->
               {#if isFirst}
-                <div class="absolute top-1.5 left-1.5 px-2 py-0.5 bg-gold/90 backdrop-blur-sm text-gold text-xs font-black rounded-full border border-gold">
+                <div class="absolute top-1.5 left-1.5 px-2 py-0.5 bg-gold text-space-900 text-xs font-black rounded-full border border-gold">
                   CHAMPION
                 </div>
               {/if}
@@ -1438,7 +1438,7 @@
                     class="w-20 h-20 rounded-full object-cover
                       {isFirst ? 'ring-4 ring-gold shadow-lg shadow-gold/50' : ''}
                       {isSecond ? 'ring-4 ring-gray-400 shadow-lg shadow-gray-400/50' : ''}
-                      {isThird ? 'ring-4 ring-ember shadow-lg shadow-ember/50' : ''}
+                      {isThird ? 'ring-4 ring-bronze shadow-lg shadow-bronze/50' : ''}
                     "
                   />
                 {/if}
@@ -1491,8 +1491,8 @@
                     <div class="flex items-center gap-1">
                       <h4 class="text-center text-sm font-bold relative z-10
                         {isFirst ? 'text-gold' : ''}
-                        {isSecond ? 'text-gray-300' : ''}
-                        {isThird ? 'text-ember' : ''}
+                        {isSecond ? 'text-silver' : ''}
+                        {isThird ? 'text-bronze' : ''}
                         {!isFirst && !isSecond && !isThird ? 'text-white' : ''}
                       ">{player.name}</h4>
                       {#if canEdit && tournamentState === 'registration'}
@@ -1549,7 +1549,7 @@
       <!-- Modal Header -->
       <div class="flex items-center justify-between p-6 border-b border-space-600 flex-shrink-0">
         <h2 class="text-xl font-bold text-white flex items-center gap-2">
-          <svg class="w-5 h-5 text-cyber-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
           </svg>
           Edit Profile Photo
@@ -1734,7 +1734,7 @@
         <div class="flex items-center gap-3 p-3 bg-space-700/50 rounded-lg border border-space-600">
           <div class="w-10 h-10 rounded-full flex items-center justify-center {isTeamBased ? 'bg-brand-purple/30' : 'bg-brand-cyan/30'}">
             {#if isTeamBased}
-              <svg class="w-5 h-5 text-brand-purple" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
+              <svg class="w-5 h-5 text-deep-soft" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
             {:else}
               <svg class="w-5 h-5 text-brand-cyan" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
             {/if}
@@ -1844,7 +1844,7 @@
         <!-- Map Pool -->
         {#if mapPool && mapPool.length > 0}
           <div class="space-y-3">
-            <h3 class="text-lg font-bold text-brand-purple flex items-center gap-2">
+            <h3 class="text-lg font-bold text-deep-soft flex items-center gap-2">
               <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
               Map Pool
             </h3>
@@ -1915,7 +1915,7 @@
                 {#if teamLogoPreview}
                   <img src={teamLogoPreview} alt="Team logo" class="w-full h-full object-cover" />
                 {:else}
-                  <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-8 h-8 text-ink-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                   </svg>
                 {/if}
@@ -1937,7 +1937,7 @@
                 </button>
               {/if}
             </div>
-            <p class="text-xs text-gray-500 mt-1 text-center">Max 2MB</p>
+            <p class="text-xs text-ink-faint mt-1 text-center">Max 2MB</p>
           </div>
 
           <!-- Team Name -->
@@ -1987,7 +1987,7 @@
                   <div class="flex-1 min-w-0">
                     <span class="text-sm text-white font-medium truncate block">{player.name}</span>
                     {#if isAssignedToOtherTeam}
-                      <span class="text-xs text-gray-500">In another team</span>
+                      <span class="text-xs text-ink-faint">In another team</span>
                     {/if}
                   </div>
                   {#if isSelected}
