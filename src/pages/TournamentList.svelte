@@ -568,13 +568,11 @@
         </div>
 
         {#if getActiveTournaments().length === 0}
-          <div class="glass rounded-xl p-8 text-center shadow-xl">
-            <p class="text-gray-400 text-sm">
-              {canListTournaments
-                ? 'No active tournaments yet - create one above.'
-                : 'Nothing running right now.'}
-            </p>
-          </div>
+          <p class="text-sm text-ink-faint py-1">
+            {canListTournaments
+              ? 'Nothing running. Create one above.'
+              : 'Nothing running right now.'}
+          </p>
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each getActiveTournaments() as tournament}

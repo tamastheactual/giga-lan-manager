@@ -782,14 +782,18 @@
                   <button
                     onclick={() => saveGroupName(groupId)}
                     class="px-2 py-1 text-xs bg-brand-purple text-white rounded font-bold hover:bg-brand-cyan transition-colors"
+                    aria-label="Save group name"
+                    title="Save"
                   >
-                    ✓
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                   </button>
                   <button
                     onclick={cancelEditingGroup}
                     class="px-2 py-1 text-xs bg-gray-600 text-white rounded font-bold hover:bg-gray-500"
+                    aria-label="Cancel renaming"
+                    title="Cancel"
                   >
-                    ✕
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
                   </button>
                 </div>
               {:else}

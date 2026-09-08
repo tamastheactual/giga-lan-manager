@@ -1247,7 +1247,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
           <div class="text-center mb-0">
             <div class="relative inline-block">
               <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-gold flex items-center justify-center shadow-xl ring-4 ring-gold/30">
-                <span class="text-4xl">🏆</span>
+                <svg class="w-9 h-9 text-space-900" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 21h8M12 17v4M7 4h10v5a5 5 0 01-10 0V4zM7 6H5a2 2 0 00-2 2 3 3 0 003 3M17 6h2a2 2 0 012 2 3 3 0 01-3 3"/></svg>
               </div>
             </div>
             <h2 class="text-2xl font-black mb-2 text-ink">
@@ -1465,9 +1465,9 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                 <div class="flex-shrink-0 w-72">
                   <!-- Round Header -->
                   <div class="text-center mb-4">
-                    <div class="inline-block px-4 py-2 rounded-lg bg-accent border border-accent shadow-lg">
-                      <h3 class="font-black text-base text-white">{roundLabel}</h3>
-                    </div>
+                    <!-- A column heading, not a control. Filled with the accent
+                         it read as the primary action on the page. -->
+                    <h3 class="section-title">{roundLabel}</h3>
                   </div>
                   
                   <div class="flex flex-col {totalRounds === 1 ? 'gap-4' : 'justify-center'}" style={totalRounds > 1 ? `height: ${maxColumnHeight}px;` : ''}>
@@ -2201,7 +2201,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
                   <!-- Map required warning -->
                   {#if mapPool.length > 0 && !modalGameMaps[gameIdx]}
                     <div class="text-center text-gold text-xs font-medium mb-3 bg-gold/10 rounded-lg py-2">
-                      ⚠️ Select a map to enable score input
+                      <span class="inline-flex items-center justify-center gap-1.5"><svg class="w-4 h-4 flex-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>Select a map to enable score input</span>
                     </div>
                   {/if}
                   
@@ -2323,7 +2323,7 @@ async function handleDeclareWinner(matchId: string, winnerId: string) {
             </button>
             <div class="flex items-center gap-3">
               {#if hasAnyTie()}
-                <span class="text-loss text-sm font-medium">⚠️ Fix tied games</span>
+                <span class="text-loss text-sm font-medium inline-flex items-center gap-1.5"><svg class="w-4 h-4 flex-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>Fix tied games</span>
               {/if}
               <button
                 onclick={submitModalMatchResult}

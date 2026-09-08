@@ -1010,7 +1010,7 @@
           {#if unassignedPlayers.length > 0 && teams.length > 0}
             <div class="mt-3 pt-3 border-t border-space-600">
               <p class="text-xs text-gray-400 mb-2">
-                <span class="text-gold">⚠</span> {unassignedPlayers.length} unassigned {unassignedPlayers.length === 1 ? 'player' : 'players'}:
+                <span class="inline-flex items-center gap-1.5 text-gold align-middle"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></span> {unassignedPlayers.length} unassigned {unassignedPlayers.length === 1 ? 'player' : 'players'}:
                 <span class="text-gray-300">{unassignedPlayers.map(p => p.name).join(', ')}</span>
               </p>
             </div>
