@@ -60,6 +60,34 @@ const playerImageMap: Record<string, string> = {
     'istván csibi': IstvanCsibi,
     'eszter gábor': EszterGabor,
     'csongor erdei': CsongorErdei,
+
+    // Short-name aliases.
+    //
+    // The map above is keyed by full name, but tournaments recorded before that
+    // change stored players under a first name or nickname ("Tamás", "Zoli"),
+    // and those records are still browsable. Each alias is derived from the
+    // ASSET FILENAME, which is exactly the name the person was entered as then.
+    //
+    // Deliberately not derived by splitting the full-name keys: that would map
+    // "Gábor" to EszterGabor.png, where Gábor is a surname, not a first name.
+    'arpan': Arpan,
+    'arron': Arron,
+    'balázs': Balazs,
+    'benedek': Benedek,
+    'bálint': Balint,
+    'csenge': Csenge,
+    'imi': Imi,
+    'kristóf': Kristof,
+    'milán': Milan,
+    'márk': Mark,
+    'natabara': Natabara,
+    'szilárd': Szilard,
+    'tamás': Tamas,
+    'thausif': Thausif,
+    'viktor': Viktor,
+    'zoli': Zoli,
+    'zsolt': Zsolt,
+    'áron': Aron,
 };
 
 // Default image (Cat.jpg)
