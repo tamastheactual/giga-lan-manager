@@ -9,7 +9,11 @@
 }
 
 :root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Archivo rather than Inter. Inter is the default every dashboard reaches
+     for, and it gave the app no voice of its own. Archivo is a sturdier
+     grotesque: it holds up in dense standings tables and has real weight
+     behind the uppercase labels this UI leans on. */
+  font-family: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
   line-height: 1.6;
   font-weight: 400;
   color: #EDF0F4;
@@ -17,7 +21,7 @@
      it, so nothing sat on a neutral ground and panels never read as flat. */
   background: #0B0D11;
   min-height: 100vh;
-  letter-spacing: -0.011em;
+  font-variant-numeric: tabular-nums;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -286,7 +290,7 @@ input[type="number"] {
 .code-copy:hover { border-color: #2BC4DE; background: #101319; }
 .code-copy:focus-visible { outline: 2px solid #2BC4DE; outline-offset: 2px; }
 .code-copy__value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 1.0625rem;
   font-weight: 700;
   letter-spacing: .18em;
@@ -320,3 +324,9 @@ input[type="number"] {
   background: currentColor;
   opacity: .28;
 }
+
+/* Negative tracking belongs on display sizes, not on body text. Applied
+   globally it also pinched the word spaces, so "AI DEPARTMENT" read as one
+   word. Headings tighten; everything else keeps the face's own metrics. */
+h1, h2, .gradient-text { letter-spacing: -0.02em; }
+h3 { letter-spacing: -0.01em; }

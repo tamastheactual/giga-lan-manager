@@ -1,29 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 64 64" fill="none" role="img" aria-labelledby="gl-title">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 32 32" shape-rendering="crispEdges" role="img" aria-labelledby="gl-title">
   <title id="gl-title">AI Department LAN Series</title>
   <!--
-    A single-elimination bracket closing on one champion.
+    A CRT showing a standings table: the leader's bar lit, the chasing bars
+    shorter behind it. Retro hardware for a retro-shooter LAN, saying what the
+    app is for rather than decorating it.
 
-    Two mirrored brackets converge from the outside to a lit centre node. The
-    four outer dots are the entrants and the orange node is the winner, so the
-    mark says what the app does rather than decorating it. Built from straight
-    runs and round caps with no gradient, no filter and no fine detail, because
-    it has to survive at 24px in a nav bar as well as at poster size.
+    Drawn on a 32x32 pixel grid with crispEdges, so it stays a pixel mark
+    instead of turning to mush when scaled. Bars are 3px on a 3px pitch because
+    2px bars smeared into each other at 24px in the nav bar.
 
     Colours are rgb() rather than hex on purpose: a bundler may inline this as a
     data: URI, and an unescaped "#" truncates the document at the first colour.
   -->
-  <g stroke="rgb(43,196,222)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M13 14 H21 V32 H24" />
-    <path d="M13 50 H21 V32" />
-    <path d="M51 14 H43 V32 H40" />
-    <path d="M51 50 H43 V32" />
-  </g>
   <g fill="rgb(43,196,222)">
-    <circle cx="13" cy="14" r="4" />
-    <circle cx="13" cy="50" r="4" />
-    <circle cx="51" cy="14" r="4" />
-    <circle cx="51" cy="50" r="4" />
+    <rect x="3" y="4" width="26" height="2"/>
+    <rect x="3" y="6" width="2" height="14"/>
+    <rect x="27" y="6" width="2" height="14"/>
+    <rect x="3" y="20" width="26" height="2"/>
+    <rect x="14" y="22" width="4" height="3"/>
+    <rect x="9" y="25" width="14" height="2"/>
   </g>
-  <!-- the champion -->
-  <circle cx="32" cy="32" r="7" fill="rgb(255,154,90)" />
+  <rect x="8" y="8"  width="15" height="3" fill="rgb(255,154,90)"/>
+  <rect x="8" y="13" width="11" height="3" fill="rgb(43,196,222)"/>
 </svg>

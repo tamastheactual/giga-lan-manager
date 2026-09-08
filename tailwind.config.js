@@ -66,7 +66,9 @@ export default {
         'gaming-text': '#EDF0F4',
       },
       fontFamily: {
-        'display': ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Archivo', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        display: ['Archivo', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       animation: {
         'glow': 'glow 2s ease-in-out infinite alternate',
