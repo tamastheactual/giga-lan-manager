@@ -29,12 +29,49 @@ else
   return nil
 end`;
 
+export interface RedisStoreOptions {
+    /**
+     * Give up after this many failed connection attempts.
+     *
+     * The default is node-redis's own strategy, which retries forever. That is
+     * what a running server wants, since a Redis blip should not take it down.
+     * It is the wrong thing for anything that only wants to find out WHETHER
+     * Redis is there: `connect()` never rejects, so the caller waits forever
+     * while the error handler prints one line per attempt. Pass a finite number
+     * and `init()` rejects instead.
+     */
+    maxRetries?: number;
+    /** Per-attempt socket timeout. Only meaningful alongside maxRetries. */
+    connectTimeoutMs?: number;
+}
+
 export class RedisTournamentStore implements TournamentStore {
     private client: RedisClientType;
 
-    constructor(url: string) {
-        this.client = createClient({ url }) as RedisClientType;
+    constructor(url: string, options: RedisStoreOptions = {}) {
+        const { maxRetries, connectTimeoutMs } = options;
+        this.client = createClient({
+            url,
+            socket: {
+                ...(connectTimeoutMs === undefined ? {} : { connectTimeout: connectTimeoutMs }),
+                ...(maxRetries === undefined ? {} : {
+                    reconnectStrategy: (retries: number) =>
+                        retries >= maxRetries
+                            ? new Error(`redis unreachable after ${maxRetries} attempts`)
+                            : Math.min(50 * 2 ** retries, 500),
+                }),
+            },
+        }) as RedisClientType;
         this.client.on('error', (err) => console.error('[redis]', err.message));
+    }
+
+    /** Drop the socket without the round trip `quit()` needs. Safe on a client that never connected. */
+    destroy(): void {
+        try {
+            this.client.destroy();
+        } catch {
+            // Already closed, or never opened. Either way there is nothing to release.
+        }
     }
 
     async init(): Promise<void> {

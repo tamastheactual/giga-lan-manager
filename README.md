@@ -152,7 +152,6 @@ npm run test:e2e       # Playwright, drives the real built app
 
 npm run start:server   # serve the built SPA + API on :3000
 npm run gen-token      # generate an instance ADMIN_TOKEN
-npm run migrate:supabase  # copy tournaments from Redis into Supabase
 ```
 
 ## Tournament flow
@@ -272,8 +271,13 @@ runs on either backend:
 
 | Backend | When | Notes |
 | --- | --- | --- |
-| **Redis** | default | Needs no cloud project. Good for local work |
-| **Supabase** | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set | Postgres; the target for edge deployment |
+| **Supabase** | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set | Postgres over HTTP. The only backend that runs in production |
+| **Redis** | fallback when those are unset | Development and tests only. Needs no cloud project, and the Worker cannot reach it at all, since it speaks TCP rather than fetch |
+
+Redis is kept because the contract suite runs one set of tests against both
+stores, which is what holds the Supabase store to behaviour Redis already
+demonstrates rather than to a description of it. It is not a way to deploy
+this.
 
 Nothing is cached between requests. Every route loads the tournament it needs,
 mutates it and writes it back, so the process holds no authoritative state and
@@ -294,18 +298,13 @@ landing.
 # 1. apply the schema to a new project
 supabase db execute --file supabase/schema.sql   # or paste it into the SQL editor
 
-# 2. bring existing tournaments across (join codes and admin keys are preserved)
-REDIS_URL=redis://localhost:6379 \
-SUPABASE_URL=https://xxxx.supabase.co \
-SUPABASE_SERVICE_ROLE_KEY=... \
-npm run migrate:supabase -- --dry-run     # then again without --dry-run
-
-# 3. point the server at it
+# 2. point the server at it
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run start:server
 ```
 
-The migration is re-runnable - anything already present is skipped - so keep the
-Redis data until the new instance is confirmed working.
+There was a `migrate:supabase` script that copied tournaments out of Redis.
+It ran once, in September 2026, and is gone. Import an exported tournament
+through the UI instead.
 
 **Expect Postgres to be slower than Redis**, because every request is now an
 HTTP round trip rather than a local socket. Measured against a live project:
@@ -438,7 +437,7 @@ npm run test:e2e  # Playwright: the real built app in a browser (needs Redis)
 | `server/fixes.test.ts` | Regression tests for each fixed defect |
 | `shared/statistics.test.ts` | The pure statistics aggregation |
 | `shared/access.test.ts` | Code generation, normalisation, key hashing, path matching |
-| `server/store/contract.test.ts` | The store contract and optimistic locking, run against a live Redis |
+| `server/store/contract.test.ts` | The store contract and optimistic locking, run against every backend it can reach. A backend that is not there is skipped, never waited on |
 | `e2e/smoke.spec.ts` | Creation and credentials, the join flow, key enforcement, the stats page, team avatars |
 
 CI (`.github/workflows/ci.yml`) runs `npm run check`, `npm test` and the build on
